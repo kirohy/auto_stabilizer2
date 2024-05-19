@@ -17,7 +17,7 @@ bool ExternalForceHandler::initExternalForceHandlerOutput(const GaitParam& gaitP
     if(i < NUM_LEGS){ // 脚は、isManualControlModeの場合のみrefEEWrenchに応じて重心をオフセットする
       ratio = gaitParam.isManualControlMode[i].value();
     }
-    cnoid::Position eePose = gaitParam.genRobot->link(gaitParam.eeParentLink[i])->T() * gaitParam.eeLocalT[i]; // generate frame
+    cnoid::Isometry3 eePose = gaitParam.genRobot->link(gaitParam.eeParentLink[i])->T() * gaitParam.eeLocalT[i]; // generate frame
     cnoid::Vector6 eeWrench; /*generate frame. endeffector origin*/
     eeWrench.head<3>() = gaitParam.footMidCoords.value().linear() * gaitParam.refEEWrenchOrigin[i].head<3>();
     eeWrench.tail<3>() = gaitParam.footMidCoords.value().linear() * gaitParam.refEEWrenchOrigin[i].tail<3>();

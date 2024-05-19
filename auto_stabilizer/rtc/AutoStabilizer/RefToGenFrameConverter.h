@@ -39,17 +39,17 @@ public:
 
   // reference frameで表現されたrefRobotRawをgenerate frameに投影しrefRobotとし、各種referencec値をgenerate frameに変換する
   bool convertFrame(const GaitParam& gaitParam, double dt,// input
-                    cnoid::BodyPtr& refRobot, std::vector<cnoid::Position>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords) const; // output
+                    cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords) const; // output
 protected:
   // 現在のFootStepNodesListから、genRobotのfootMidCoordsを求める (gaitParam.footMidCoords)
   void calcFootMidCoords(const GaitParam& gaitParam, double dt, cpp_filters::TwoPointInterpolatorSE3& footMidCoords) const;
   // refRobotRawをrefRobotに変換する.
-  void convertRefRobotRaw(const GaitParam& gaitParam, const cnoid::Position& genFootMidCoords, cnoid::BodyPtr& refRobot, std::vector<cnoid::Position>& refEEPoseFK, double& refdz) const;
+  void convertRefRobotRaw(const GaitParam& gaitParam, const cnoid::Isometry3& genFootMidCoords, cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& refEEPoseFK, double& refdz) const;
   // refEEPoseRawを変換する.
-  void convertRefEEPoseRaw(const GaitParam& gaitParam, const cnoid::Position& genFootMidCoords, std::vector<cnoid::Position>& refEEPoseWithOutFK) const;
+  void convertRefEEPoseRaw(const GaitParam& gaitParam, const cnoid::Isometry3& genFootMidCoords, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK) const;
 
   // refFootOriginWeightとdefaultTranslatePosとcopOffset.value() に基づいて両足中間座標を求める
-  cnoid::Position calcRefFootMidCoords(const cnoid::Position& rleg_, const cnoid::Position& lleg_, const GaitParam& gaitParam) const;
+  cnoid::Isometry3 calcRefFootMidCoords(const cnoid::Isometry3& rleg_, const cnoid::Isometry3& lleg_, const GaitParam& gaitParam) const;
 };
 
 #endif

@@ -18,8 +18,8 @@ namespace mathutil {
       return Eigen::Matrix3d(Eigen::AngleAxisd(angle, axis) * m_);
     }
   }
-  Eigen::Transform<double, 3, Eigen::AffineCompact> orientCoordToAxis(const Eigen::Transform<double, 3, Eigen::AffineCompact>& m, const Eigen::Vector3d& axis, const Eigen::Vector3d& localaxis){
-    Eigen::Transform<double, 3, Eigen::AffineCompact> ret = m;
+  Eigen::Isometry3d orientCoordToAxis(const Eigen::Isometry3d& m, const Eigen::Vector3d& axis, const Eigen::Vector3d& localaxis){
+    Eigen::Isometry3d ret = m;
     ret.linear() = mathutil::orientCoordToAxis(ret.linear(), axis, localaxis);
     return ret;
   }
@@ -54,10 +54,10 @@ namespace mathutil {
     }
     return midrot.toRotationMatrix();
   }
-  Eigen::Transform<double, 3, Eigen::AffineCompact> calcMidCoords(const std::vector<Eigen::Transform<double, 3, Eigen::AffineCompact>>& coords, const std::vector<double>& weights){
+  Eigen::Isometry3d calcMidCoords(const std::vector<Eigen::Isometry3d>& coords, const std::vector<double>& weights){
     // coordsとweightsのサイズは同じでなければならない
     double sumWeight = 0.0;
-    Eigen::Transform<double, 3, Eigen::AffineCompact> midCoords = Eigen::Transform<double, 3, Eigen::AffineCompact>::Identity();
+    Eigen::Isometry3d midCoords = Eigen::Isometry3d::Identity();
 
     for(int i=0;i<coords.size();i++){
       if(weights[i]<=0) continue;
@@ -271,9 +271,9 @@ namespace mathutil {
   Eigen::Vector3d calcInsidePointOfPolygon3D(const Eigen::Vector3d& p, const std::vector<Eigen::Vector3d>& vertices, const Eigen::Vector3d& origin){
     // originから見て、pがverticesの内部に入るようにする. pの高さのXY平面で考える
     if(p[2] == origin[2]) return p;
-    Eigen::Transform<double, 3, Eigen::AffineCompact> frame = Eigen::Transform<double, 3, Eigen::AffineCompact>::Identity(); // この座標系のXY平面で考える
+    Eigen::Isometry3d frame = Eigen::Isometry3d::Identity(); // この座標系のXY平面で考える
     frame.translation() = p;
-    Eigen::Transform<double, 3, Eigen::AffineCompact> frameInverse = frame.inverse();
+    Eigen::Isometry3d frameInverse = frame.inverse();
 
     Eigen::Vector3d projectedOrigin = frameInverse * origin;
     std::vector<Eigen::Vector3d> projectedVertices(vertices.size());

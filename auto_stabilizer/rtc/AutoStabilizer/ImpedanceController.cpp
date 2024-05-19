@@ -9,7 +9,7 @@ void ImpedanceController::initImpedanceOutput(const GaitParam& gaitParam,
 }
 
 bool ImpedanceController::calcImpedanceControl(double dt, const GaitParam& gaitParam,
-                                               std::vector<cpp_filters::TwoPointInterpolator<cnoid::Vector6> >& o_icEEOffset /*generate frame, endeffector origin*/, std::vector<cnoid::Position>& o_icEETargetPose /*generate frame*/) const{
+                                               std::vector<cpp_filters::TwoPointInterpolator<cnoid::Vector6> >& o_icEEOffset /*generate frame, endeffector origin*/, std::vector<cnoid::Isometry3>& o_icEETargetPose /*generate frame*/) const{
 
   // icEEOffsetを計算
   for(int i=0;i<gaitParam.eeName.size();i++){

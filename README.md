@@ -1,6 +1,5 @@
 # auto_stabilizer
 
 ## branches
-- develop-*; 実機で動作確認できていない最新のbranch
-- master: 実機で動作確認できている最新のbranch
-- v0.0.0等: masterに大きめの変更があったときにversionの数字を上げることにしていて、昔のversionのbranch
+- v1.0.0から: choreonoid Release-2.1
+- v0.4.0まで: choreonoid Release-1.7. https://github.com/Naoki-Hiraoka/auto_stabilizer にある

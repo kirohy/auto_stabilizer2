@@ -1,0 +1,9 @@
+<launch>
+  <arg name="PROJECT_FILE" default="$(find auto_stabilizer_choreonoid_sample)/config/JAXON_JVRC.cnoid"/>
+  <arg name="ENVIRONMENT_YAML" default="$(find hrpsys_choreonoid_tutorials)/config/floor.yaml" />
+
+  <include file="$(find auto_stabilizer_choreonoid_sample)/launch/choreonoid.launch">
+    <arg name="PROJECT_FILE" value="$(arg PROJECT_FILE)"/>
+    <arg name="ENVIRONMENT_YAML" value="$(arg ENVIRONMENT_YAML)" />
+  </include>
+</launch>

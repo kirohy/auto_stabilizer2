@@ -15,6 +15,11 @@
   <depend>auto_stabilizer</depend>
   <depend>auto_stabilizer_ros_bridge</depend>
   <depend>hrpsys_choreonoid_tutorials</depend>
-  <depend>vnoid_world</depend>
+  <depend>geometry_msgs_rtmros_bridge</depend>
   <depend>collision_checker_rtc</depend>
+  <depend>choreonoid_ros_ext_plugin</depend>
+  <depend>choreonoid_bridge_shm</depend>
+  <depend>rtcloader</depend>
+  <depend>execution_context_shmtime</depend>
+  <depend>hrpsys_trans_bridge</depend>
 </package>

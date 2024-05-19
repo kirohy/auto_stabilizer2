@@ -68,17 +68,17 @@ public:
 public:
   // startAutoBalancer直後の初回で呼ばれる
   bool initFootStepNodesList(const GaitParam& gaitParam,
-                             std::vector<GaitParam::FootStepNodes>& o_footstepNodesList, std::vector<cnoid::Position>& o_srcCoords, std::vector<cnoid::Position>& o_dstCoordsOrg, double& o_remainTimeOrg, std::vector<GaitParam::SwingState_enum>& o_swingState, double& o_elapsedTime, std::vector<bool>& o_prevSupportPhase) const;
+                             std::vector<GaitParam::FootStepNodes>& o_footstepNodesList, std::vector<cnoid::Isometry3>& o_srcCoords, std::vector<cnoid::Isometry3>& o_dstCoordsOrg, double& o_remainTimeOrg, std::vector<GaitParam::SwingState_enum>& o_swingState, double& o_elapsedTime, std::vector<bool>& o_prevSupportPhase) const;
 
   class StepNode {
   public:
     int l_r; // 0: RLEG. 1: LLEG
-    cnoid::Position coords;
+    cnoid::Isometry3 coords;
     double stepHeight, stepTime; // stepHeightは0以上でなければならない. stepTimeは0より大きくなければならない
     bool swingEnd;
   public:
-    StepNode () : l_r(RLEG), coords(cnoid::Position::Identity()), stepHeight(), stepTime(), swingEnd(false){};
-    StepNode (const int _l_r, const cnoid::Position& _coords, const double _stepHeight, const double _stepTime, const bool _swingEnd)
+    StepNode () : l_r(RLEG), coords(cnoid::Isometry3::Identity()), stepHeight(), stepTime(), swingEnd(false){};
+    StepNode (const int _l_r, const cnoid::Isometry3& _coords, const double _stepHeight, const double _stepTime, const bool _swingEnd)
       : l_r(_l_r), coords(_coords), stepHeight(_stepHeight), stepTime(_stepTime), swingEnd(_swingEnd) {};
     friend std::ostream &operator<<(std::ostream &os, const StepNode &sn) {
       os << "footstep" << std::endl;
@@ -108,7 +108,7 @@ public:
 
   // FootStepNodesListをdtすすめる
   bool procFootStepNodesList(const GaitParam& gaitParam, const double& dt, bool useActState,
-                             std::vector<GaitParam::FootStepNodes>& o_footstepNodesList, std::vector<cnoid::Position>& o_srcCoords, std::vector<cnoid::Position>& o_dstCoordsOrg, double& o_remainTimeOrg, std::vector<GaitParam::SwingState_enum>& o_swingState, double& o_elapsedTime, std::vector<bool>& o_prevSupportPhase, double& relLandingHeight) const;
+                             std::vector<GaitParam::FootStepNodes>& o_footstepNodesList, std::vector<cnoid::Isometry3>& o_srcCoords, std::vector<cnoid::Isometry3>& o_dstCoordsOrg, double& o_remainTimeOrg, std::vector<GaitParam::SwingState_enum>& o_swingState, double& o_elapsedTime, std::vector<bool>& o_prevSupportPhase, double& relLandingHeight) const;
 
   /*
     footstepNodesList[1]開始時のsupport/swingの状態を上書きによって変更する場合は、footstepNodesList[0]の終了時の状態が両脚支持でかつその期間の時間がdefaultDoubleSupportTimeよりも短いなら延長する
@@ -131,7 +131,7 @@ protected:
   void checkStableGoStop(std::vector<GaitParam::FootStepNodes>& footstepNodesList, const GaitParam& gaitParam) const;
   // footstepNodesListをdtだけ進める
   bool goNextFootStepNodesList(const GaitParam& gaitParam, double dt,
-                               std::vector<GaitParam::FootStepNodes>& footstepNodesList, std::vector<cnoid::Position>& srcCoords, std::vector<cnoid::Position>& dstCoordsOrg, double& remainTimeOrg, std::vector<GaitParam::SwingState_enum>& swingState, double& elapsedTime, double& relLandingHeight) const;
+                               std::vector<GaitParam::FootStepNodes>& footstepNodesList, std::vector<cnoid::Isometry3>& srcCoords, std::vector<cnoid::Isometry3>& dstCoordsOrg, double& remainTimeOrg, std::vector<GaitParam::SwingState_enum>& swingState, double& elapsedTime, double& relLandingHeight) const;
   // emergengy step.
   void checkEmergencyStep(std::vector<GaitParam::FootStepNodes>& footstepNodesList, const GaitParam& gaitParam) const;
   // 着地位置・タイミング修正
@@ -142,11 +142,11 @@ protected:
   // thetaとlegHullとstrideLimitationHullから、実際のstrideLimitationhullを求める. 支持脚(水平)座標系. strideLimitationHullの要素数が1以上なら、返り値も必ず1以上
   std::vector<cnoid::Vector3> calcRealStrideLimitationHull(const int& swingLeg, const double& theta, const std::vector<std::vector<cnoid::Vector3> >& legHull, const std::vector<cpp_filters::TwoPointInterpolator<cnoid::Vector3> >& defaultTranslatePos, const std::vector<std::vector<cnoid::Vector3> >& strideLimitationHull) const;
   // footstepNodesList[idx:] idxより先のstepの位置をgenerate frameで(左から)transformだけ動かす
-  void transformFutureSteps(std::vector<GaitParam::FootStepNodes>& footstepNodesList, int index, const cnoid::Position& transform/*generate frame*/) const;
+  void transformFutureSteps(std::vector<GaitParam::FootStepNodes>& footstepNodesList, int index, const cnoid::Isometry3& transform/*generate frame*/) const;
   // footstepNodesList[idx:] idxより先のstepの位置をgenerate frameでtransformだけ動かす
   void transformFutureSteps(std::vector<GaitParam::FootStepNodes>& footstepNodesList, int index, const cnoid::Vector3& transform/*generate frame*/) const;
   // indexのsupportLegが次にswingするまでの間の位置を、generate frameで(左から)transformだけ動かす
-  void transformCurrentSupportSteps(int leg, std::vector<GaitParam::FootStepNodes>& footstepNodesList, int index, const cnoid::Position& transform/*generate frame*/) const;
+  void transformCurrentSupportSteps(int leg, std::vector<GaitParam::FootStepNodes>& footstepNodesList, int index, const cnoid::Isometry3& transform/*generate frame*/) const;
   // footstepNodesの次の一歩を作る. RLEGとLLEGどちらをswingすべきかも決める
   void calcDefaultNextStep(std::vector<GaitParam::FootStepNodes>& footstepNodesList, const GaitParam& gaitParam, const cnoid::Vector3& offset = cnoid::Vector3::Zero() /*leg frame*/, bool stableStart = true) const;
   // footstepNodesの次の一歩を作る.

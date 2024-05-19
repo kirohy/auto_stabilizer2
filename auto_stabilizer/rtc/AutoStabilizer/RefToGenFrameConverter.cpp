@@ -13,10 +13,10 @@ bool RefToGenFrameConverter::initGenRobot(const GaitParam& gaitParam, // input
     genRobot->joint(i)->u() = gaitParam.refRobotRaw->joint(i)->u();
   }
   genRobot->calcForwardKinematics();
-  cnoid::Position rleg = genRobot->link(gaitParam.eeParentLink[RLEG])->T()*gaitParam.eeLocalT[RLEG];
-  cnoid::Position lleg = genRobot->link(gaitParam.eeParentLink[LLEG])->T()*gaitParam.eeLocalT[LLEG];
-  cnoid::Position refFootMidCoords = this->calcRefFootMidCoords(rleg, lleg, gaitParam);
-  cnoid::Position footMidCoords = mathutil::orientCoordToAxis(refFootMidCoords, cnoid::Vector3::UnitZ());
+  cnoid::Isometry3 rleg = genRobot->link(gaitParam.eeParentLink[RLEG])->T()*gaitParam.eeLocalT[RLEG];
+  cnoid::Isometry3 lleg = genRobot->link(gaitParam.eeParentLink[LLEG])->T()*gaitParam.eeLocalT[LLEG];
+  cnoid::Isometry3 refFootMidCoords = this->calcRefFootMidCoords(rleg, lleg, gaitParam);
+  cnoid::Isometry3 footMidCoords = mathutil::orientCoordToAxis(refFootMidCoords, cnoid::Vector3::UnitZ());
   cnoidbodyutil::moveCoords(genRobot, footMidCoords, refFootMidCoords);
   genRobot->calcForwardKinematics(true);
   genRobot->calcCenterOfMass();
@@ -31,7 +31,7 @@ bool RefToGenFrameConverter::initGenRobot(const GaitParam& gaitParam, // input
 }
 
 bool RefToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,// input
-                                          cnoid::BodyPtr& refRobot, std::vector<cnoid::Position>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords) const{ // output
+                                          cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords) const{ // output
 
   /*
     静止時に、足のrefEEPoseとgenCoordsの位置がそろっていて欲しい.(refEEPoseとgenCoordsの左右の足が水平で相対位置が同じなら)
@@ -60,7 +60,7 @@ bool RefToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,
   // 現在のFootStepNodesListから、genRobotのfootMidCoordsを求める
   cpp_filters::TwoPointInterpolatorSE3 footMidCoords = gaitParam.footMidCoords; //generate frame. gaitParam.footMidCoords. 両足の中間
   this->calcFootMidCoords(gaitParam, dt, footMidCoords); // 1周期前のfootstepNodesListを使っているが、footMidCoordsは不連続に変化するものではないのでよい
-  cnoid::Position genFootMidCoords;  //generate frame. 実際に対応づけに使用する
+  cnoid::Isometry3 genFootMidCoords;  //generate frame. 実際に対応づけに使用する
   genFootMidCoords.linear() = footMidCoords.value().linear();
   genFootMidCoords.translation() = gaitParam.genCog - gaitParam.l; // 1周期前のlを使っているtが、lは不連続に変化するものではないので良い
   cnoid::Vector3 trans_footMidCoordsLocal = footMidCoords.value().linear().transpose() * (genFootMidCoords.translation() - footMidCoords.value().translation());
@@ -69,19 +69,19 @@ bool RefToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,
 
   // refRobotRawのrefFootMidCoordsを求めてrefRobotに変換する
   double refdz;
-  std::vector<cnoid::Position> refEEPoseFK(gaitParam.eeName.size());
+  std::vector<cnoid::Isometry3> refEEPoseFK(gaitParam.eeName.size());
   this->convertRefRobotRaw(gaitParam, genFootMidCoords,
                            refRobot, refEEPoseFK, refdz);
 
   // refEEPoseRawのrefFootMidCoordsを求めて変換する
-  std::vector<cnoid::Position> refEEPoseWithOutFK(gaitParam.eeName.size());
+  std::vector<cnoid::Isometry3> refEEPoseWithOutFK(gaitParam.eeName.size());
   this->convertRefEEPoseRaw(gaitParam, genFootMidCoords,
                             refEEPoseWithOutFK);
 
   // refEEPoseを求める
-  std::vector<cnoid::Position> refEEPose(gaitParam.eeName.size());
+  std::vector<cnoid::Isometry3> refEEPose(gaitParam.eeName.size());
   for(int i=0;i<gaitParam.eeName.size();i++){
-    refEEPose[i] = mathutil::calcMidCoords(std::vector<cnoid::Position>{refEEPoseFK[i], refEEPoseWithOutFK[i]},
+    refEEPose[i] = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{refEEPoseFK[i], refEEPoseWithOutFK[i]},
                                            std::vector<double>{this->solveFKMode.value(), 1.0 - this->solveFKMode.value()});
   }
 
@@ -103,11 +103,11 @@ bool RefToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,
 // 現在のFootStepNodesListから、genRobotのfootMidCoordsを求める (gaitParam.footMidCoords)
 void RefToGenFrameConverter::calcFootMidCoords(const GaitParam& gaitParam, double dt, cpp_filters::TwoPointInterpolatorSE3& footMidCoords) const {
   //footMidCoordsを進める
-  cnoid::Position rleg = gaitParam.footstepNodesList[0].dstCoords[RLEG];
+  cnoid::Isometry3 rleg = gaitParam.footstepNodesList[0].dstCoords[RLEG];
   rleg.translation() += rleg.linear() * gaitParam.copOffset[RLEG].value();
-  cnoid::Position lleg = gaitParam.footstepNodesList[0].dstCoords[LLEG];
+  cnoid::Isometry3 lleg = gaitParam.footstepNodesList[0].dstCoords[LLEG];
   lleg.translation() += lleg.linear() * gaitParam.copOffset[LLEG].value();
-  cnoid::Position midCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{rleg, lleg}, std::vector<double>{1.0, 1.0});
+  cnoid::Isometry3 midCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{rleg, lleg}, std::vector<double>{1.0, 1.0});
   rleg = mathutil::orientCoordToAxis(rleg, cnoid::Vector3::UnitZ());
   lleg = mathutil::orientCoordToAxis(lleg, cnoid::Vector3::UnitZ());
   midCoords = mathutil::orientCoordToAxis(midCoords, cnoid::Vector3::UnitZ());
@@ -119,11 +119,11 @@ void RefToGenFrameConverter::calcFootMidCoords(const GaitParam& gaitParam, doubl
     if(gaitParam.footstepNodesList.size() > 1 &&
        (gaitParam.footstepNodesList[1].isSupportPhase[RLEG] && gaitParam.footstepNodesList[1].isSupportPhase[LLEG]) // 次が両足支持
        ){
-      cnoid::Position rleg = gaitParam.footstepNodesList[1].dstCoords[RLEG];
+      cnoid::Isometry3 rleg = gaitParam.footstepNodesList[1].dstCoords[RLEG];
       rleg.translation() += rleg.linear() * gaitParam.copOffset[RLEG].value();
-      cnoid::Position lleg = gaitParam.footstepNodesList[1].dstCoords[LLEG];
+      cnoid::Isometry3 lleg = gaitParam.footstepNodesList[1].dstCoords[LLEG];
       lleg.translation() += lleg.linear() * gaitParam.copOffset[LLEG].value();
-      cnoid::Position midCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{rleg, lleg}, std::vector<double>{1.0, 1.0});
+      cnoid::Isometry3 midCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{rleg, lleg}, std::vector<double>{1.0, 1.0});
       midCoords = mathutil::orientCoordToAxis(midCoords, cnoid::Vector3::UnitZ());
       footMidCoords.setGoal(midCoords, gaitParam.footstepNodesList[0].remainTime + gaitParam.footstepNodesList[1].remainTime);
     }else{
@@ -133,11 +133,11 @@ void RefToGenFrameConverter::calcFootMidCoords(const GaitParam& gaitParam, doubl
     if(gaitParam.footstepNodesList.size() > 1 &&
        (gaitParam.footstepNodesList[1].isSupportPhase[RLEG] && gaitParam.footstepNodesList[1].isSupportPhase[LLEG]) // 次が両足支持
        ){
-      cnoid::Position rleg = gaitParam.footstepNodesList[1].dstCoords[RLEG];
+      cnoid::Isometry3 rleg = gaitParam.footstepNodesList[1].dstCoords[RLEG];
       rleg.translation() += rleg.linear() * gaitParam.copOffset[RLEG].value();
-      cnoid::Position lleg = gaitParam.footstepNodesList[1].dstCoords[LLEG];
+      cnoid::Isometry3 lleg = gaitParam.footstepNodesList[1].dstCoords[LLEG];
       lleg.translation() += lleg.linear() * gaitParam.copOffset[LLEG].value();
-      cnoid::Position midCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{rleg, lleg}, std::vector<double>{1.0, 1.0});
+      cnoid::Isometry3 midCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{rleg, lleg}, std::vector<double>{1.0, 1.0});
       midCoords = mathutil::orientCoordToAxis(midCoords, cnoid::Vector3::UnitZ());
       footMidCoords.setGoal(midCoords, gaitParam.footstepNodesList[0].remainTime + gaitParam.footstepNodesList[1].remainTime);
     }else{
@@ -157,11 +157,11 @@ void RefToGenFrameConverter::calcFootMidCoords(const GaitParam& gaitParam, doubl
 }
 
 // refRobotRawをrefRobotに変換する.
-void RefToGenFrameConverter::convertRefRobotRaw(const GaitParam& gaitParam, const cnoid::Position& genFootMidCoords, cnoid::BodyPtr& refRobot, std::vector<cnoid::Position>& refEEPoseFK, double& refdz) const{
+void RefToGenFrameConverter::convertRefRobotRaw(const GaitParam& gaitParam, const cnoid::Isometry3& genFootMidCoords, cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& refEEPoseFK, double& refdz) const{
   cnoidbodyutil::copyRobotState(gaitParam.refRobotRaw, refRobot);
-  cnoid::Position rleg = refRobot->link(gaitParam.eeParentLink[RLEG])->T()*gaitParam.eeLocalT[RLEG];
-  cnoid::Position lleg = refRobot->link(gaitParam.eeParentLink[LLEG])->T()*gaitParam.eeLocalT[LLEG];
-  cnoid::Position refFootMidCoords = this->calcRefFootMidCoords(rleg, lleg, gaitParam);
+  cnoid::Isometry3 rleg = refRobot->link(gaitParam.eeParentLink[RLEG])->T()*gaitParam.eeLocalT[RLEG];
+  cnoid::Isometry3 lleg = refRobot->link(gaitParam.eeParentLink[LLEG])->T()*gaitParam.eeLocalT[LLEG];
+  cnoid::Isometry3 refFootMidCoords = this->calcRefFootMidCoords(rleg, lleg, gaitParam);
   refdz = (refFootMidCoords.inverse() * refRobot->centerOfMass())[2]; // ref重心高さ
 
   cnoidbodyutil::moveCoords(refRobot, genFootMidCoords, refFootMidCoords);
@@ -174,31 +174,31 @@ void RefToGenFrameConverter::convertRefRobotRaw(const GaitParam& gaitParam, cons
 }
 
 // refEEPoseRawを変換する.
-void RefToGenFrameConverter::convertRefEEPoseRaw(const GaitParam& gaitParam, const cnoid::Position& genFootMidCoords, std::vector<cnoid::Position>& refEEPoseWithOutFK) const{
-  cnoid::Position refFootMidCoords = this->calcRefFootMidCoords(gaitParam.refEEPoseRaw[RLEG].value(), gaitParam.refEEPoseRaw[LLEG].value(), gaitParam);
+void RefToGenFrameConverter::convertRefEEPoseRaw(const GaitParam& gaitParam, const cnoid::Isometry3& genFootMidCoords, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK) const{
+  cnoid::Isometry3 refFootMidCoords = this->calcRefFootMidCoords(gaitParam.refEEPoseRaw[RLEG].value(), gaitParam.refEEPoseRaw[LLEG].value(), gaitParam);
   refFootMidCoords = mathutil::orientCoordToAxis(refFootMidCoords, cnoid::Vector3::UnitZ()); // 足裏を水平になるように傾け直さずに、もとの傾きをそのまま使うことに相当
-  cnoid::Position transform = genFootMidCoords * refFootMidCoords.inverse();
+  cnoid::Isometry3 transform = genFootMidCoords * refFootMidCoords.inverse();
   for(int i=0;i<gaitParam.eeName.size();i++){
     refEEPoseWithOutFK[i] = transform * gaitParam.refEEPoseRaw[i].value();
   }
 }
 
-cnoid::Position RefToGenFrameConverter::calcRefFootMidCoords(const cnoid::Position& rleg_, const cnoid::Position& lleg_, const GaitParam& gaitParam) const {
-  cnoid::Position rleg = rleg_;
+cnoid::Isometry3 RefToGenFrameConverter::calcRefFootMidCoords(const cnoid::Isometry3& rleg_, const cnoid::Isometry3& lleg_, const GaitParam& gaitParam) const {
+  cnoid::Isometry3 rleg = rleg_;
   rleg.translation() += rleg.linear() * gaitParam.copOffset[RLEG].value();
-  cnoid::Position lleg = lleg_;
+  cnoid::Isometry3 lleg = lleg_;
   lleg.translation() += lleg.linear() * gaitParam.copOffset[LLEG].value();
 
-  cnoid::Position bothmidcoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{rleg, lleg},
+  cnoid::Isometry3 bothmidcoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{rleg, lleg},
                                                           std::vector<double>{1.0, 1.0});
-  cnoid::Position rlegmidcoords = rleg;
+  cnoid::Isometry3 rlegmidcoords = rleg;
   rlegmidcoords.translation() -= rlegmidcoords.linear() * gaitParam.defaultTranslatePos[RLEG].value();
-  cnoid::Position llegmidcoords = lleg;
+  cnoid::Isometry3 llegmidcoords = lleg;
   llegmidcoords.translation() -= llegmidcoords.linear() * gaitParam.defaultTranslatePos[LLEG].value();
 
   double bothweight = std::min(this->refFootOriginWeight[RLEG].value(), this->refFootOriginWeight[LLEG].value());
   double rlegweight = this->refFootOriginWeight[RLEG].value() - bothweight;
   double llegweight = this->refFootOriginWeight[LLEG].value() - bothweight;
-  return mathutil::calcMidCoords(std::vector<cnoid::Position>{bothmidcoords, rlegmidcoords, llegmidcoords},
+  return mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{bothmidcoords, rlegmidcoords, llegmidcoords},
                                  std::vector<double>{bothweight, rlegweight, llegweight});
 }

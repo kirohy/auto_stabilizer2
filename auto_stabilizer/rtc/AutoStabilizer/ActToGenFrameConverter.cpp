@@ -5,7 +5,7 @@
 #include <cnoid/EigenUtil>
 
 bool ActToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,// input
-                                          cnoid::BodyPtr& actRobot, std::vector<cnoid::Position>& o_actEEPose, std::vector<cnoid::Vector6>& o_actEEWrench, cpp_filters::FirstOrderLowPassFilter<cnoid::Vector3>& o_actCogVel) const {
+                                          cnoid::BodyPtr& actRobot, std::vector<cnoid::Isometry3>& o_actEEPose, std::vector<cnoid::Vector6>& o_actEEWrench, cpp_filters::FirstOrderLowPassFilter<cnoid::Vector3>& o_actCogVel) const {
 
   cnoid::Vector3 actCogPrev = actRobot->centerOfMass();
 
@@ -22,20 +22,20 @@ bool ActToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,
     double rlegweight = gaitParam.footstepNodesList[0].isSupportPhase[RLEG]? 1.0 : 0.0;
     double llegweight = gaitParam.footstepNodesList[0].isSupportPhase[LLEG]? 1.0 : 0.0;
     if(!gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && !gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) rlegweight = llegweight = 1.0;
-    cnoid::Position actrleg = actRobot->link(gaitParam.eeParentLink[RLEG])->T()*gaitParam.eeLocalT[RLEG];
-    cnoid::Position actlleg = actRobot->link(gaitParam.eeParentLink[LLEG])->T()*gaitParam.eeLocalT[LLEG];
-    cnoid::Position actFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{actrleg, actlleg},
+    cnoid::Isometry3 actrleg = actRobot->link(gaitParam.eeParentLink[RLEG])->T()*gaitParam.eeLocalT[RLEG];
+    cnoid::Isometry3 actlleg = actRobot->link(gaitParam.eeParentLink[LLEG])->T()*gaitParam.eeLocalT[LLEG];
+    cnoid::Isometry3 actFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{actrleg, actlleg},
                                                                std::vector<double>{rlegweight, llegweight});
-    cnoid::Position actFootOriginCoords = mathutil::orientCoordToAxis(actFootMidCoords, cnoid::Vector3::UnitZ());
-    cnoid::Position genFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{gaitParam.abcEETargetPose[RLEG], gaitParam.abcEETargetPose[LLEG]},
+    cnoid::Isometry3 actFootOriginCoords = mathutil::orientCoordToAxis(actFootMidCoords, cnoid::Vector3::UnitZ());
+    cnoid::Isometry3 genFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{gaitParam.abcEETargetPose[RLEG], gaitParam.abcEETargetPose[LLEG]},
                                                                std::vector<double>{rlegweight, llegweight});  // 1周期前のabcTargetPoseを使っているが、abcTargetPoseは不連続に変化するものではないのでよい
-    cnoid::Position genFootOriginCoords = mathutil::orientCoordToAxis(genFootMidCoords, cnoid::Vector3::UnitZ());
+    cnoid::Isometry3 genFootOriginCoords = mathutil::orientCoordToAxis(genFootMidCoords, cnoid::Vector3::UnitZ());
     cnoidbodyutil::moveCoords(actRobot, genFootOriginCoords, actFootOriginCoords);
     actRobot->calcForwardKinematics();
     actRobot->calcCenterOfMass();
   }
 
-  std::vector<cnoid::Position> actEEPose(gaitParam.eeName.size(), cnoid::Position::Identity());
+  std::vector<cnoid::Isometry3> actEEPose(gaitParam.eeName.size(), cnoid::Isometry3::Identity());
   std::vector<cnoid::Vector6> actEEWrench(gaitParam.eeName.size(), cnoid::Vector6::Zero());
   {
     // 各エンドエフェクタのactualの位置・力を計算
@@ -44,8 +44,8 @@ bool ActToGenFrameConverter::convertFrame(const GaitParam& gaitParam, double dt,
       if(this->eeForceSensor[i] != ""){
         cnoid::ForceSensorPtr sensor = actRobot->findDevice<cnoid::ForceSensor>(this->eeForceSensor[i]);
         cnoid::Vector6 senF = sensor->F();
-        cnoid::Position senPose = sensor->link()->T() * sensor->T_local();
-        cnoid::Position eefTosenPose = gaitParam.actEEPose[i].inverse() * senPose;
+        cnoid::Isometry3 senPose = sensor->link()->T() * sensor->T_local();
+        cnoid::Isometry3 eefTosenPose = gaitParam.actEEPose[i].inverse() * senPose;
         cnoid::Vector6 eefF; // endeffector frame. endeffector origin.
         eefF.head<3>() = eefTosenPose.linear() * senF.head<3>();
         eefF.tail<3>() = eefTosenPose.linear() * senF.tail<3>() + eefTosenPose.translation().cross(eefF.head<3>());

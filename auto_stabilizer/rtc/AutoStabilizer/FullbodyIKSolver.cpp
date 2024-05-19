@@ -1,5 +1,5 @@
 #include "FullbodyIKSolver.h"
-#include <prioritized_inverse_kinematics_solver/PrioritizedInverseKinematicsSolver.h>
+#include <prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h>
 
 bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
                                        cnoid::BodyPtr& genRobot) const{
@@ -20,7 +20,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     }
   }
 
-  std::vector<std::shared_ptr<IK::IKConstraint> > ikConstraint0;
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint0;
 
   // joint velocity
   for(size_t i=0;i<genRobot->numJoints();i++){
@@ -42,10 +42,10 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     ikConstraint0.push_back(this->jointLimitConstraint[i]);
   }
 
-  std::vector<std::shared_ptr<IK::IKConstraint> > ikConstraint1;
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint1;
   this->selfCollisionConstraint.resize(gaitParam.selfCollision.size());
   for(size_t i=0;i<this->selfCollisionConstraint.size();i++){
-    if(!this->selfCollisionConstraint[i]) this->selfCollisionConstraint[i] = std::make_shared<IK::ClientCollisionConstraint>();
+    if(!this->selfCollisionConstraint[i]) this->selfCollisionConstraint[i] = std::make_shared<ik_constraint2::ClientCollisionConstraint>();
     this->selfCollisionConstraint[i]->A_link() = genRobot->link(gaitParam.selfCollision[i].link1);
     this->selfCollisionConstraint[i]->B_link() = genRobot->link(gaitParam.selfCollision[i].link2);
     this->selfCollisionConstraint[i]->tolerance() = 0.01;
@@ -62,7 +62,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     }
   }
 
-  std::vector<std::shared_ptr<IK::IKConstraint> > ikConstraint2;
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint2;
 
   // EEF
   for(int i=0;i<gaitParam.eeName.size();i++){
@@ -71,7 +71,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->ikEEPositionConstraint[i]->B_link() = nullptr;
     this->ikEEPositionConstraint[i]->B_localpos() = gaitParam.abcEETargetPose[i];
     this->ikEEPositionConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->ikEEPositionConstraint[i]->precision() << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0; // 強制的にIKをmax loopまで回す
+    this->ikEEPositionConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
     if(i<NUM_LEGS) this->ikEEPositionConstraint[i]->weight() << 3.0, 3.0, 3.0, 3.0, 3.0, 3.0;
     else this->ikEEPositionConstraint[i]->weight() << 1.0, 1.0, 1.0, 1.0, 1.0, 1.0;
     this->ikEEPositionConstraint[i]->eval_link() = nullptr;
@@ -86,7 +86,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->comConstraint->B_robot() = nullptr;
     this->comConstraint->B_localp() = gaitParam.genCog + gaitParam.sbpOffset;
     this->comConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt;
-    this->comConstraint->precision() << 0.0, 0.0, 0.0; // 強制的にIKをmax loopまで回す
+    this->comConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     this->comConstraint->weight() << 10.0, 10.0, 1.0;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
     ikConstraint2.push_back(this->comConstraint);
@@ -97,7 +97,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->angularMomentumConstraint->robot() = genRobot;
     this->angularMomentumConstraint->targetAngularMomentum() = cnoid::Vector3::Zero(); // TODO
     this->angularMomentumConstraint->maxError() << 1.0*dt, 1.0*dt, 1.0*dt;
-    this->angularMomentumConstraint->precision() << 0.0, 0.0, 0.0; // 強制的にIKをmax loopまで回す
+    this->angularMomentumConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     this->angularMomentumConstraint->weight() << 1e-4, 1e-4, 0.0; // TODO
     this->angularMomentumConstraint->dt() = dt;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
@@ -107,11 +107,11 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
   // root
   {
     this->rootPositionConstraint->A_link() = genRobot->rootLink();
-    this->rootPositionConstraint->A_localpos() = cnoid::Position::Identity();
+    this->rootPositionConstraint->A_localpos() = cnoid::Isometry3::Identity();
     this->rootPositionConstraint->B_link() = nullptr;
     this->rootPositionConstraint->B_localpos() = gaitParam.stTargetRootPose;
     this->rootPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->rootPositionConstraint->precision() << 0.0, 0.0, 0.0, 0.0, 0.0, 0.0; // 強制的にIKをmax loopまで回す
+    this->rootPositionConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
     //this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-1, 3e-1, 3e-1;
     this->rootPositionConstraint->eval_link() = nullptr;
@@ -136,20 +136,20 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
   //  この現象を防ぐには、未来の情報を含んだIKを作るか、歩行動作中にIKが解きづらい姿勢を経由しないように着地位置等をリミットするか. 後者を採用
   //  歩行動作ではないゆっくりとした動作であれば、この現象が発生しても問題ない
 
-  std::vector<std::vector<std::shared_ptr<IK::IKConstraint> > > constraints{ikConstraint0,ikConstraint1,ikConstraint2};
+  std::vector<std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > > constraints{ikConstraint0,ikConstraint1,ikConstraint2};
   for(size_t i=0;i<constraints.size();i++){
     for(size_t j=0;j<constraints[i].size();j++){
-      constraints[i][j]->debuglevel() = 0;//debuglevel
+      constraints[i][j]->debugLevel() = 0;//debuglevel
     }
   }
-  prioritized_inverse_kinematics_solver::IKParam param;
+  prioritized_inverse_kinematics_solver2::IKParam param;
   param.maxIteration = 1;
   param.dqWeight = dqWeight;
   param.wn = 1e-6;
   param.we = 1e2; // 1e0だとやや不安定. 1e3だと大きすぎる
   param.debugLevel = 0;
   param.dt = dt;
-  prioritized_inverse_kinematics_solver::solveIKLoop(variables,
+  prioritized_inverse_kinematics_solver2::solveIKLoop(variables,
                                                      constraints,
                                                      this->tasks,
                                                      param

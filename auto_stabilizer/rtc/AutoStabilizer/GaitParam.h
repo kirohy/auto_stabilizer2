@@ -20,7 +20,7 @@ public:
   // constant parameter
   std::vector<std::string> eeName; // constant. 要素数2以上. 0番目がrleg, 1番目がllegという名前である必要がある
   std::vector<std::string> eeParentLink; // constant. 要素数と順序はeeNameと同じ. 必ずrobot->link(parentLink)がnullptrではないことを約束する. そのため、毎回robot->link(parentLink)がnullptrかをチェックしなくても良い
-  std::vector<cnoid::Position> eeLocalT; // constant. 要素数と順序はeeNameと同じ. Parent Link Frame
+  std::vector<cnoid::Isometry3> eeLocalT; // constant. 要素数と順序はeeNameと同じ. Parent Link Frame
 
   std::vector<double> maxTorque; // constant. 要素数と順序はnumJoints()と同じ. 単位は[Nm]. 0以上
   std::vector<std::vector<std::shared_ptr<joint_limit_table::JointLimitTable> > > jointLimitTables; // constant. 要素数と順序はnumJoints()と同じ. for genRobot.
@@ -63,15 +63,15 @@ public:
 
   // refToGenFrameConverter
   cnoid::BodyPtr refRobot; // reference. generate frame
-  std::vector<cnoid::Position> refEEPose; // 要素数と順序はeeNameと同じ.generate frame
+  std::vector<cnoid::Isometry3> refEEPose; // 要素数と順序はeeNameと同じ.generate frame
   std::vector<cnoid::Vector6> refEEWrench; // 要素数と順序はeeNameと同じ.generate frame. EndEffector origin. ロボットが受ける力
   double refdz = 1.0; // generate frame. 支持脚からのCogの目標高さ. 0より大きい
-  cpp_filters::TwoPointInterpolatorSE3 footMidCoords = cpp_filters::TwoPointInterpolatorSE3(cnoid::Position::Identity(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cpp_filters::HOFFARBIB); // generate frame. Z軸は鉛直. 支持脚の位置姿勢(Z軸は鉛直)にdefaultTranslatePosを適用したものの間をつなぐ. interpolatorによって連続的に変化する. reference frameとgenerate frameの対応付けに用いられる
+  cpp_filters::TwoPointInterpolatorSE3 footMidCoords = cpp_filters::TwoPointInterpolatorSE3(cnoid::Isometry3::Identity(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cpp_filters::HOFFARBIB); // generate frame. Z軸は鉛直. 支持脚の位置姿勢(Z軸は鉛直)にdefaultTranslatePosを適用したものの間をつなぐ. interpolatorによって連続的に変化する. reference frameとgenerate frameの対応付けに用いられる
 
   // actToGenFrameConverter
   cnoid::BodyPtr actRobot; // actual. generate frame
   cpp_filters::FirstOrderLowPassFilter<cnoid::Vector3> actCogVel = cpp_filters::FirstOrderLowPassFilter<cnoid::Vector3>(3.5, cnoid::Vector3::Zero());  // generate frame.  現在のCOM速度. cutoff=4.0Hzは今の歩行時間と比べて遅すぎる気もするが、実際のところ問題なさそう? もとは4Hzだったが、 静止時に衝撃が加わると上下方向に左右交互に振動することがあるので少し小さくする必要がある. 3Hzにすると、追従性が悪くなってギアが飛んだ
-  std::vector<cnoid::Position> actEEPose; // 要素数と順序はeeNameと同じ.generate frame
+  std::vector<cnoid::Isometry3> actEEPose; // 要素数と順序はeeNameと同じ.generate frame
   std::vector<cnoid::Vector6> actEEWrench; // 要素数と順序はeeNameと同じ.generate frame. EndEffector origin. ロボットが受ける力
 
   // ExternalForceHandler
@@ -82,7 +82,7 @@ public:
 
   // ImpedanceController
   std::vector<cpp_filters::TwoPointInterpolator<cnoid::Vector6> > icEEOffset; // 要素数と順序はeeNameと同じ.generate frame. endEffector origin. icで計算されるオフセット
-  std::vector<cnoid::Position> icEETargetPose; // 要素数と順序はeeNameと同じ.generate frame. icで計算された目標位置姿勢. icEETargetPose = icEEOffset + refEEPose
+  std::vector<cnoid::Isometry3> icEETargetPose; // 要素数と順序はeeNameと同じ.generate frame. icで計算された目標位置姿勢. icEETargetPose = icEEOffset + refEEPose
 
   // CmdVelGenerator
   cnoid::Vector3 cmdVel = cnoid::Vector3::Zero(); // X[m/s] Y[m/s] theta[rad/s]. Z軸はgenerate frame鉛直. support leg frame. 不連続に変化する
@@ -109,7 +109,7 @@ public:
       footstepNodesList[0]のendRefZmpStateは変更されない.
       footstepNodesList[0]のendRefZmpStateは、isStatic()である場合を除いて変更されない.
     */
-    std::vector<cnoid::Position> dstCoords = std::vector<cnoid::Position>(NUM_LEGS,cnoid::Position::Identity()); // 要素数2. rleg: 0. lleg: 1. generate frame.
+    std::vector<cnoid::Isometry3> dstCoords = std::vector<cnoid::Isometry3>(NUM_LEGS,cnoid::Isometry3::Identity()); // 要素数2. rleg: 0. lleg: 1. generate frame.
     std::vector<bool> isSupportPhase = std::vector<bool>(NUM_LEGS, true); // 要素数2. rleg: 0. lleg: 1. footstepNodesListの末尾の要素が両方falseであることは無い
     double remainTime = 0.0;
     enum class refZmpState_enum{RLEG, LLEG, MIDDLE};
@@ -124,8 +124,8 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   };
   std::vector<FootStepNodes> footstepNodesList = std::vector<FootStepNodes>(1); // 要素数1以上. 0番目が現在の状態. 末尾の要素以降は、末尾の状態がずっと続くとして扱われる.
-  std::vector<cnoid::Position> srcCoords = std::vector<cnoid::Position>(NUM_LEGS,cnoid::Position::Identity()); // 要素数2. rleg: 0. lleg: 1. generate frame. 現在のfootstep開始時のgenCoords
-  std::vector<cnoid::Position> dstCoordsOrg = std::vector<cnoid::Position>(NUM_LEGS,cnoid::Position::Identity()); // 要素数2. rleg: 0. lleg: 1. generate frame. 現在のfootstep開始時のdstCoords
+  std::vector<cnoid::Isometry3> srcCoords = std::vector<cnoid::Isometry3>(NUM_LEGS,cnoid::Isometry3::Identity()); // 要素数2. rleg: 0. lleg: 1. generate frame. 現在のfootstep開始時のgenCoords
+  std::vector<cnoid::Isometry3> dstCoordsOrg = std::vector<cnoid::Isometry3>(NUM_LEGS,cnoid::Isometry3::Identity()); // 要素数2. rleg: 0. lleg: 1. generate frame. 現在のfootstep開始時のdstCoords
   double remainTimeOrg = 0.0; // 現在のfootstep開始時のremainTime
   enum SwingState_enum{LIFT_PHASE, SWING_PHASE, DOWN_PHASE};
   std::vector<SwingState_enum> swingState = std::vector<SwingState_enum>(NUM_LEGS,LIFT_PHASE); // 要素数2. rleg: 0. lleg: 0. isSupportPhase = falseの脚は、footstep開始時はLIFT_PHASEで、LIFT_PHASE->SWING_PHASE->DOWN_PHASEと遷移する. 一度DOWN_PHASEになったら次のfootstepが始まるまで別のPHASEになることはない. DOWN_PHASEのときはfootstepNodesList[0]のdstCoordsはgenCoordsよりも高い位置に変更されることはない. isSupportPhase = trueの脚は、swingStateは参照されない(常にLIFT_PHASEとなる).
@@ -133,17 +133,17 @@ public:
   std::vector<bool> prevSupportPhase = std::vector<bool>{true, true}; // 要素数2. rleg: 0. lleg: 1. 一つ前の周期でSupportPhaseだったかどうか
 
   // LegCoordsGenerator
-  std::vector<cpp_filters::TwoPointInterpolatorSE3> genCoords = std::vector<cpp_filters::TwoPointInterpolatorSE3>(NUM_LEGS, cpp_filters::TwoPointInterpolatorSE3(cnoid::Position::Identity(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cpp_filters::HOFFARBIB)); // 要素数2. rleg: 0. lleg: 1. generate frame. 現在の位置
+  std::vector<cpp_filters::TwoPointInterpolatorSE3> genCoords = std::vector<cpp_filters::TwoPointInterpolatorSE3>(NUM_LEGS, cpp_filters::TwoPointInterpolatorSE3(cnoid::Isometry3::Identity(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cpp_filters::HOFFARBIB)); // 要素数2. rleg: 0. lleg: 1. generate frame. 現在の位置
   std::vector<footguidedcontroller::LinearTrajectory<cnoid::Vector3> > refZmpTraj = {footguidedcontroller::LinearTrajectory<cnoid::Vector3>(cnoid::Vector3::Zero(),cnoid::Vector3::Zero(),0.0)}; // 要素数1以上. generate frame. footstepNodesListを単純に線形補間して計算される現在の目標zmp軌道
 
   cnoid::Vector3 genCog; // generate frame. abcで計算された目標COM
   cnoid::Vector3 genCogVel;  // generate frame.  abcで計算された目標COM速度
   cnoid::Vector3 genCogAcc;  // generate frame.  abcで計算された目標COM加速度
-  std::vector<cnoid::Position> abcEETargetPose; // 要素数と順序はeeNameと同じ.generate frame. abcで計算された目標位置姿勢
+  std::vector<cnoid::Isometry3> abcEETargetPose; // 要素数と順序はeeNameと同じ.generate frame. abcで計算された目標位置姿勢
 
   // Stabilizer
   cpp_filters::TwoPointInterpolator<cnoid::Vector3> stOffsetRootRpy = cpp_filters::TwoPointInterpolator<cnoid::Vector3>(cnoid::Vector3::Zero(),cnoid::Vector3::Zero(),cnoid::Vector3::Zero(),cpp_filters::LINEAR);; // gaitParam.footMidCoords座標系. stで計算された目標位置姿勢オフセット
-  cnoid::Position stTargetRootPose = cnoid::Position::Identity(); // generate frame. stTargetRootPose = stOffsetRootRpy + refRobot->rootLink
+  cnoid::Isometry3 stTargetRootPose = cnoid::Isometry3::Identity(); // generate frame. stTargetRootPose = stOffsetRootRpy + refRobot->rootLink
   cnoid::Vector3 stTargetZmp; // generate frame. stで計算された目標ZMP
   std::vector<cnoid::Vector6> stEETargetWrench; // 要素数と順序はeeNameと同じ.generate frame. EndEffector origin. ロボットが受ける力
   std::vector<cpp_filters::TwoPointInterpolator<double> > stServoPGainPercentage; // 要素数と順序はrobot->numJoints()と同じ. 0~100. 現状, setGoal(*,dt)以下の時間でgoal指定するとwriteOutPortDataが破綻する
@@ -188,19 +188,19 @@ public:
     genRobot->calcForwardKinematics(); genRobot->calcCenterOfMass();
   }
 
-  void push_backEE(const std::string& name_, const std::string& parentLink_, const cnoid::Position& localT_){
+  void push_backEE(const std::string& name_, const std::string& parentLink_, const cnoid::Isometry3& localT_){
     eeName.push_back(name_);
     eeParentLink.push_back(parentLink_);
     eeLocalT.push_back(localT_);
     refEEWrenchOrigin.push_back(cnoid::Vector6::Zero());
-    refEEPoseRaw.push_back(cpp_filters::TwoPointInterpolatorSE3(cnoid::Position::Identity(), cnoid::Vector6::Zero(),cnoid::Vector6::Zero(), cpp_filters::HOFFARBIB));
-    refEEPose.push_back(cnoid::Position::Identity());
+    refEEPoseRaw.push_back(cpp_filters::TwoPointInterpolatorSE3(cnoid::Isometry3::Identity(), cnoid::Vector6::Zero(),cnoid::Vector6::Zero(), cpp_filters::HOFFARBIB));
+    refEEPose.push_back(cnoid::Isometry3::Identity());
     refEEWrench.push_back(cnoid::Vector6::Zero());
-    actEEPose.push_back(cnoid::Position::Identity());
+    actEEPose.push_back(cnoid::Isometry3::Identity());
     actEEWrench.push_back(cnoid::Vector6::Zero());
     icEEOffset.push_back(cpp_filters::TwoPointInterpolator<cnoid::Vector6>(cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(), cpp_filters::HOFFARBIB));
-    icEETargetPose.push_back(cnoid::Position::Identity());
-    abcEETargetPose.push_back(cnoid::Position::Identity());
+    icEETargetPose.push_back(cnoid::Isometry3::Identity());
+    abcEETargetPose.push_back(cnoid::Isometry3::Identity());
     stEETargetWrench.push_back(cnoid::Vector6::Zero());
   }
 

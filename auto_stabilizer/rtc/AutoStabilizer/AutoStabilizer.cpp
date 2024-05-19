@@ -209,7 +209,7 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
       cnoid::Matrix3 localR;
       if(localaxis.norm() == 0) localR = cnoid::Matrix3::Identity();
       else localR = Eigen::AngleAxisd(localangle, localaxis.normalized()).toRotationMatrix();
-      cnoid::Position localT;
+      cnoid::Isometry3 localT;
       localT.translation() = localp;
       localT.linear() = localR;
 
@@ -226,10 +226,10 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
   {
     // generate LegParams
     // init-poseのとき両脚が同一平面上で, Y軸方向に横に並んでいるという仮定がある
-    cnoid::Position defautFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{cnoid::Position(this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[RLEG])->T()*this->gaitParam_.eeLocalT[RLEG]),cnoid::Position(this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[LLEG])->T()*this->gaitParam_.eeLocalT[LLEG])},
+    cnoid::Isometry3 defautFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{cnoid::Isometry3(this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[RLEG])->T()*this->gaitParam_.eeLocalT[RLEG]),cnoid::Isometry3(this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[LLEG])->T()*this->gaitParam_.eeLocalT[LLEG])},
                                                             std::vector<double>{1,1});
     for(int i=0; i<NUM_LEGS; i++){
-      cnoid::Position defaultPose = this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[i])->T()*this->gaitParam_.eeLocalT[i];
+      cnoid::Isometry3 defaultPose = this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[i])->T()*this->gaitParam_.eeLocalT[i];
       cnoid::Vector3 defaultTranslatePos = defautFootMidCoords.inverse() * defaultPose.translation();
       defaultTranslatePos[0] = 0.0;
       defaultTranslatePos[2] = 0.0;
@@ -394,7 +394,7 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
       ports.m_refEEPoseIn_[i]->read();
       if(std::isfinite(ports.m_refEEPose_[i].data.position.x) && std::isfinite(ports.m_refEEPose_[i].data.position.y) && std::isfinite(ports.m_refEEPose_[i].data.position.z) &&
          std::isfinite(ports.m_refEEPose_[i].data.orientation.r) && std::isfinite(ports.m_refEEPose_[i].data.orientation.p) && std::isfinite(ports.m_refEEPose_[i].data.orientation.y)){
-        cnoid::Position pose;
+        cnoid::Isometry3 pose;
         pose.translation()[0] = ports.m_refEEPose_[i].data.position.x;
         pose.translation()[1] = ports.m_refEEPose_[i].data.position.y;
         pose.translation()[2] = ports.m_refEEPose_[i].data.position.z;
@@ -500,8 +500,8 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
         ){
       int swingLeg = gaitParam.footstepNodesList[0].isSupportPhase[RLEG] ? LLEG : RLEG;
       int supportLeg = (swingLeg == RLEG) ? LLEG : RLEG;
-      cnoid::Position supportPose = gaitParam.genCoords[supportLeg].value(); // TODO. 支持脚のgenCoordsとdstCoordsが異なることは想定していない
-      cnoid::Position supportPoseHorizontal = mathutil::orientCoordToAxis(supportPose, cnoid::Vector3::UnitZ());
+      cnoid::Isometry3 supportPose = gaitParam.genCoords[supportLeg].value(); // TODO. 支持脚のgenCoordsとdstCoordsが異なることは想定していない
+      cnoid::Isometry3 supportPoseHorizontal = mathutil::orientCoordToAxis(supportPose, cnoid::Vector3::UnitZ());
       steppableRegion.resize(ports.m_steppableRegion_.data.region.length());
       steppableHeight.resize(ports.m_steppableRegion_.data.region.length());
       for (int i=0; i<steppableRegion.size(); i++){
@@ -538,11 +538,11 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
       if(normal.norm() > 1.0 - 1e-2 && normal.norm() < 1.0 + 1e-2){ // ノルムがほぼ1
         if(mode.isABCRunning()){ // ABC起動中でないと現在支持脚という概念が無い
           if(ports.m_landingHeight_.data.l_r == auto_stabilizer_msgs::RLEG && gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && !gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) { //現在支持脚と計算時支持脚が同じ
-            cnoid::Position supportPoseHorizontal = mathutil::orientCoordToAxis(gaitParam.genCoords[RLEG].value(), cnoid::Vector3::UnitZ());
+            cnoid::Isometry3 supportPoseHorizontal = mathutil::orientCoordToAxis(gaitParam.genCoords[RLEG].value(), cnoid::Vector3::UnitZ());
             relLandingHeight = supportPoseHorizontal.translation()[2] + ports.m_landingHeight_.data.z;
             relLandingNormal = supportPoseHorizontal.linear() * normal.normalized();
           }else if(ports.m_landingHeight_.data.l_r == auto_stabilizer_msgs::LLEG && gaitParam.footstepNodesList[0].isSupportPhase[LLEG] && !gaitParam.footstepNodesList[0].isSupportPhase[RLEG]) { //現在支持脚と計算時支持脚が同じ
-            cnoid::Position supportPoseHorizontal = mathutil::orientCoordToAxis(gaitParam.genCoords[LLEG].value(), cnoid::Vector3::UnitZ());
+            cnoid::Isometry3 supportPoseHorizontal = mathutil::orientCoordToAxis(gaitParam.genCoords[LLEG].value(), cnoid::Vector3::UnitZ());
             relLandingHeight = supportPoseHorizontal.translation()[2] + ports.m_landingHeight_.data.z;
             relLandingNormal = supportPoseHorizontal.linear() * normal.normalized();
           }
@@ -696,12 +696,12 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
 
   {
     // basePose
-    cnoid::Position basePose;
+    cnoid::Isometry3 basePose;
     if(mode.now() == AutoStabilizer::ControlMode::MODE_IDLE){
       basePose = gaitParam.refRobotRaw->rootLink()->T();
     }else if(mode.isSyncToABC() || mode.isSyncToIdle()){
       double ratio = idleToAbcTransitionInterpolator.value();
-      basePose = mathutil::calcMidCoords(std::vector<cnoid::Position>{gaitParam.refRobotRaw->rootLink()->T(), gaitParam.genRobot->rootLink()->T()},
+      basePose = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{gaitParam.refRobotRaw->rootLink()->T(), gaitParam.genRobot->rootLink()->T()},
                                          std::vector<double>{1.0 - ratio, ratio});
     }else{
       basePose = gaitParam.genRobot->rootLink()->T();
@@ -808,7 +808,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
     int supportLeg = gaitParam.footstepNodesList[0].isSupportPhase[RLEG] ? RLEG : LLEG;
     int swingLeg = gaitParam.footstepNodesList[0].isSupportPhase[RLEG] ? LLEG : RLEG;
     ports.m_landingTarget_.tm = ports.m_qRef_.tm;
-    cnoid::Position supportPoseHorizontal = mathutil::orientCoordToAxis(gaitParam.genCoords[supportLeg].value(), cnoid::Vector3::UnitZ());
+    cnoid::Isometry3 supportPoseHorizontal = mathutil::orientCoordToAxis(gaitParam.genCoords[supportLeg].value(), cnoid::Vector3::UnitZ());
     ports.m_landingTarget_.data.x = (supportPoseHorizontal.inverse() * gaitParam.footstepNodesList[0].dstCoords[swingLeg].translation())[0];
     ports.m_landingTarget_.data.y = (supportPoseHorizontal.inverse() * gaitParam.footstepNodesList[0].dstCoords[swingLeg].translation())[1];
     ports.m_landingTarget_.data.z = (supportPoseHorizontal.inverse() * gaitParam.footstepNodesList[0].dstCoords[swingLeg].translation())[2];
@@ -1752,7 +1752,7 @@ bool AutoStabilizer::getProperty(const std::string& key, std::string& ret) {
 }
 
 // static function
-void AutoStabilizer::copyEigenCoords2FootStep(const cnoid::Position& in_fs, OpenHRP::AutoStabilizerService::Footstep& out_fs){
+void AutoStabilizer::copyEigenCoords2FootStep(const cnoid::Isometry3& in_fs, OpenHRP::AutoStabilizerService::Footstep& out_fs){
   out_fs.pos.length(3);
   for(int j=0;j<3;j++) out_fs.pos[j] = in_fs.translation()[j];
   out_fs.rot.length(4);

@@ -15,8 +15,6 @@ catkin_ws$ source ~/.bashrc
 # for choreonoid. 参考 https://github.com/start-jsk/rtmros_choreonoid
 # choreonoidはrosdepに対応しておらず，代わりに依存ライブラリをaptでインストールするスクリプトがあるのでそれを実行
 catkin_ws$ ./src/choreonoid/misc/script/install-requisites-ubuntu-18.04.sh # if ubuntu 18.04
-# choreonoidのコンパイルオプションを設定
-catkin_ws$ patch -p1 -d src/choreonoid < src/rtm-ros-robotics/rtmros_choreonoid/choreonoid.patch
 ```
 * ビルド
 ```bash
@@ -28,9 +26,11 @@ catkin_ws$ source devel/setup.bash
 ## 実行
 
 ```shell
-rtmlaunch auto_stabilizer_choreonoid_sample jaxon_jvrc_choreonoid.launch
+roslaunch auto_stabilizer_choreonoid_sample JAXON_JVRC_choreonoid.launch
+```
 
-# rtmlaunch auto_stabilizer_choreonoid_sample jaxon_jvrc_choreonoid.launch ENVIRONMENT_YAML:=`rospack find vnoid_world`/sample/sample_field.yaml LOAD_OBJECTS:=true
+```shell
+rtmlaunch auto_stabilizer_choreonoid_sample JAXON_JVRC_hrpsys.launch
 ```
 
 ```lisp

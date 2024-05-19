@@ -6,11 +6,11 @@ set(CMAKE_BUILD_TYPE Release)
 add_definitions(-Wno-deprecated)
 
 find_package(catkin REQUIRED COMPONENTS
-  ik_constraint
+  ik_constraint2
   prioritized_qp_osqp
-  prioritized_inverse_kinematics_solver
+  prioritized_inverse_kinematics_solver2
   cpp_filters
-  ik_constraint_joint_limit_table
+  ik_constraint2_joint_limit_table
   hrpsys_ros_bridge
   joint_limit_table
   collision_checker_msgs

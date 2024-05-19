@@ -22,7 +22,7 @@ void CmdVelGenerator::calcVelFromHandError(const GaitParam& gaitParam,
                                            cnoid::Vector3& o_graspLessCmdVel) const{
   cnoid::Vector3 graspLessCmdVel = cnoid::Vector3::Zero(); // footPos frame. footPos origin
 
-  cnoid::Position footPos; // generate frame. 次の一歩の支持脚のCoords-defaultTranslatePos. Z軸は鉛直. Z=0.0
+  cnoid::Isometry3 footPos; // generate frame. 次の一歩の支持脚のCoords-defaultTranslatePos. Z軸は鉛直. Z=0.0
   if(gaitParam.footstepNodesList.size() > 1 &&
      (gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && gaitParam.footstepNodesList[0].isSupportPhase[LLEG])){ // 現在両足支持期.
     if(!gaitParam.footstepNodesList[1].isSupportPhase[RLEG] && gaitParam.footstepNodesList[1].isSupportPhase[LLEG]){ // 次右脚をswing

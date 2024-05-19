@@ -1,14 +1,27 @@
-- git: # hrpsysのRobotHardwareがmasterと異なるため再ビルド必要
+- git: # for jvrc_models
     uri: https://github.com/start-jsk/rtmros_choreonoid
     local-name: rtm-ros-robotics/rtmros_choreonoid
-- git: # hrpsys_choreonoid_tutorialsが依存
+- git: # hrpsys_choreonoid_tutorialsのmodel変換
     uri: https://github.com/start-jsk/rtmros_tutorials
     local-name: rtm-ros-robotics/rtmros_tutorials
+- git: # hrpsys_trans_bridge
+    local-name: jsk-ros-pkg/trans_system
+    uri: https://github.com/jsk-ros-pkg/trans_system.git
 
-# for simulation world model
+# for system
 - git:
-    uri: https://github.com/Naoki-Hiraoka/vnoid_world
-    local-name: vnoid_world
+    local-name: execution_context_shmtime
+    uri: https://github.com/Naoki-Hiraoka/execution_context_shmtime.git
+- git:
+    local-name: rtcloader
+    uri: https://github.com/Naoki-Hiraoka/rtcloader.git
+- git:
+    local-name: choreonoid_ros_ext2_plugin
+    uri: https://github.com/Naoki-Hiraoka/choreonoid_ros_ext2_plugin.git
+    version: 2.0
+- git:
+    local-name: choreonoid_bridge_shm
+    uri: https://gitlab.jsk.imi.i.u-tokyo.ac.jp/hiraoka/choreonoid_bridge_shm.git
 
 # for self collision check
 - git:
@@ -18,8 +31,11 @@
     local-name: qhulleigen
     uri: https://github.com/Naoki-Hiraoka/qhulleigen.git
 - git:
-    local-name: choreonoid_collision_tools
-    uri: https://github.com/Naoki-Hiraoka/choreonoid_collision_tools.git
+    local-name: choreonoid_collision_tools2
+    uri: https://github.com/Naoki-Hiraoka/choreonoid_collision_tools2.git
+    version: 2.0
+
+# for whole body master slacve
 - git:
     local-name: rtmros_msg_bridge
     uri: https://github.com/Naoki-Hiraoka/rtmros_msg_bridge.git

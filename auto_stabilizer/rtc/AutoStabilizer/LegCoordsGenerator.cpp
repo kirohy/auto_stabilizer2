@@ -8,8 +8,8 @@ void LegCoordsGenerator::initLegCoords(const GaitParam& gaitParam,
   std::vector<footguidedcontroller::LinearTrajectory<cnoid::Vector3> > refZmpTraj;
   std::vector<cpp_filters::TwoPointInterpolatorSE3> genCoords;
 
-  cnoid::Position rlegCoords = gaitParam.footstepNodesList[0].dstCoords[RLEG];
-  cnoid::Position llegCoords = gaitParam.footstepNodesList[0].dstCoords[LLEG];
+  cnoid::Isometry3 rlegCoords = gaitParam.footstepNodesList[0].dstCoords[RLEG];
+  cnoid::Isometry3 llegCoords = gaitParam.footstepNodesList[0].dstCoords[LLEG];
 
   genCoords.emplace_back(rlegCoords, cnoid::Vector6::Zero(), cnoid::Vector6::Zero(), cpp_filters::HOFFARBIB);
   genCoords.emplace_back(llegCoords, cnoid::Vector6::Zero(), cnoid::Vector6::Zero(), cpp_filters::HOFFARBIB);
@@ -44,14 +44,14 @@ void LegCoordsGenerator::calcLegCoords(const GaitParam& gaitParam, double dt, bo
       cnoid::Vector3 zmpGoalPos;
 
       if(gaitParam.footstepNodesList[i].endRefZmpState == GaitParam::FootStepNodes::refZmpState_enum::RLEG){
-        cnoid::Position rlegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[RLEG]; // このfootstepNode終了時にdstCoordsに行くように線形補間
+        cnoid::Isometry3 rlegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[RLEG]; // このfootstepNode終了時にdstCoordsに行くように線形補間
         zmpGoalPos = rlegGoalCoords.translation() + rlegGoalCoords.linear()*gaitParam.copOffset[RLEG].value();
       }else if(gaitParam.footstepNodesList[i].endRefZmpState == GaitParam::FootStepNodes::refZmpState_enum::LLEG){
-        cnoid::Position llegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[LLEG]; // このfootstepNode終了時にdstCoordsに行くように線形補間
+        cnoid::Isometry3 llegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[LLEG]; // このfootstepNode終了時にdstCoordsに行くように線形補間
         zmpGoalPos = llegGoalCoords.translation() + llegGoalCoords.linear()*gaitParam.copOffset[LLEG].value();
       }else{ //gaitParam.footstepNodesList[i].endRefZmpState == GaitParam::FootStepNodes::refZmpState_enum::MIDDLE
-        cnoid::Position rlegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[RLEG];
-        cnoid::Position llegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[LLEG];
+        cnoid::Isometry3 rlegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[RLEG];
+        cnoid::Isometry3 llegGoalCoords = gaitParam.footstepNodesList[i].dstCoords[LLEG];
         cnoid::Vector3 rlegCOP = rlegGoalCoords.translation() + rlegGoalCoords.linear()*gaitParam.copOffset[RLEG].value();
         cnoid::Vector3 llegCOP = llegGoalCoords.translation() + llegGoalCoords.linear()*gaitParam.copOffset[LLEG].value();
         zmpGoalPos = 0.5 * rlegCOP + 0.5 * llegCOP;
@@ -92,16 +92,16 @@ void LegCoordsGenerator::calcLegCoords(const GaitParam& gaitParam, double dt, bo
       continue;
     }
     if(gaitParam.footstepNodesList[0].isSupportPhase[i]) { // 支持脚
-      cnoid::Position nextCoords = mathutil::calcMidCoords(std::vector<cnoid::Position>{genCoords[i].value(),gaitParam.footstepNodesList[0].dstCoords[i]},
+      cnoid::Isometry3 nextCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{genCoords[i].value(),gaitParam.footstepNodesList[0].dstCoords[i]},
                                                            std::vector<double>{std::max(0.0,gaitParam.footstepNodesList[0].remainTime - dt), dt}); // このfootstepNode終了時にdstCoordsに行くように線形補間
       genCoords[i].reset(nextCoords);
     }else{ // 遊脚
       double height = std::max(gaitParam.srcCoords[i].translation()[2] + gaitParam.footstepNodesList[0].stepHeight[i][0],
                                gaitParam.footstepNodesList[0].dstCoords[i].translation()[2] + gaitParam.footstepNodesList[0].stepHeight[i][1]); // 足上げ高さ. generate frame
-      cnoid::Position srcCoords = gaitParam.srcCoords[i];
-      cnoid::Position dstCoords = gaitParam.footstepNodesList[0].dstCoords[i];
+      cnoid::Isometry3 srcCoords = gaitParam.srcCoords[i];
+      cnoid::Isometry3 dstCoords = gaitParam.footstepNodesList[0].dstCoords[i];
       dstCoords.translation()[2] += gaitParam.footstepNodesList[0].goalOffset[i];
-      cnoid::Position antecedentCoords = genCoords[i].getGoal(); // 今のantecedent軌道の位置
+      cnoid::Isometry3 antecedentCoords = genCoords[i].getGoal(); // 今のantecedent軌道の位置
 
       // phase transition
       if(swingState[i] == GaitParam::LIFT_PHASE){
@@ -138,7 +138,7 @@ void LegCoordsGenerator::calcLegCoords(const GaitParam& gaitParam, double dt, bo
             goal = viaPos1 + dp * dir;
           }
         }
-        cnoid::Position nextCoords;
+        cnoid::Isometry3 nextCoords;
         nextCoords.translation() = goal;
         nextCoords.linear() = mathutil::calcMidRot(std::vector<cnoid::Matrix3>{antecedentCoords.linear(),dstCoords.linear()},
                                                    std::vector<double>{std::max(0.0,gaitParam.footstepNodesList[0].remainTime - this->delayTimeOffset - dt), dt}); // dstCoordsについたときにdstCoordsの傾きになるように線形補間
@@ -167,7 +167,7 @@ void LegCoordsGenerator::calcLegCoords(const GaitParam& gaitParam, double dt, bo
             cnoid::Vector3 dir = ((dstCoords.translation() - viaPos1).norm() > 0) ? (dstCoords.translation() - viaPos1).normalized() : cnoid::Vector3::Zero();
             goal = viaPos1 + dp * dir;
           }
-          cnoid::Position nextCoords;
+          cnoid::Isometry3 nextCoords;
           nextCoords.translation() = goal;
           nextCoords.linear() = mathutil::calcMidRot(std::vector<cnoid::Matrix3>{antecedentCoords.linear(),dstCoords.linear()},
                                                      std::vector<double>{std::max(0.0,gaitParam.footstepNodesList[0].remainTime - this->delayTimeOffset - dt), dt}); // dstCoordsについたときにdstCoordsの傾きになるように線形補間
