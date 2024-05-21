@@ -21,7 +21,7 @@
     version: 2.0
 - git:
     local-name: choreonoid_bridge_shm
-    uri: https://gitlab.jsk.imi.i.u-tokyo.ac.jp/hiraoka/choreonoid_bridge_shm.git
+    uri: https://github.com/Naoki-Hiraoka/choreonoid_bridge_shm.git
 
 # for self collision check
 - git:
