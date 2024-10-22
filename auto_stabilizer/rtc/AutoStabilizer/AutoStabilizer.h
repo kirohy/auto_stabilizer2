@@ -24,7 +24,7 @@
 // #include <cpp_filters/IIRFilter.h>
 // #include <joint_limit_table/JointLimitTable.h>
 
-#include <hrpsys/idl/RobotHardwareService.hh>
+#include <robot_hardware/idl/RobotHardware2Service.hh>
 #include <collision_checker_msgs/idl/Collision.hh>
 #include <auto_stabilizer_msgs/idl/AutoStabilizer.hh>
 
@@ -130,7 +130,7 @@ protected:
     AutoStabilizerService_impl m_service0_;
     RTC::CorbaPort m_AutoStabilizerServicePort_;
 
-    RTC::CorbaConsumer<OpenHRP::RobotHardwareService> m_robotHardwareService0_;
+    RTC::CorbaConsumer<robot_hardware::RobotHardware2Service> m_robotHardwareService0_;
     RTC::CorbaPort m_RobotHardwareServicePort_;
 
 

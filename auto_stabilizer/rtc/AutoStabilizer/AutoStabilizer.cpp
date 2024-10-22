@@ -60,7 +60,7 @@ AutoStabilizer::Ports::Ports() :
 
   m_AutoStabilizerServicePort_("AutoStabilizerService"),
 
-  m_RobotHardwareServicePort_("RobotHardwareService"){
+  m_RobotHardwareServicePort_("RobotHardware2Service"){
 }
 
 AutoStabilizer::AutoStabilizer(RTC::Manager* manager) : RTC::DataFlowComponentBase(manager),
@@ -107,7 +107,7 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
   this->addOutPort("cpViewerLogOut", this->ports_.m_cpViewerLogOut_);
   this->ports_.m_AutoStabilizerServicePort_.registerProvider("service0", "AutoStabilizerService", this->ports_.m_service0_);
   this->addPort(this->ports_.m_AutoStabilizerServicePort_);
-  this->ports_.m_RobotHardwareServicePort_.registerConsumer("service0", "RobotHardwareService", this->ports_.m_robotHardwareService0_);
+  this->ports_.m_RobotHardwareServicePort_.registerConsumer("service0", "RobotHardware2Service", this->ports_.m_robotHardwareService0_);
   this->addPort(this->ports_.m_RobotHardwareServicePort_);
   {
     // load dt

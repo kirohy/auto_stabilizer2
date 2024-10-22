@@ -15,6 +15,7 @@ find_package(catkin REQUIRED COMPONENTS
   joint_limit_table
   collision_checker_msgs
   auto_stabilizer_msgs
+  robot_hardware
   )
 find_package(choreonoid REQUIRED)
 
@@ -50,7 +51,6 @@ target_link_libraries(AutoStabilizer
   ${CHOREONOID_BODY_LIBRARIES}
   ${openrtm_aist_LIBRARIES}
   ${${PROJECT_NAME}_IDLLIBRARY_DIRS}
-  RobotHardwareServiceSkel RobotHardwareServiceStub
   )
 set_target_properties(AutoStabilizer PROPERTIES PREFIX "")
 add_dependencies(AutoStabilizer RTMBUILD2_${PROJECT_NAME}_genrpc) # wait for rtmbuild2_genidl
