@@ -1044,8 +1044,8 @@ bool AutoStabilizer::jumpTo(const double& x, const double& y, const double& z, c
   return true;
 }
 
-bool AutoStabilizer::setFootSteps(const OpenHRP::AutoStabilizerService::FootstepSequence& fs){
-  OpenHRP::AutoStabilizerService::StepParamSequence sps;
+bool AutoStabilizer::setFootSteps(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs){
+  auto_stabilizer::AutoStabilizerService::StepParamSequence sps;
   sps.length(fs.length());
   for(int i=0;i<fs.length();i++){
     sps[i].step_height = this->footStepGenerator_.defaultStepHeight;
@@ -1055,7 +1055,7 @@ bool AutoStabilizer::setFootSteps(const OpenHRP::AutoStabilizerService::Footstep
   return this->setFootStepsWithParam(fs, sps); // この中でmutexをとるので、setFootSteps関数ではmutexはとらない
 }
 
-bool AutoStabilizer::setFootStepsWithParam(const OpenHRP::AutoStabilizerService::FootstepSequence& fs, const OpenHRP::AutoStabilizerService::StepParamSequence& sps){
+bool AutoStabilizer::setFootStepsWithParam(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs, const auto_stabilizer::AutoStabilizerService::StepParamSequence& sps){
   std::lock_guard<std::mutex> guard(this->mutex_);
   if(this->mode_.isABCRunning()){
     std::vector<FootStepGenerator::StepNode> footsteps;
@@ -1224,7 +1224,7 @@ bool AutoStabilizer::stopWholeBodyMasterSlave(void){
   }
 }
 
-bool AutoStabilizer::setAutoStabilizerParam(const OpenHRP::AutoStabilizerService::AutoStabilizerParam& i_param){
+bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilizerService::AutoStabilizerParam& i_param){
   std::lock_guard<std::mutex> guard(this->mutex_);
 
   // ignore i_param.ee_name
@@ -1490,7 +1490,7 @@ bool AutoStabilizer::setAutoStabilizerParam(const OpenHRP::AutoStabilizerService
 
   return true;
 }
-bool AutoStabilizer::getAutoStabilizerParam(OpenHRP::AutoStabilizerService::AutoStabilizerParam& i_param) {
+bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerService::AutoStabilizerParam& i_param) {
   std::lock_guard<std::mutex> guard(this->mutex_);
 
   i_param.ee_name.length(this->gaitParam_.eeName.size());
@@ -1698,7 +1698,7 @@ bool AutoStabilizer::getAutoStabilizerParam(OpenHRP::AutoStabilizerService::Auto
   return true;
 }
 
-bool AutoStabilizer::getFootStepState(OpenHRP::AutoStabilizerService::FootStepState& i_param) {
+bool AutoStabilizer::getFootStepState(auto_stabilizer::AutoStabilizerService::FootStepState& i_param) {
   std::lock_guard<std::mutex> guard(this->mutex_);
 
   i_param.leg_coords.length(NUM_LEGS);
@@ -1752,7 +1752,7 @@ bool AutoStabilizer::getProperty(const std::string& key, std::string& ret) {
 }
 
 // static function
-void AutoStabilizer::copyEigenCoords2FootStep(const cnoid::Isometry3& in_fs, OpenHRP::AutoStabilizerService::Footstep& out_fs){
+void AutoStabilizer::copyEigenCoords2FootStep(const cnoid::Isometry3& in_fs, auto_stabilizer::AutoStabilizerService::Footstep& out_fs){
   out_fs.pos.length(3);
   for(int j=0;j<3;j++) out_fs.pos[j] = in_fs.translation()[j];
   out_fs.rot.length(4);

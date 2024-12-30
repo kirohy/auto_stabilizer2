@@ -1,7 +1,7 @@
 #ifndef AutoStabilizerService_idl
 #define AutoStabilizerService_idl
 
-module OpenHRP
+module auto_stabilizer
 {
 
   interface AutoStabilizerService

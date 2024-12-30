@@ -11,7 +11,6 @@ find_package(catkin REQUIRED COMPONENTS
   prioritized_inverse_kinematics_solver2
   cpp_filters
   ik_constraint2_joint_limit_table
-  hrpsys_ros_bridge
   joint_limit_table
   collision_checker_msgs
   auto_stabilizer_msgs
