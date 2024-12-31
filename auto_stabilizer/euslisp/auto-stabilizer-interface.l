@@ -1,9 +1,9 @@
-(require"package://hrpsys_ros_bridge/euslisp/rtm-ros-robot-interface.l")
+(require"package://jaxon_ros_interface/euslisp/rtm-ros-robot-interface.l")
 (ros::load-ros-manifest "auto_stabilizer")
 (instance rtm-ros-robot-interface :define-all-ROSBridge-srv-methods :ros-pkg-name "auto_stabilizer")
 
 (def-set-get-param-method
-  'auto_stabilizer::Openhrp_AutoStabilizerService_AutoStabilizerParam
+  'auto_stabilizer::auto_stabilizer_AutoStabilizerService_AutoStabilizerParam
   :raw-set-auto-stabilizer-param :get-auto-stabilizer-param :get-auto-stabilizer-param-arguments
   :autostabilizerservice_setautostabilizerparam :autostabilizerservice_getautostabilizerparam)
 

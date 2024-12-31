@@ -23,4 +23,5 @@
   <depend>collision_checker_msgs</depend>
   <depend>auto_stabilizer_msgs</depend>
   <depend>robot_hardware</depend>
+  <exec_depend>jaxon_ros_interface</exec_depend>
 </package>
