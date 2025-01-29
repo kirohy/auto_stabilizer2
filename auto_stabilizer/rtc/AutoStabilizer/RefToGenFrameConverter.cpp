@@ -189,11 +189,15 @@ void RefToGenFrameConverter::convertRefEEPoseRawAbsolute(const GaitParam& gaitPa
 void RefToGenFrameConverter::convertRefEEPoseRawDifferential(GaitParam& gaitParam, double dt, const cnoid::Isometry3& genFootMidCoords, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK, FootStepGenerator& footStepGenerator){
   std::vector<cnoid::Isometry3> ref_pose;
   for(int i=0;i<gaitParam.eeName.size();i++){
-    // refEEPoseWithOutFK[i].translation() = (gaitParam.refEEPoseRaw[i].value().translation() - gaitParam.wbmsOffsetPoseMaster[i].translation()) * gaitParam.humanToRobotRatio[i] + gaitParam.wbmsOffsetPoseSlave[i].translation();
-    // refEEPoseWithOutFK[i].linear() = gaitParam.refEEPoseRaw[i].value().linear() * gaitParam.wbmsOffsetPoseMaster[i].linear().transpose() * gaitParam.wbmsOffsetPoseSlave[i].linear();
-    cnoid::Isometry3 tmp_ref_pose;
-    tmp_ref_pose.translation() = (gaitParam.refEEPoseRaw[i].value().translation() - gaitParam.wbmsOffsetPoseMaster[i].translation()) * gaitParam.humanToRobotRatio[i] + gaitParam.wbmsOffsetPoseSlave[i].translation();
-    tmp_ref_pose.linear() = gaitParam.refEEPoseRaw[i].value().linear() * gaitParam.wbmsOffsetPoseMaster[i].linear().transpose() * gaitParam.wbmsOffsetPoseSlave[i].linear();
+    cnoid::Isometry3 tmp_ref_pose, master_rel_pose, slave_rel_pose = cnoid::Isometry3::Identity();
+    master_rel_pose = gaitParam.wbmsOffsetPoseMaster[i].inverse() * gaitParam.refEEPoseRaw[i].value();
+    slave_rel_pose.translation() = master_rel_pose.translation() * gaitParam.humanToRobotRatio[i];
+    slave_rel_pose.linear() = master_rel_pose.linear();
+    if(i<NUM_LEGS){
+      tmp_ref_pose = gaitParam.wbmsOffsetPoseSlave[i] * slave_rel_pose;
+    }else{ // 上半身はrootLink基準姿勢
+      tmp_ref_pose = gaitParam.refRobot->rootLink()->T() * (gaitParam.wbmsOffsetPoseSlave[i] * slave_rel_pose);
+    }
     ref_pose.push_back(tmp_ref_pose);
   }
 

@@ -77,6 +77,8 @@ module auto_stabilizer
       sequence<double, 2> leg_default_translate_pos;
       /// 要素数2. 0: rleg. 1: lleg. 0~1. 1ならicEETargetPoseに従い、refEEWrenchに応じて重心をオフセットする. 0ならImpedanceControlをせず、refEEWrenchを無視し、GainControlを行わない. 静止状態で無い場合や、支持脚の場合は、勝手に0になる. 両足が同時に1になることはない. 1にするなら、RefToGenFrameConverter.refFootOriginWeightを0にしたほうが良い.
       sequence<boolean, 2> is_manual_control_mode;
+      // 操縦指令の補間時間
+      double wbms_interpolate_duration;
 
       // RefToGenFrameConverter
       /// trueならHandは重心の動きに合わせて左右に揺れる. falseなら揺れない.

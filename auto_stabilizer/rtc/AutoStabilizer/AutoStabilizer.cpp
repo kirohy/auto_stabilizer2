@@ -33,6 +33,7 @@ AutoStabilizer::Ports::Ports() :
   m_selfCollisionIn_("selfCollisionIn", m_selfCollision_),
   m_steppableRegionIn_("steppableRegionIn", m_steppableRegion_),
   m_landingHeightIn_("landingHeightIn", m_landingHeight_),
+  m_refTorsoVelIn_("refTorsoVelIn", m_refTorsoVel_),
 
   m_qOut_("q", m_q_),
   m_genTauOut_("genTauOut", m_genTau_),
@@ -83,6 +84,7 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
   this->addInPort("selfCollisionIn", this->ports_.m_selfCollisionIn_);
   this->addInPort("steppableRegionIn", this->ports_.m_steppableRegionIn_);
   this->addInPort("landingHeightIn", this->ports_.m_landingHeightIn_);
+  this->addInPort("refTorsoVelIn", this->ports_.m_refTorsoVelIn_);
   this->addOutPort("q", this->ports_.m_qOut_);
   this->addOutPort("genTauOut", this->ports_.m_genTauOut_);
   this->addOutPort("genBasePoseOut", this->ports_.m_genBasePoseOut_);
@@ -336,7 +338,7 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
 }
 
 // static function
-bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam, const AutoStabilizer::ControlMode& mode, AutoStabilizer::Ports& ports, cnoid::BodyPtr refRobotRaw, cnoid::BodyPtr actRobotRaw, std::vector<cnoid::Vector6>& refEEWrenchOrigin, std::vector<cpp_filters::TwoPointInterpolatorSE3>& refEEPoseRaw, std::vector<GaitParam::Collision>& selfCollision, std::vector<std::vector<cnoid::Vector3> >& steppableRegion, std::vector<double>& steppableHeight, double& relLandingHeight, cnoid::Vector3& relLandingNormal){
+bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam, const AutoStabilizer::ControlMode& mode, AutoStabilizer::Ports& ports, cnoid::BodyPtr refRobotRaw, cnoid::BodyPtr actRobotRaw, std::vector<cnoid::Vector6>& refEEWrenchOrigin, std::vector<cpp_filters::TwoPointInterpolatorSE3>& refEEPoseRaw, std::vector<GaitParam::Collision>& selfCollision, std::vector<std::vector<cnoid::Vector3> >& steppableRegion, std::vector<double>& steppableHeight, double& relLandingHeight, cnoid::Vector3& relLandingNormal, cpp_filters::TwoPointInterpolator<cnoid::Vector3>& refTorsoAngvel){
   bool qRef_updated = false;
   if(ports.m_qRefIn_.isNew()){
     ports.m_qRefIn_.read();
@@ -400,7 +402,7 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
         pose.translation()[1] = ports.m_refEEPose_[i].data.position.y;
         pose.translation()[2] = ports.m_refEEPose_[i].data.position.z;
         pose.linear() = cnoid::rotFromRpy(ports.m_refEEPose_[i].data.orientation.r, ports.m_refEEPose_[i].data.orientation.p, ports.m_refEEPose_[i].data.orientation.y);
-        refEEPoseRaw[i].setGoal(pose, 0.3); // 0.3秒で補間
+        refEEPoseRaw[i].setGoal(pose, gaitParam.wbmsInterpolateDuration); // 0.3秒で補間
         ports.refEEPoseLastUpdateTime_ = ports.m_qRef_.tm;
       } else {
         std::cerr << "m_refEEPose is not finite!" << std::endl;
@@ -554,6 +556,17 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
     }else{
       std::cerr << "m_landingHeight is not finite!" << std::endl;
     }
+  }
+
+  if(ports.m_refTorsoVelIn_.isNew()) {
+    ports.m_refTorsoVelIn_.read();
+    if(std::isfinite(ports.m_refTorsoVel_.data.vx) && std::isfinite(ports.m_refTorsoVel_.data.vy) && std::isfinite(ports.m_refTorsoVel_.data.vz) && std::isfinite(ports.m_refTorsoVel_.data.vr) && std::isfinite(ports.m_refTorsoVel_.data.vp) && std::isfinite(ports.m_refTorsoVel_.data.va)){
+      cnoid::Vector3 angvel(ports.m_refTorsoVel_.data.vr, ports.m_refTorsoVel_.data.vp, ports.m_refTorsoVel_.data.va);
+      refTorsoAngvel.setGoal(angvel, gaitParam.wbmsInterpolateDuration);
+    } else {
+      std::cerr << "m_refTorsoAngVel is not finite!" << std::endl;
+    }
+    refTorsoAngvel.interpolate(dt);
   }
 
   return qRef_updated;
@@ -958,7 +971,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
   std::string instance_name = std::string(this->m_profile.instance_name);
   this->loop_++;
 
-  if(!AutoStabilizer::readInPortData(this->dt_, this->gaitParam_, this->mode_, this->ports_, this->gaitParam_.refRobotRaw, this->gaitParam_.actRobotRaw, this->gaitParam_.refEEWrenchOrigin, this->gaitParam_.refEEPoseRaw, this->gaitParam_.selfCollision, this->gaitParam_.steppableRegion, this->gaitParam_.steppableHeight, this->gaitParam_.relLandingHeight, this->gaitParam_.relLandingNormal)) return RTC::RTC_OK;  // qRef が届かなければ何もしない
+  if(!AutoStabilizer::readInPortData(this->dt_, this->gaitParam_, this->mode_, this->ports_, this->gaitParam_.refRobotRaw, this->gaitParam_.actRobotRaw, this->gaitParam_.refEEWrenchOrigin, this->gaitParam_.refEEPoseRaw, this->gaitParam_.selfCollision, this->gaitParam_.steppableRegion, this->gaitParam_.steppableHeight, this->gaitParam_.relLandingHeight, this->gaitParam_.relLandingNormal, this->gaitParam_.refTorsoAnglVel)) return RTC::RTC_OK;  // qRef が届かなければ何もしない
 
   this->mode_.update(this->dt_);
   this->gaitParam_.update(this->dt_);
@@ -1202,9 +1215,13 @@ bool AutoStabilizer::startWholeBodyMasterSlave(void){
       return false;
     }
     this->refToGenFrameConverter_.solveFKMode.setGoal(0.0, 5.0); // 5秒で遷移
-    for(int i=0;i<gaitParam_.eeName.size();i++){ // startWholeBodyMasterSlave時のEE姿勢を保存
+    for(int i=0;i<NUM_LEGS;i++){ // startWholeBodyMasterSlave時のEE姿勢を保存
       this->gaitParam_.wbmsOffsetPoseMaster[i] = this->gaitParam_.refEEPoseRaw[i].value();
       this->gaitParam_.wbmsOffsetPoseSlave[i] = this->gaitParam_.refEEPose[i];
+    }
+    for(int i=NUM_LEGS;i<gaitParam_.eeName.size();i++){ // 上半身はrootLink基準姿勢を保存
+      this->gaitParam_.wbmsOffsetPoseMaster[i] = this->gaitParam_.refEEPoseRaw[i].value();
+      this->gaitParam_.wbmsOffsetPoseSlave[i] = this->gaitParam_.genRobot->rootLink()->T().inverse() * this->gaitParam_.refEEPose[i];
     }
     std::cerr << "[" << this->m_profile.instance_name << "] Start WholeBodyMasterSlave" << std::endl;
     return true;
@@ -1518,6 +1535,7 @@ bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilize
       }
     }
   }
+  this->gaitParam_.wbmsInterpolateDuration = i_param.wbms_interpolate_duration;
 
   return true;
 }
@@ -1739,6 +1757,7 @@ bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerServi
   for(int i=0;i<this->fullbodyIKSolver_.ikEEEvalLink.size();i++){
     i_param.ee_eval_link_name[i] = this->fullbodyIKSolver_.ikEEEvalLink[i].c_str();
   }
+  i_param.wbms_interpolate_duration = this->gaitParam_.wbmsInterpolateDuration;
 
   return true;
 }

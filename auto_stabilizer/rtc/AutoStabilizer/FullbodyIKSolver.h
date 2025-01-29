@@ -9,6 +9,7 @@
 #include <ik_constraint2_joint_limit_table/JointLimitMinMaxTableConstraint.h>
 #include <ik_constraint2/JointVelocityConstraint.h>
 #include <ik_constraint2/ClientCollisionConstraint.h>
+#include <ik_constraint2/VelocityConstraint.h>
 #include <prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h>
 
 class FullbodyIKSolver{
@@ -25,6 +26,7 @@ public:
   mutable std::shared_ptr<ik_constraint2::PositionConstraint> rootPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
   mutable std::shared_ptr<ik_constraint2::COMConstraint> comConstraint = std::make_shared<ik_constraint2::COMConstraint>();
   mutable std::shared_ptr<ik_constraint2::AngularMomentumConstraint> angularMomentumConstraint = std::make_shared<ik_constraint2::AngularMomentumConstraint>();
+  mutable std::shared_ptr<ik_constraint2::VelocityConstraint> angularVelocityConstraint = std::make_shared<ik_constraint2::VelocityConstraint>();
   mutable std::vector<std::shared_ptr<ik_constraint2_joint_limit_table::JointLimitMinMaxTableConstraint> > jointLimitConstraint;
   mutable std::vector<std::shared_ptr<ik_constraint2::JointVelocityConstraint> > jointVelocityConstraint;
   mutable std::vector<std::shared_ptr<ik_constraint2::ClientCollisionConstraint> > selfCollisionConstraint;

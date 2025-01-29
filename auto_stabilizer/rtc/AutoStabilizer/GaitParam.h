@@ -41,6 +41,7 @@ public:
   cnoid::BodyPtr refRobotRaw; // reference. reference world frame
   std::vector<cnoid::Vector6> refEEWrenchOrigin; // 要素数と順序はeeNameと同じ.FootOrigin frame. EndEffector origin. ロボットが受ける力
   std::vector<cpp_filters::TwoPointInterpolatorSE3> refEEPoseRaw; // 要素数と順序はeeNameと同じ. reference world frame. EEPoseはjoint angleなどと比べて遅い周期で届くことが多いので、interpolaterで補間する.
+  cpp_filters::TwoPointInterpolator<cnoid::Vector3> refTorsoAnglVel = cpp_filters::TwoPointInterpolator<cnoid::Vector3>(cnoid::Vector3::Zero(), cnoid::Vector3::Zero(), cnoid::Vector3::Zero(), cpp_filters::HOFFARBIB);
   cnoid::BodyPtr actRobotRaw; // actual. actual imu world frame
   class Collision {
   public:
@@ -68,6 +69,7 @@ public:
   double refdz = 1.0; // generate frame. 支持脚からのCogの目標高さ. 0より大きい
   cpp_filters::TwoPointInterpolatorSE3 footMidCoords = cpp_filters::TwoPointInterpolatorSE3(cnoid::Isometry3::Identity(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cpp_filters::HOFFARBIB); // generate frame. Z軸は鉛直. 支持脚の位置姿勢(Z軸は鉛直)にdefaultTranslatePosを適用したものの間をつなぐ. interpolatorによって連続的に変化する. reference frameとgenerate frameの対応付けに用いられる
   bool isWbmsAbsolute = false; // 操縦時の姿勢反映モード
+  double wbmsInterpolateDuration = 0.3; // 操縦指令の補間時間
   std::vector<double> humanToRobotRatio; // 操縦時のエンドエフェクタ位置の拡大率
   std::vector<cnoid::Isometry3> wbmsOffsetPoseMaster; // 要素数と順序はeeNameと同じ. wbms起動時の姿勢を保存
   std::vector<cnoid::Isometry3> wbmsOffsetPoseSlave; // 要素数と順序はeeNameと同じ. wbms起動時の姿勢を保存

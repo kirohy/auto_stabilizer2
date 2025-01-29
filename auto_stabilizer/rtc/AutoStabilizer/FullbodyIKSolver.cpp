@@ -65,7 +65,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
   std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint2;
 
   // EEF
-  for(int i=0;i<gaitParam.eeName.size();i++){
+  // 足
+  for(int i=0;i<NUM_LEGS;i++){
     this->ikEEPositionConstraint[i]->A_link() = genRobot->link(gaitParam.eeParentLink[i]);
     this->ikEEPositionConstraint[i]->A_localpos() = gaitParam.eeLocalT[i];
     this->ikEEPositionConstraint[i]->B_link() = nullptr;
@@ -78,6 +79,22 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     else this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->B_localpos().linear();
     ikConstraint2.push_back(this->ikEEPositionConstraint[i]);
   }
+
+  // 上半身
+  for(int i=NUM_LEGS;i<gaitParam.eeName.size();i++){
+    this->ikEEPositionConstraint[i]->A_link() = genRobot->link(gaitParam.eeParentLink[i]);
+    this->ikEEPositionConstraint[i]->A_localpos() = gaitParam.eeLocalT[i];
+    this->ikEEPositionConstraint[i]->B_link() = genRobot->rootLink();
+    this->ikEEPositionConstraint[i]->B_localpos() = gaitParam.refRobot->rootLink()->T().inverse() * gaitParam.abcEETargetPose[i];
+    this->ikEEPositionConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
+    this->ikEEPositionConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
+    this->ikEEPositionConstraint[i]->weight() = this->ikEEPositionWeight[i].value();
+    this->ikEEPositionConstraint[i]->eval_link() = genRobot->link(this->ikEEEvalLink[i]);
+    if(this->ikEEPositionConstraint[i]->eval_link()) this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->eval_link()->R().transpose() * this->ikEEPositionConstraint[i]->B_localpos().linear();
+    else this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->B_localpos().linear();
+    ikConstraint2.push_back(this->ikEEPositionConstraint[i]);
+  }
+
 
   // COM
   {
@@ -104,6 +121,22 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     ikConstraint2.push_back(this->angularMomentumConstraint);
   }
 
+  // Torso Angular Velocity
+  {
+    this->angularVelocityConstraint->A_link() = genRobot->link("CHEST_JOINT2");
+    this->angularVelocityConstraint->A_localpos() = cnoid::Isometry3::Identity();
+    this->angularVelocityConstraint->B_link() = nullptr;
+    this->angularVelocityConstraint->base_velocity() << genRobot->rootLink()->v()[0], genRobot->rootLink()->v()[1], genRobot->rootLink()->v()[1], 0.0, 0.0, 0.0;
+    this->angularVelocityConstraint->target_velocity() << 0.0, 0.0, 0.0, gaitParam.refTorsoAnglVel.value()[0], gaitParam.refTorsoAnglVel.value()[1], gaitParam.refTorsoAnglVel.value()[2];
+    this->angularVelocityConstraint->maxError() << 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt;
+    this->angularVelocityConstraint->precision() = 0.0;
+    this->angularVelocityConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 0.0;
+    this->angularVelocityConstraint->dt() = dt;
+    this->angularVelocityConstraint->eval_link() = nullptr;
+    this->angularVelocityConstraint->eval_localR() = cnoid::Matrix3d::Identity();
+    ikConstraint2.push_back(this->angularVelocityConstraint);
+  }
+
   // root
   {
     this->rootPositionConstraint->A_link() = genRobot->rootLink();
@@ -112,8 +145,9 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->rootPositionConstraint->B_localpos() = gaitParam.stTargetRootPose;
     this->rootPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
     this->rootPositionConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
-    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
+    // this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
     //this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-1, 3e-1, 3e-1;
+    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-2, 3e-2, 3e-2;
     this->rootPositionConstraint->eval_link() = nullptr;
     this->rootPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
     ikConstraint2.push_back(this->rootPositionConstraint);
