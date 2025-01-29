@@ -1,9 +1,9 @@
-(require"package://hrpsys_ros_bridge/euslisp/rtm-ros-robot-interface.l")
+(require"package://jaxon_ros_interface/euslisp/rtm-ros-robot-interface.l")
 (ros::load-ros-manifest "auto_stabilizer")
 (instance rtm-ros-robot-interface :define-all-ROSBridge-srv-methods :ros-pkg-name "auto_stabilizer")
 
 (def-set-get-param-method
-  'auto_stabilizer::Openhrp_AutoStabilizerService_AutoStabilizerParam
+  'auto_stabilizer::auto_stabilizer_AutoStabilizerService_AutoStabilizerParam
   :raw-set-auto-stabilizer-param :get-auto-stabilizer-param :get-auto-stabilizer-param-arguments
   :autostabilizerservice_setautostabilizerparam :autostabilizerservice_getautostabilizerparam)
 
@@ -55,7 +55,7 @@
                  foot-step-list)
          :sps
          (mapcar #'(lambda (sh st se)
-                     (instance auto_stabilizer::openhrp_autostabilizerservice_stepparam :init :step_height (* sh 1e-3) :step_time st :swing_end se))
+                     (instance auto_stabilizer::auto_stabilizer_autostabilizerservice_stepparam :init :step_height (* sh 1e-3) :step_time st :swing_end se))
                  step-height-list step-time-list swing-end-list)
          ))
   (:set-foot-steps-with-param
@@ -172,7 +172,7 @@
    )
   (:eus-footstep->abc-footstep
    (f)
-   (instance auto_stabilizer::openhrp_autostabilizerservice_footstep :init
+   (instance auto_stabilizer::auto_stabilizer_autostabilizerservice_footstep :init
              :pos (scale 1e-3 (send f :worldpos))
              :rot (matrix2quaternion (send f :worldrot))
              :leg (string-downcase (if (find-method f :l/r) (send f :l/r) (send f :name))))

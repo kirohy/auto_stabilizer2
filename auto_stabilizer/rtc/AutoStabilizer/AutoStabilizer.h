@@ -24,7 +24,7 @@
 // #include <cpp_filters/IIRFilter.h>
 // #include <joint_limit_table/JointLimitTable.h>
 
-#include <hrpsys/idl/RobotHardwareService.hh>
+#include <robot_hardware/idl/RobotHardware2Service.hh>
 #include <collision_checker_msgs/idl/Collision.hh>
 #include <auto_stabilizer_msgs/idl/AutoStabilizer.hh>
 
@@ -54,14 +54,14 @@ public:
   bool goVelocity(const double& vx, const double& vy, const double& vth);
   bool goStop();
   bool jumpTo(const double& x, const double& y, const double& z, const double& ts, const double& tf);
-  bool setFootSteps(const OpenHRP::AutoStabilizerService::FootstepSequence& fs);
-  bool setFootStepsWithParam(const OpenHRP::AutoStabilizerService::FootstepSequence& fs, const OpenHRP::AutoStabilizerService::StepParamSequence& sps);
+  bool setFootSteps(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs);
+  bool setFootStepsWithParam(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs, const auto_stabilizer::AutoStabilizerService::StepParamSequence& sps);
   void waitFootSteps();
   bool startAutoBalancer();
   bool stopAutoBalancer();
-  bool setAutoStabilizerParam(const OpenHRP::AutoStabilizerService::AutoStabilizerParam& i_param);
-  bool getAutoStabilizerParam(OpenHRP::AutoStabilizerService::AutoStabilizerParam& i_param);
-  bool getFootStepState(OpenHRP::AutoStabilizerService::FootStepState& i_param);
+  bool setAutoStabilizerParam(const auto_stabilizer::AutoStabilizerService::AutoStabilizerParam& i_param);
+  bool getAutoStabilizerParam(auto_stabilizer::AutoStabilizerService::AutoStabilizerParam& i_param);
+  bool getFootStepState(auto_stabilizer::AutoStabilizerService::FootStepState& i_param);
   bool releaseEmergencyStop();
   bool startStabilizer(void);
   bool stopStabilizer(void);
@@ -130,7 +130,7 @@ protected:
     AutoStabilizerService_impl m_service0_;
     RTC::CorbaPort m_AutoStabilizerServicePort_;
 
-    RTC::CorbaConsumer<OpenHRP::RobotHardwareService> m_robotHardwareService0_;
+    RTC::CorbaConsumer<robot_hardware::RobotHardware2Service> m_robotHardwareService0_;
     RTC::CorbaPort m_RobotHardwareServicePort_;
 
 
@@ -269,7 +269,7 @@ protected:
 protected:
   // utility functions
   bool getProperty(const std::string& key, std::string& ret);
-  static void copyEigenCoords2FootStep(const cnoid::Isometry3& in_fs, OpenHRP::AutoStabilizerService::Footstep& out_fs);
+  static void copyEigenCoords2FootStep(const cnoid::Isometry3& in_fs, auto_stabilizer::AutoStabilizerService::Footstep& out_fs);
 
   static bool readInPortData(const double& dt, const GaitParam& gaitParam, const AutoStabilizer::ControlMode& mode, AutoStabilizer::Ports& ports, cnoid::BodyPtr refRobotRaw, cnoid::BodyPtr actRobotRaw, std::vector<cnoid::Vector6>& refEEWrenchOrigin, std::vector<cpp_filters::TwoPointInterpolatorSE3>& refEEPoseRaw, std::vector<GaitParam::Collision>& selfCollision, std::vector<std::vector<cnoid::Vector3> >& steppableRegion, std::vector<double>& steppableHeight, double& relLandingHeight, cnoid::Vector3& relLandingNormal);
   static bool execAutoStabilizer(const AutoStabilizer::ControlMode& mode, GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator, const LegCoordsGenerator& legCoordsGenerator, RefToGenFrameConverter& refToGenFrameConverter, const ActToGenFrameConverter& actToGenFrameConverter, const ImpedanceController& impedanceController, const Stabilizer& stabilizer, const ExternalForceHandler& externalForceHandler, const FullbodyIKSolver& fullbodyIKSolver, const LegManualController& legManualController, const CmdVelGenerator& cmdVelGenerator);

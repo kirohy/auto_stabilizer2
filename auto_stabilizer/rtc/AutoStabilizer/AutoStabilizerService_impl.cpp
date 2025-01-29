@@ -29,12 +29,12 @@ CORBA::Boolean AutoStabilizerService_impl::jumpTo( CORBA::Double x,  CORBA::Doub
   return this->comp_->jumpTo(x, y, z, ts, tf);
 };
 
-CORBA::Boolean AutoStabilizerService_impl::setFootSteps(const OpenHRP::AutoStabilizerService::FootstepSequence& fs)
+CORBA::Boolean AutoStabilizerService_impl::setFootSteps(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs)
 {
   return this->comp_->setFootSteps(fs);
 }
 
-CORBA::Boolean AutoStabilizerService_impl::setFootStepsWithParam(const OpenHRP::AutoStabilizerService::FootstepSequence& fs, const OpenHRP::AutoStabilizerService::StepParamSequence& spss)
+CORBA::Boolean AutoStabilizerService_impl::setFootStepsWithParam(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs, const auto_stabilizer::AutoStabilizerService::StepParamSequence& spss)
 {
   return this->comp_->setFootStepsWithParam(fs, spss);
 }
@@ -64,20 +64,20 @@ CORBA::Boolean AutoStabilizerService_impl::stopStabilizer(void)
   return this->comp_->stopStabilizer();
 }
 
-CORBA::Boolean AutoStabilizerService_impl::setAutoStabilizerParam(const OpenHRP::AutoStabilizerService::AutoStabilizerParam& i_param)
+CORBA::Boolean AutoStabilizerService_impl::setAutoStabilizerParam(const auto_stabilizer::AutoStabilizerService::AutoStabilizerParam& i_param)
 {
   return this->comp_->setAutoStabilizerParam(i_param);
 };
 
-CORBA::Boolean AutoStabilizerService_impl::getAutoStabilizerParam(OpenHRP::AutoStabilizerService::AutoStabilizerParam_out i_param)
+CORBA::Boolean AutoStabilizerService_impl::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerService::AutoStabilizerParam_out i_param)
 {
-  i_param = new OpenHRP::AutoStabilizerService::AutoStabilizerParam();
+  i_param = new auto_stabilizer::AutoStabilizerService::AutoStabilizerParam();
   return this->comp_->getAutoStabilizerParam(*i_param);
 };
 
-CORBA::Boolean AutoStabilizerService_impl::getFootStepState(OpenHRP::AutoStabilizerService::FootStepState_out i_param)
+CORBA::Boolean AutoStabilizerService_impl::getFootStepState(auto_stabilizer::AutoStabilizerService::FootStepState_out i_param)
 {
-  i_param = new OpenHRP::AutoStabilizerService::FootStepState();
+  i_param = new auto_stabilizer::AutoStabilizerService::FootStepState();
   return this->comp_->getFootStepState(*i_param);
 };
 
