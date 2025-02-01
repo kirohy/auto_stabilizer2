@@ -977,6 +977,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
   this->gaitParam_.update(this->dt_);
   this->refToGenFrameConverter_.update(this->dt_);
   this->fullbodyIKSolver_.update(this->dt_);
+  this->gaitParam_.wbmsMode.interpolate(this->dt_);
 
   if(this->mode_.isABCRunning()) {
     if(this->mode_.isSyncToABCInit()){ // startAutoBalancer直後の初回. 内部パラメータのリセット
@@ -1215,6 +1216,7 @@ bool AutoStabilizer::startWholeBodyMasterSlave(void){
       return false;
     }
     this->refToGenFrameConverter_.solveFKMode.setGoal(0.0, 5.0); // 5秒で遷移
+    this->gaitParam_.wbmsMode.setGoal(1.0, 5.0);
     for(int i=0;i<NUM_LEGS;i++){ // startWholeBodyMasterSlave時のEE姿勢を保存
       this->gaitParam_.wbmsOffsetPoseMaster[i] = this->gaitParam_.refEEPoseRaw[i].value();
       this->gaitParam_.wbmsOffsetPoseSlave[i] = this->gaitParam_.refEEPose[i];
@@ -1238,6 +1240,7 @@ bool AutoStabilizer::stopWholeBodyMasterSlave(void){
       return false;
     }
     this->refToGenFrameConverter_.solveFKMode.setGoal(1.0, 5.0); // 5秒で遷移
+    this->gaitParam_.wbmsMode.setGoal(0.0, 5.0);
     std::cerr << "[" << this->m_profile.instance_name << "] Stop WholeBodyMasterSlave" << std::endl;
     return true;
   }else{

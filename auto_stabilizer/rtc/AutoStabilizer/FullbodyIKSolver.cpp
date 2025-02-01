@@ -3,6 +3,8 @@
 
 bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
                                        cnoid::BodyPtr& genRobot) const{
+  double wbmsMode = gaitParam.wbmsMode.value();
+
   // !jointControllableの関節は指令値をそのまま入れる
   for(size_t i=0;i<genRobot->numJoints();i++){
     if(!gaitParam.jointControllable[i]) genRobot->joint(i)->q() = gaitParam.refRobot->joint(i)->q();
@@ -130,7 +132,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->angularVelocityConstraint->target_velocity() << 0.0, 0.0, 0.0, gaitParam.refTorsoAnglVel.value()[0], gaitParam.refTorsoAnglVel.value()[1], gaitParam.refTorsoAnglVel.value()[2];
     this->angularVelocityConstraint->maxError() << 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt;
     this->angularVelocityConstraint->precision() = 0.0;
-    this->angularVelocityConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 0.0;
+    this->angularVelocityConstraint->weight() << 0.0, 0.0, 0.0, 3.0*wbmsMode, 3.0*wbmsMode, 3.0*wbmsMode;
     this->angularVelocityConstraint->dt() = dt;
     this->angularVelocityConstraint->eval_link() = nullptr;
     this->angularVelocityConstraint->eval_localR() = cnoid::Matrix3d::Identity();
@@ -147,7 +149,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->rootPositionConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     // this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
     //this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-1, 3e-1, 3e-1;
-    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-2, 3e-2, 3e-2;
+    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0*(1.001-wbmsMode), 3.0*(1.001-wbmsMode), 3.0*(1.001-wbmsMode);
     this->rootPositionConstraint->eval_link() = nullptr;
     this->rootPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
     ikConstraint2.push_back(this->rootPositionConstraint);
@@ -159,7 +161,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
       if(!gaitParam.jointControllable[i]) continue;
       this->refJointAngleConstraint[i]->joint() = genRobot->joint(i);
       this->refJointAngleConstraint[i]->maxError() = 10.0 * dt; // 高優先度のmaxError以下にしないと優先度逆転するおそれ
-      this->refJointAngleConstraint[i]->weight() = 1e-1; // 小さい値すぎると、qp終了判定のtoleranceによって無視されてしまう
+      // this->refJointAngleConstraint[i]->weight() = 1e-1; // 小さい値すぎると、qp終了判定のtoleranceによって無視されてしまう
+      this->refJointAngleConstraint[i]->weight() = 1e-1*(1.0-wbmsMode);
       this->refJointAngleConstraint[i]->targetq() = gaitParam.refRobot->joint(i)->q();
       this->refJointAngleConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
       ikConstraint2.push_back(this->refJointAngleConstraint[i]);

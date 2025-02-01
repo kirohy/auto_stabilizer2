@@ -73,6 +73,8 @@ public:
   std::vector<double> humanToRobotRatio; // 操縦時のエンドエフェクタ位置の拡大率
   std::vector<cnoid::Isometry3> wbmsOffsetPoseMaster; // 要素数と順序はeeNameと同じ. wbms起動時の姿勢を保存
   std::vector<cnoid::Isometry3> wbmsOffsetPoseSlave; // 要素数と順序はeeNameと同じ. wbms起動時の姿勢を保存
+  cpp_filters::TwoPointInterpolator<double> wbmsMode = cpp_filters::TwoPointInterpolator<double>(0.0,0.0,0.0,cpp_filters::HOFFARBIB);
+
 
   // actToGenFrameConverter
   cnoid::BodyPtr actRobot; // actual. generate frame
