@@ -106,7 +106,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->comConstraint->B_localp() = gaitParam.genCog + gaitParam.sbpOffset;
     this->comConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt;
     this->comConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
-    this->comConstraint->weight() << 10.0, 10.0, 1.0;
+    this->comConstraint->weight() << 10.0, 10.0, 1.0*(1.0-wbmsMode);
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
     ikConstraint2.push_back(this->comConstraint);
   }
@@ -125,14 +125,15 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
 
   // Torso Angular Velocity
   {
-    this->angularVelocityConstraint->A_link() = genRobot->link("CHEST_JOINT2");
+    // this->angularVelocityConstraint->A_link() = genRobot->link("CHEST_JOINT2");
+    this->angularVelocityConstraint->A_link() = genRobot->rootLink();
     this->angularVelocityConstraint->A_localpos() = cnoid::Isometry3::Identity();
     this->angularVelocityConstraint->B_link() = nullptr;
     this->angularVelocityConstraint->base_velocity() << genRobot->rootLink()->v()[0], genRobot->rootLink()->v()[1], genRobot->rootLink()->v()[1], 0.0, 0.0, 0.0;
     this->angularVelocityConstraint->target_velocity() << 0.0, 0.0, 0.0, gaitParam.refTorsoAnglVel.value()[0], gaitParam.refTorsoAnglVel.value()[1], gaitParam.refTorsoAnglVel.value()[2];
-    this->angularVelocityConstraint->maxError() << 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt, 1.0*dt;
+    this->angularVelocityConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
     this->angularVelocityConstraint->precision() = 0.0;
-    this->angularVelocityConstraint->weight() << 0.0, 0.0, 0.0, 3.0*wbmsMode, 3.0*wbmsMode, 3.0*wbmsMode;
+    this->angularVelocityConstraint->weight() << 0.0, 0.0, 0.0, 1.0*wbmsMode, 1.0*wbmsMode, 0.0*wbmsMode;
     this->angularVelocityConstraint->dt() = dt;
     this->angularVelocityConstraint->eval_link() = nullptr;
     this->angularVelocityConstraint->eval_localR() = cnoid::Matrix3d::Identity();
@@ -149,8 +150,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->rootPositionConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     // this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
     //this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-1, 3e-1, 3e-1;
-    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0*(1.001-wbmsMode), 3.0*(1.001-wbmsMode), 3.0*(1.001-wbmsMode);
-    this->rootPositionConstraint->eval_link() = nullptr;
+    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0*(1.0-wbmsMode), 3.0*(1.0-wbmsMode), 1.0*(1.0-wbmsMode);
+    this->rootPositionConstraint->eval_link() = genRobot->rootLink();
     this->rootPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
     ikConstraint2.push_back(this->rootPositionConstraint);
   }
