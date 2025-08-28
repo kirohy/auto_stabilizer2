@@ -148,10 +148,10 @@ class AutoStabilizer_Configurator(object):
     def servoOnWithResetPose(self):
         if self.servoOn() == True:
             self.setCollisionFreeResetPose()
-            print "go to collision-free-reset-pose"
+            print("go to collision-free-reset-pose")
             self.seq_svc.waitInterpolation()
             self.setResetPose()
-            print "go to reset-pose"
+            print("go to reset-pose")
             self.seq_svc.waitInterpolation()
 
     def removeForceSensorOffsetRMFO(self, sensor_names=[], tm=8.0):
