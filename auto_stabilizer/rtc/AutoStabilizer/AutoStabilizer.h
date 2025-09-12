@@ -114,6 +114,8 @@ protected:
 
     RTC::TimedDoubleSeq m_q_;
     RTC::OutPort<RTC::TimedDoubleSeq> m_qOut_;
+    RTC::TimedDoubleSeq m_dq_;
+    RTC::OutPort<RTC::TimedDoubleSeq> m_dqOut_;
     RTC::TimedDoubleSeq m_genTau_;
     RTC::OutPort<RTC::TimedDoubleSeq> m_genTauOut_;
     RTC::TimedPose3D m_genBasePose_; // Generate World frame
