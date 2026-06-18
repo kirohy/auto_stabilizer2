@@ -22,6 +22,8 @@ public:
   std::vector<std::string> eeParentLink; // constant. 要素数と順序はeeNameと同じ. 必ずrobot->link(parentLink)がnullptrではないことを約束する. そのため、毎回robot->link(parentLink)がnullptrかをチェックしなくても良い
   std::vector<cnoid::Isometry3> eeLocalT; // constant. 要素数と順序はeeNameと同じ. Parent Link Frame
 
+  std::string chestLinkName; // wbmsでの腕の座標系基準フレーム
+
   std::vector<double> maxTorque; // constant. 要素数と順序はnumJoints()と同じ. 単位は[Nm]. 0以上
   std::vector<std::vector<std::shared_ptr<joint_limit_table::JointLimitTable> > > jointLimitTables; // constant. 要素数と順序はnumJoints()と同じ. for genRobot.
 
@@ -69,11 +71,9 @@ public:
   double refdz = 1.0; // generate frame. 支持脚からのCogの目標高さ. 0より大きい
   cpp_filters::TwoPointInterpolatorSE3 footMidCoords = cpp_filters::TwoPointInterpolatorSE3(cnoid::Isometry3::Identity(),cnoid::Vector6::Zero(),cnoid::Vector6::Zero(),cpp_filters::HOFFARBIB); // generate frame. Z軸は鉛直. 支持脚の位置姿勢(Z軸は鉛直)にdefaultTranslatePosを適用したものの間をつなぐ. interpolatorによって連続的に変化する. reference frameとgenerate frameの対応付けに用いられる
   bool isWbmsAbsolute = false; // 操縦時の姿勢反映モード
-  double wbmsInterpolateDuration = 0.3; // 操縦指令の補間時間
   std::vector<double> humanToRobotRatio; // 操縦時のエンドエフェクタ位置の拡大率
   std::vector<cnoid::Isometry3> wbmsOffsetPoseMaster; // 要素数と順序はeeNameと同じ. wbms起動時の姿勢を保存
   std::vector<cnoid::Isometry3> wbmsOffsetPoseSlave; // 要素数と順序はeeNameと同じ. wbms起動時の姿勢を保存
-  cpp_filters::TwoPointInterpolator<double> wbmsMode = cpp_filters::TwoPointInterpolator<double>(0.0,0.0,0.0,cpp_filters::HOFFARBIB);
 
 
   // actToGenFrameConverter
@@ -160,6 +160,14 @@ public:
 
   // FullbodyIKSolver
   cnoid::BodyPtr genRobot; // output. 関節位置制御用
+  cpp_filters::TwoPointInterpolator<double> wbmsMode = cpp_filters::TwoPointInterpolator<double>(0.0,0.0,0.0,cpp_filters::HOFFARBIB);
+
+  // WBMS
+  double wbmsInterpolateDuration = 0.3; // 操縦指令の補間時間
+  double wbmsWalkingStabilityStartTime = 2.0; // [s]. WBMS中に歩行開始するとき、歩行開始前にroot姿勢とCOM Z拘束を復帰させる時間
+  double wbmsWalkingStabilityStopTime = 1.0; // [s]. WBMS中に静止へ戻ったとき、root姿勢とCOM Z拘束を弱める補間時間
+  bool isWbmsWalkingStartDelay = false; // WBMS中の歩行開始前に姿勢復帰待ちをしている
+  double wbmsWalkingStartDelayRemainTime = 0.0; // [s]. WBMS中の歩行開始前姿勢復帰待ちの残り時間
 
   // for debug data
   class DebugData {
@@ -228,6 +236,8 @@ public:
     steppableHeight.clear();
     relLandingHeight = -1e15;
     relLandingNormal = cnoid::Vector3::UnitZ();
+    isWbmsWalkingStartDelay = false;
+    wbmsWalkingStartDelayRemainTime = 0.0;
   }
 
   // 毎周期呼ばれる. 内部の補間器をdtだけ進める

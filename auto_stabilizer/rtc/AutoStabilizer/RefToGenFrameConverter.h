@@ -2,7 +2,6 @@
 #define REFTOGENFRAMECONVERTER_H
 
 #include "GaitParam.h"
-#include "FootStepGenerator.h"
 #include <cnoid/Body>
 
 class RefToGenFrameConverter {
@@ -40,8 +39,8 @@ public:
 
   // reference frameで表現されたrefRobotRawをgenerate frameに投影しrefRobotとし、各種referencec値をgenerate frameに変換する
   // TODO : const関数じゃなくなった
-  bool convertFrame(GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator,// input
-                    cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords); // output
+  bool convertFrame(GaitParam& gaitParam, double dt, // input
+                    cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords) const; // output
 protected:
   // 現在のFootStepNodesListから、genRobotのfootMidCoordsを求める (gaitParam.footMidCoords)
   void calcFootMidCoords(const GaitParam& gaitParam, double dt, cpp_filters::TwoPointInterpolatorSE3& footMidCoords) const;
@@ -49,7 +48,7 @@ protected:
   void convertRefRobotRaw(const GaitParam& gaitParam, const cnoid::Isometry3& genFootMidCoords, cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& refEEPoseFK, double& refdz) const;
   // refEEPoseRawを変換する.
   void convertRefEEPoseRawAbsolute(const GaitParam& gaitParam, const cnoid::Isometry3& genFootMidCoords, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK) const;
-  void convertRefEEPoseRawDifferential(GaitParam& gaitParam, double dt, const cnoid::Isometry3& genFootMidCoords, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK, FootStepGenerator& footStepGenerator);
+  void convertRefEEPoseRawDifferential(GaitParam& gaitParam, double dt, const cnoid::Isometry3& genFootMidCoords, const std::vector<cnoid::Isometry3>& refEEPoseFK, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK) const;
 
   // refFootOriginWeightとdefaultTranslatePosとcopOffset.value() に基づいて両足中間座標を求める
   cnoid::Isometry3 calcRefFootMidCoords(const cnoid::Isometry3& rleg_, const cnoid::Isometry3& lleg_, const GaitParam& gaitParam) const;

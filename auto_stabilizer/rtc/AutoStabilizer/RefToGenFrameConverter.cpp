@@ -30,8 +30,8 @@ bool RefToGenFrameConverter::initGenRobot(const GaitParam& gaitParam, // input
   return true;
 }
 
-bool RefToGenFrameConverter::convertFrame(GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator,// input
-                                          cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords){ // output
+bool RefToGenFrameConverter::convertFrame(GaitParam& gaitParam, double dt, // input
+                                          cnoid::BodyPtr& refRobot, std::vector<cnoid::Isometry3>& o_refEEPose, std::vector<cnoid::Vector6>& o_refEEWrench, double& o_refdz, cpp_filters::TwoPointInterpolatorSE3& o_footMidCoords) const { // output
 
   /*
     静止時に、足のrefEEPoseとgenCoordsの位置がそろっていて欲しい.(refEEPoseとgenCoordsの左右の足が水平で相対位置が同じなら)
@@ -78,7 +78,7 @@ bool RefToGenFrameConverter::convertFrame(GaitParam& gaitParam, double dt, FootS
   if(gaitParam.isWbmsAbsolute){
     this->convertRefEEPoseRawAbsolute(gaitParam, genFootMidCoords, refEEPoseWithOutFK);
   }else{
-    this->convertRefEEPoseRawDifferential(gaitParam, dt, genFootMidCoords, refEEPoseWithOutFK, footStepGenerator);
+    this->convertRefEEPoseRawDifferential(gaitParam, dt, genFootMidCoords, refEEPoseFK, refEEPoseWithOutFK);
   }
 
   // refEEPoseを求める
@@ -186,183 +186,18 @@ void RefToGenFrameConverter::convertRefEEPoseRawAbsolute(const GaitParam& gaitPa
   }
 }
 
-void RefToGenFrameConverter::convertRefEEPoseRawDifferential(GaitParam& gaitParam, double dt, const cnoid::Isometry3& genFootMidCoords, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK, FootStepGenerator& footStepGenerator){
-  std::vector<cnoid::Isometry3> ref_pose;
-  for(int i=0;i<gaitParam.eeName.size();i++){
-    cnoid::Isometry3 tmp_ref_pose, master_rel_pose, slave_rel_pose = cnoid::Isometry3::Identity();
+void RefToGenFrameConverter::convertRefEEPoseRawDifferential(GaitParam& gaitParam, double, const cnoid::Isometry3&, const std::vector<cnoid::Isometry3>& refEEPoseFK, std::vector<cnoid::Isometry3>& refEEPoseWithOutFK) const{
+  refEEPoseWithOutFK = refEEPoseFK;
+
+  cnoid::LinkPtr torsoReferenceLink = gaitParam.refRobot->link(gaitParam.chestLinkName);
+  cnoid::Isometry3 torsoReferenceCoords = torsoReferenceLink->T();
+  for(int i=NUM_LEGS;i<gaitParam.eeName.size();i++){
+    cnoid::Isometry3 master_rel_pose, slave_rel_pose = cnoid::Isometry3::Identity();
     master_rel_pose = gaitParam.wbmsOffsetPoseMaster[i].inverse() * gaitParam.refEEPoseRaw[i].value();
     slave_rel_pose.translation() = master_rel_pose.translation() * gaitParam.humanToRobotRatio[i];
     slave_rel_pose.linear() = master_rel_pose.linear();
-    if(i<NUM_LEGS){
-      tmp_ref_pose = gaitParam.wbmsOffsetPoseSlave[i] * slave_rel_pose;
-    }else{ // 上半身はrootLink基準姿勢
-      tmp_ref_pose = gaitParam.refRobot->rootLink()->T() * (gaitParam.wbmsOffsetPoseSlave[i] * slave_rel_pose);
-    }
-    ref_pose.push_back(tmp_ref_pose);
-  }
-
-  cnoid::Isometry3 refFootMidCoords = this->calcRefFootMidCoords(ref_pose[RLEG], ref_pose[LLEG], gaitParam);
-  refFootMidCoords = mathutil::orientCoordToAxis(refFootMidCoords, cnoid::Vector3::UnitZ()); // 足裏を水平になるように傾け直さずに、もとの傾きをそのまま使うことに相当
-  cnoid::Isometry3 transform = genFootMidCoords * refFootMidCoords.inverse();
-  for(int i=0;i<gaitParam.eeName.size();i++){
-    refEEPoseWithOutFK[i] = transform * ref_pose[i];
-  }
-
-  if(gaitParam.isStatic()) {
-    if((gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) && ((refEEPoseWithOutFK[RLEG].translation().z() - refEEPoseWithOutFK[LLEG].translation().z()) > 0.10)) {
-      // 右足上げ
-      std::cerr << "\x1b[31m" << "[RefToGenFrameConverter] RLEG LIFT" << "\x1b[39m" << std::endl;
-      this->refFootOriginWeight[RLEG].setGoal(0.0, 0.5);
-      // this->refFootOriginWeight[LLEG].setGoal(1.0, 0.5);
-
-      std::vector<FootStepGenerator::StepNode> footsteps;
-      double height = refEEPoseWithOutFK[RLEG].translation().z() - refEEPoseWithOutFK[LLEG].translation().z();
-      FootStepGenerator::StepNode stepNode;
-      stepNode.l_r = LLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[LLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[LLEG].linear();
-      footsteps.push_back(stepNode);
-      stepNode.l_r = RLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[RLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[RLEG].linear();
-      stepNode.stepHeight = height;
-      stepNode.stepTime = 0.5;
-      stepNode.swingEnd = true;
-      footsteps.push_back(stepNode);
-      footStepGenerator.setFootSteps(gaitParam, footsteps, // input
-                                                   gaitParam.footstepNodesList); // output
-    }else if((gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) && ((refEEPoseWithOutFK[LLEG].translation().z() - refEEPoseWithOutFK[RLEG].translation().z()) > 0.10)) {
-      // 左足上げ
-      std::cerr << "\x1b[31m" << "[RefToGenFrameConverter] LLEG LIFT" << "\x1b[39m" << std::endl;
-      // this->refFootOriginWeight[RLEG].setGoal(1.0, 0.5);
-      this->refFootOriginWeight[LLEG].setGoal(0.0, 0.5);
-
-      std::vector<FootStepGenerator::StepNode> footsteps;
-      double height = refEEPoseWithOutFK[LLEG].translation().z() - refEEPoseWithOutFK[RLEG].translation().z();
-      FootStepGenerator::StepNode stepNode;
-      stepNode.l_r = RLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[RLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[RLEG].linear();
-      footsteps.push_back(stepNode);
-      stepNode.l_r = LLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[LLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[LLEG].linear();
-      stepNode.stepHeight = height;
-      stepNode.stepTime = 0.5;
-      stepNode.swingEnd = true;
-      footsteps.push_back(stepNode);
-      footStepGenerator.setFootSteps(gaitParam, footsteps, // input
-                                                   gaitParam.footstepNodesList); // output
-    }else if((!gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) && ((refEEPoseWithOutFK[RLEG].translation().z() - refEEPoseWithOutFK[LLEG].translation().z()) > 0.04)) {
-      // 右足空中
-      // TODO 急激に遷移
-      if(gaitParam.isManualControlMode[RLEG].getGoal() != 1.0){
-        if(!gaitParam.footstepNodesList[0].isSupportPhase[RLEG]) {
-          gaitParam.isManualControlMode[RLEG].setGoal(1.0, 2.0);
-        }
-      }
-      if(gaitParam.isManualControlMode[LLEG].getGoal() == 1.0){
-        gaitParam.isManualControlMode[LLEG].setGoal(0.0, 2.0);
-      }
-
-      std::vector<FootStepGenerator::StepNode> footsteps;
-      double height = refEEPoseWithOutFK[RLEG].translation().z() - refEEPoseWithOutFK[LLEG].translation().z();
-      FootStepGenerator::StepNode stepNode;
-      stepNode.l_r = LLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[LLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[LLEG].linear();
-      footsteps.push_back(stepNode);
-      stepNode.l_r = RLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[RLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[RLEG].linear();
-      stepNode.stepHeight = height;
-      stepNode.stepTime = dt;
-      stepNode.swingEnd = true;
-      footsteps.push_back(stepNode);
-      footStepGenerator.setFootSteps(gaitParam, footsteps, // input
-                                                   gaitParam.footstepNodesList); // output
-    }else if((gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && !gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) && ((refEEPoseWithOutFK[LLEG].translation().z() - refEEPoseWithOutFK[RLEG].translation().z()) > 0.04)) {
-      // 左足空中
-      if(gaitParam.isManualControlMode[LLEG].getGoal() != 1.0){
-        if(!gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) {
-          gaitParam.isManualControlMode[LLEG].setGoal(1.0, 2.0);
-        }
-      }
-      if(gaitParam.isManualControlMode[RLEG].getGoal() == 1.0){
-        gaitParam.isManualControlMode[RLEG].setGoal(0.0, 2.0);
-      }
-
-      std::vector<FootStepGenerator::StepNode> footsteps;
-      double height = refEEPoseWithOutFK[LLEG].translation().z() - refEEPoseWithOutFK[RLEG].translation().z();
-      FootStepGenerator::StepNode stepNode;
-      stepNode.l_r = LLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[LLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[LLEG].linear();
-      footsteps.push_back(stepNode);
-      stepNode.l_r = RLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[RLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[RLEG].linear();
-      stepNode.stepHeight = height;
-      stepNode.stepTime = dt;
-      stepNode.swingEnd = true;
-      footsteps.push_back(stepNode);
-      footStepGenerator.setFootSteps(gaitParam, footsteps, // input
-                                                   gaitParam.footstepNodesList); // output
-    }else if((!gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) && ((refEEPoseWithOutFK[RLEG].translation().z() - refEEPoseWithOutFK[LLEG].translation().z()) <= 0.04)) {
-      std::cerr << "\x1b[31m" << "[RefToGenFrameConverter] RLEG LANDING" << "\x1b[39m" << std::endl;
-      // 右足下げ
-      if(gaitParam.isManualControlMode[RLEG].getGoal() == 1.0){
-        gaitParam.isManualControlMode[RLEG].setGoal(0.0, 2.0);
-      }
-      if(gaitParam.isManualControlMode[LLEG].getGoal() == 1.0){
-        gaitParam.isManualControlMode[LLEG].setGoal(0.0, 2.0);
-      }
-      this->refFootOriginWeight[RLEG].setGoal(1.0, 0.5);
-      // this->refFootOriginWeight[LLEG].setGoal(1.0, 0.5);
-
-      std::vector<FootStepGenerator::StepNode> footsteps;
-      FootStepGenerator::StepNode stepNode;
-      stepNode.l_r = LLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[LLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[LLEG].linear();
-      footsteps.push_back(stepNode);
-      stepNode.l_r = RLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[RLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[RLEG].linear();
-      stepNode.stepHeight = 0.04;
-      stepNode.stepTime = 0.5;
-      stepNode.swingEnd = false;
-      footsteps.push_back(stepNode);
-      footStepGenerator.setFootSteps(gaitParam, footsteps, // input
-                                                   gaitParam.footstepNodesList); // output
-    }else if((gaitParam.footstepNodesList[0].isSupportPhase[RLEG] && !gaitParam.footstepNodesList[0].isSupportPhase[LLEG]) && ((refEEPoseWithOutFK[LLEG].translation().z() - refEEPoseWithOutFK[RLEG].translation().z()) <= 0.04)) {
-      std::cerr << "\x1b[31m" << "[RefToGenFrameConverter] LLEG LANDING" << "\x1b[39m" << std::endl;
-      // 左足下げ
-      if(gaitParam.isManualControlMode[LLEG].getGoal() == 1.0){
-        gaitParam.isManualControlMode[LLEG].setGoal(1.0, 2.0);
-      }
-      if(gaitParam.isManualControlMode[RLEG].getGoal() == 1.0){
-        gaitParam.isManualControlMode[RLEG].setGoal(0.0, 2.0);
-      }
-      // this->refFootOriginWeight[RLEG].setGoal(1.0, 0.5);
-      this->refFootOriginWeight[LLEG].setGoal(1.0, 0.5);
-
-      std::vector<FootStepGenerator::StepNode> footsteps;
-      FootStepGenerator::StepNode stepNode;
-      stepNode.l_r = RLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[RLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[RLEG].linear();
-      footsteps.push_back(stepNode);
-      stepNode.l_r = LLEG;
-      stepNode.coords.translation() = refEEPoseWithOutFK[LLEG].translation();
-      stepNode.coords.linear() = refEEPoseWithOutFK[LLEG].linear();
-      stepNode.stepHeight = 0.04;
-      stepNode.stepTime = 0.5;
-      stepNode.swingEnd = false;
-      footsteps.push_back(stepNode);
-      footStepGenerator.setFootSteps(gaitParam, footsteps, // input
-                                                   gaitParam.footstepNodesList); // output
-    }
+    // WBMS差分モードでは脚を操縦せず、上半身EEだけを体幹相対で解釈する.
+    refEEPoseWithOutFK[i] = torsoReferenceCoords * (gaitParam.wbmsOffsetPoseSlave[i] * slave_rel_pose);
   }
 }
 

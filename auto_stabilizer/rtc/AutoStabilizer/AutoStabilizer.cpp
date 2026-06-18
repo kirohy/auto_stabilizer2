@@ -229,6 +229,17 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
   }
 
   {
+    std::string torsoLinkName;
+    this->getProperty("torso_link_name", torsoLinkName);
+    torsoLinkName.erase(std::remove(torsoLinkName.begin(), torsoLinkName.end(), ' '), torsoLinkName.end()); // remove whitespace
+    if(!this->gaitParam_.refRobotRaw->link(torsoLinkName)){
+      std::cerr << "\x1b[31m[" << this->m_profile.instance_name << "] " << " link [" << torsoLinkName << "]" << " is not found. " << "\x1b[39m" << std::endl;
+      return RTC::RTC_ERROR;
+    }
+    this->gaitParam_.chestLinkName = torsoLinkName;
+  }
+
+  {
     // generate LegParams
     // init-poseのとき両脚が同一平面上で, Y軸方向に横に並んでいるという仮定がある
     cnoid::Isometry3 defautFootMidCoords = mathutil::calcMidCoords(std::vector<cnoid::Isometry3>{cnoid::Isometry3(this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[RLEG])->T()*this->gaitParam_.eeLocalT[RLEG]),cnoid::Isometry3(this->gaitParam_.refRobot->link(this->gaitParam_.eeParentLink[LLEG])->T()*this->gaitParam_.eeLocalT[LLEG])},
@@ -575,7 +586,7 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
 }
 
 // static function
-bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode, GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator, const LegCoordsGenerator& legCoordsGenerator, RefToGenFrameConverter& refToGenFrameConverter, const ActToGenFrameConverter& actToGenFrameConverter, const ImpedanceController& impedanceController, const Stabilizer& stabilizer, const ExternalForceHandler& externalForceHandler, const FullbodyIKSolver& fullbodyIKSolver,const LegManualController& legManualController, const CmdVelGenerator& cmdVelGenerator) {
+bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode, GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator, const LegCoordsGenerator& legCoordsGenerator, const RefToGenFrameConverter& refToGenFrameConverter, const ActToGenFrameConverter& actToGenFrameConverter, const ImpedanceController& impedanceController, const Stabilizer& stabilizer, const ExternalForceHandler& externalForceHandler, const FullbodyIKSolver& fullbodyIKSolver,const LegManualController& legManualController, const CmdVelGenerator& cmdVelGenerator) {
   if(mode.isSyncToABCInit()){ // startAutoBalancer直後の初回. gaitParamのリセット
     refToGenFrameConverter.initGenRobot(gaitParam,
                                         gaitParam.genRobot, gaitParam.footMidCoords, gaitParam.genCogVel, gaitParam.genCogAcc);
@@ -592,7 +603,7 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
   }
 
   // FootOrigin座標系を用いてrefRobotRawをgenerate frameに投影しrefRobotとする
-  refToGenFrameConverter.convertFrame(gaitParam, dt, footStepGenerator,
+  refToGenFrameConverter.convertFrame(gaitParam, dt,
                                       gaitParam.refRobot, gaitParam.refEEPose, gaitParam.refEEWrench, gaitParam.refdz, gaitParam.footMidCoords);
 
   // FootOrigin座標系を用いてactRobotRawをgenerate frameに投影しactRobotとする
@@ -1013,7 +1024,9 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
       this->footStepGenerator_.reset();
       this->impedanceController_.reset();
       this->fullbodyIKSolver_.reset();
+      this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
     }
+    this->wbmsWalkingCommandDelay_.proc(this->gaitParam_, this->dt_, this->cmdVelGenerator_, this->footStepGenerator_);
     AutoStabilizer::execAutoStabilizer(this->mode_, this->gaitParam_, this->dt_, this->footStepGenerator_, this->legCoordsGenerator_, this->refToGenFrameConverter_, this->actToGenFrameConverter_, this->impedanceController_, this->stabilizer_,this->externalForceHandler_, this->fullbodyIKSolver_, this->legManualController_, this->cmdVelGenerator_);
   }
 
@@ -1040,6 +1053,10 @@ bool AutoStabilizer::goPos(const double& x, const double& y, const double& th){
   std::lock_guard<std::mutex> guard(this->mutex_);
   if(this->mode_.isABCRunning()){
     if(std::isfinite(x) && std::isfinite(y) && std::isfinite(th)){
+      if(this->wbmsWalkingCommandDelay_.shouldDelay(this->gaitParam_) || this->gaitParam_.isWbmsWalkingStartDelay){
+        this->wbmsWalkingCommandDelay_.storeGoPos(this->gaitParam_, cnoid::Vector3(x, y, th));
+        return true;
+      }
       return this->footStepGenerator_.goPos(this->gaitParam_, x, y, th,
                                             this->gaitParam_.footstepNodesList);
     }else{
@@ -1054,6 +1071,11 @@ bool AutoStabilizer::goVelocity(const double& vx, const double& vy, const double
   std::lock_guard<std::mutex> guard(this->mutex_);
   if(this->mode_.isABCRunning()){
     if(std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vth)){
+      cnoid::Vector3 refCmdVel(vx, vy, vth / 180.0 * M_PI);
+      if(this->wbmsWalkingCommandDelay_.shouldDelay(this->gaitParam_) || this->gaitParam_.isWbmsWalkingStartDelay){
+        this->wbmsWalkingCommandDelay_.storeGoVelocity(this->gaitParam_, refCmdVel);
+        return true;
+      }
       this->cmdVelGenerator_.refCmdVel[0] = vx;
       this->cmdVelGenerator_.refCmdVel[1] = vy;
       this->cmdVelGenerator_.refCmdVel[2] = vth / 180.0 * M_PI;
@@ -1069,11 +1091,14 @@ bool AutoStabilizer::goVelocity(const double& vx, const double& vy, const double
 }
 bool AutoStabilizer::goStop(){
   std::lock_guard<std::mutex> guard(this->mutex_);
-  if(this->mode_.isABCRunning() && this->footStepGenerator_.isGoVelocityMode){ // this->footStepGenerator_.isGoVelocityMode時のみ行う. goStopが呼ばれて、staticになる前にgoStopが再度呼ばれることが繰り返されると、止まらないので
+  if(this->mode_.isABCRunning() &&
+     (this->footStepGenerator_.isGoVelocityMode || this->gaitParam_.isWbmsWalkingStartDelay || this->wbmsWalkingCommandDelay_.hasPendingCommand())){ // this->footStepGenerator_.isGoVelocityMode時のみ行う. goStopが呼ばれて、staticになる前にgoStopが再度呼ばれることが繰り返されると、止まらないので
     this->cmdVelGenerator_.refCmdVel.setZero();
+    bool isGoVelocityMode = this->footStepGenerator_.isGoVelocityMode;
     this->footStepGenerator_.isGoVelocityMode = false;
-    this->footStepGenerator_.goStop(this->gaitParam_,
-                                    this->gaitParam_.footstepNodesList);
+    this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
+    if(isGoVelocityMode) this->footStepGenerator_.goStop(this->gaitParam_,
+                                                         this->gaitParam_.footstepNodesList);
     return true;
   }else{
     return false;
@@ -1124,6 +1149,10 @@ bool AutoStabilizer::setFootStepsWithParam(const auto_stabilizer::AutoStabilizer
       stepNode.swingEnd = sps[i].swing_end;
       footsteps.push_back(stepNode);
     }
+    if(this->wbmsWalkingCommandDelay_.shouldDelay(this->gaitParam_) || this->gaitParam_.isWbmsWalkingStartDelay){
+      this->wbmsWalkingCommandDelay_.storeFootSteps(this->gaitParam_, footsteps);
+      return true;
+    }
     return this->footStepGenerator_.setFootSteps(this->gaitParam_, footsteps, // input
                                                  this->gaitParam_.footstepNodesList); // output
   }else{
@@ -1131,7 +1160,7 @@ bool AutoStabilizer::setFootStepsWithParam(const auto_stabilizer::AutoStabilizer
   }
 }
 void AutoStabilizer::waitFootSteps(){
-  while (this->mode_.isABCRunning() && !this->gaitParam_.isStatic()) usleep(1000);
+  while (this->mode_.isABCRunning() && (!this->gaitParam_.isStatic() || this->gaitParam_.isWbmsWalkingStartDelay)) usleep(1000);
   usleep(1000);
   return;
 }
@@ -1158,6 +1187,7 @@ bool AutoStabilizer::stopAutoBalancer(){
     std::cerr << "[" << m_profile.instance_name << "] stop auto balancer mode" << std::endl;
     while (this->mode_.now() != ControlMode::MODE_IDLE) usleep(1000);
     usleep(1000);
+    this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
     return true;
   }else{
     std::cerr << "[" << this->m_profile.instance_name << "] auto balancer is already stopped or stabilizer is running" << std::endl;
@@ -1246,9 +1276,10 @@ bool AutoStabilizer::startWholeBodyMasterSlave(void){
       this->gaitParam_.wbmsOffsetPoseMaster[i] = this->gaitParam_.refEEPoseRaw[i].value();
       this->gaitParam_.wbmsOffsetPoseSlave[i] = this->gaitParam_.refEEPose[i];
     }
-    for(int i=NUM_LEGS;i<gaitParam_.eeName.size();i++){ // 上半身はrootLink基準姿勢を保存
+    cnoid::LinkPtr torsoReferenceLink = this->gaitParam_.refRobot->link(gaitParam_.chestLinkName);
+    for(int i=NUM_LEGS;i<gaitParam_.eeName.size();i++){ // 上半身は体幹基準姿勢を保存
       this->gaitParam_.wbmsOffsetPoseMaster[i] = this->gaitParam_.refEEPoseRaw[i].value();
-      this->gaitParam_.wbmsOffsetPoseSlave[i] = this->gaitParam_.genRobot->rootLink()->T().inverse() * this->gaitParam_.refEEPose[i];
+      this->gaitParam_.wbmsOffsetPoseSlave[i] = torsoReferenceLink->T().inverse() * this->gaitParam_.refEEPose[i];
     }
     std::cerr << "[" << this->m_profile.instance_name << "] Start WholeBodyMasterSlave" << std::endl;
     return true;
@@ -1563,7 +1594,9 @@ bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilize
       }
     }
   }
-  this->gaitParam_.wbmsInterpolateDuration = i_param.wbms_interpolate_duration;
+  this->gaitParam_.wbmsInterpolateDuration = std::max(i_param.wbms_interpolate_duration, 0.0);
+  this->gaitParam_.wbmsWalkingStabilityStartTime = std::max(i_param.wbms_walking_stability_start_time, 0.0);
+  this->gaitParam_.wbmsWalkingStabilityStopTime = std::max(i_param.wbms_walking_stability_stop_time, 0.0);
 
   return true;
 }
@@ -1786,6 +1819,8 @@ bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerServi
     i_param.ee_eval_link_name[i] = this->fullbodyIKSolver_.ikEEEvalLink[i].c_str();
   }
   i_param.wbms_interpolate_duration = this->gaitParam_.wbmsInterpolateDuration;
+  i_param.wbms_walking_stability_start_time = this->gaitParam_.wbmsWalkingStabilityStartTime;
+  i_param.wbms_walking_stability_stop_time = this->gaitParam_.wbmsWalkingStabilityStopTime;
 
   return true;
 }

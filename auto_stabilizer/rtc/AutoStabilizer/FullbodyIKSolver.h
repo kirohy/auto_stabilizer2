@@ -21,6 +21,7 @@ public:
 
   // FullbodyIKSolverでのみ使うパラメータ
   // 内部にヤコビアンの情報をキャッシュするが、クリアしなくても副作用はあまりない
+  mutable cpp_filters::TwoPointInterpolator<double> wbmsWalkingStabilityMode = cpp_filters::TwoPointInterpolator<double>(0.0,0.0,0.0,cpp_filters::HOFFARBIB); // 0~1. WBMS中でも歩行中はroot姿勢とCOM Z拘束を復帰させる
   mutable std::vector<std::shared_ptr<ik_constraint2::PositionConstraint> > ikEEPositionConstraint; // 要素数と順序はeeNameと同じ.
   mutable std::vector<std::shared_ptr<ik_constraint2::JointAngleConstraint> > refJointAngleConstraint; // 要素数と順序はrobot->numJoints()と同じ
   mutable std::shared_ptr<ik_constraint2::PositionConstraint> rootPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
@@ -58,6 +59,7 @@ public:
   void reset(){
     for(int i=0;i<dqWeight.size();i++) dqWeight[i].reset(dqWeight[i].getGoal());
     for(int i=0;i<ikEEPositionWeight.size();i++) ikEEPositionWeight[i].reset(ikEEPositionWeight[i].getGoal());
+    wbmsWalkingStabilityMode.reset(0.0);
   }
 
   // 毎周期呼ばれる

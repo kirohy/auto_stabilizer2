@@ -43,6 +43,7 @@ add_library(AutoStabilizer SHARED
   FullbodyIKSolver.cpp
   LegManualController.cpp
   CmdVelGenerator.cpp
+  WbmsWalkingCommandDelay.cpp
   MathUtil.cpp
   )
 target_link_libraries(AutoStabilizer
