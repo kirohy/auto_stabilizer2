@@ -41,6 +41,7 @@
 #include "FullbodyIKSolver.h"
 #include "CmdVelGenerator.h"
 #include "WbmsWalkingCommandDelay.h"
+#include "WbmsTorsoControl.h"
 
 class AutoStabilizer : public RTC::DataFlowComponentBase{
 public:
@@ -271,6 +272,7 @@ protected:
   Stabilizer stabilizer_;
   FullbodyIKSolver fullbodyIKSolver_;
   WbmsWalkingCommandDelay wbmsWalkingCommandDelay_;
+  WbmsTorsoControl wbmsTorsoControl_;
 
 protected:
   // utility functions

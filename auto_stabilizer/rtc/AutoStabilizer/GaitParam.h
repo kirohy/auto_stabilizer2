@@ -164,10 +164,16 @@ public:
 
   // WBMS
   double wbmsInterpolateDuration = 0.3; // 操縦指令の補間時間
-  double wbmsWalkingStabilityStartTime = 2.0; // [s]. WBMS中に歩行開始するとき、歩行開始前にroot姿勢とCOM Z拘束を復帰させる時間
-  double wbmsWalkingStabilityStopTime = 1.0; // [s]. WBMS中に静止へ戻ったとき、root姿勢とCOM Z拘束を弱める補間時間
+  double wbmsWalkingStabilityStartTime = 2.0; // [s]. WBMS中に歩行開始するとき、歩行開始前にroot姿勢を復帰させる時間
+  double wbmsWalkingStabilityStopTime = 1.0; // [s]. WBMS中に静止へ戻ったとき、root姿勢を弱める補間時間
   bool isWbmsWalkingStartDelay = false; // WBMS中の歩行開始前に姿勢復帰待ちをしている
   double wbmsWalkingStartDelayRemainTime = 0.0; // [s]. WBMS中の歩行開始前姿勢復帰待ちの残り時間
+  cnoid::Vector3 wbmsTorsoTargetRpy = cnoid::Vector3::Zero(); // [rad]. WBMS開始時姿勢からの体幹相対姿勢差分
+  cnoid::Vector3 wbmsTorsoAngularVelocityLimit = cnoid::Vector3(0.15, 0.15, 0.3); // [rad/s]. 体幹姿勢指令の角速度limit
+  cnoid::Vector3 wbmsTorsoRpyLowerLimit = cnoid::Vector3(-0.10, -0.02, -0.30); // [rad]. WBMS体幹姿勢差分の下限
+  cnoid::Vector3 wbmsTorsoRpyUpperLimit = cnoid::Vector3(0.10, 0.25, 0.30); // [rad]. WBMS体幹姿勢差分の上限
+  cnoid::Vector3 wbmsTorsoOrientationWeight = cnoid::Vector3(0.3, 0.3, 0.3); // WBMS体幹姿勢IKの姿勢weight
+  cnoid::Vector3 wbmsTorsoOrientationMaxError = cnoid::Vector3(0.03, 0.03, 0.05); // [rad/s相当]. WBMS体幹姿勢IKの1周期補正量limit
 
   // for debug data
   class DebugData {
@@ -179,6 +185,11 @@ public:
   DebugData debugData; // デバッグ用のOutPortから出力するためのデータ. AutoStabilizer内の制御処理では使われることは無い. そのため、モード遷移や初期化等の処理にはあまり注意を払わなくて良い
 
 public:
+  void resetWbmsTorsoControl(){
+    wbmsTorsoTargetRpy = cnoid::Vector3::Zero();
+    refTorsoAnglVel.reset(cnoid::Vector3::Zero());
+  }
+
   bool isStatic() const{ // 現在static状態かどうか
     return this->footstepNodesList.size() == 1 && this->footstepNodesList[0].remainTime == 0.0;
   }
@@ -238,6 +249,7 @@ public:
     relLandingNormal = cnoid::Vector3::UnitZ();
     isWbmsWalkingStartDelay = false;
     wbmsWalkingStartDelayRemainTime = 0.0;
+    resetWbmsTorsoControl();
   }
 
   // 毎周期呼ばれる. 内部の補間器をdtだけ進める

@@ -575,12 +575,16 @@ bool AutoStabilizer::readInPortData(const double& dt, const GaitParam& gaitParam
     ports.m_refTorsoVelIn_.read();
     if(std::isfinite(ports.m_refTorsoVel_.data.vx) && std::isfinite(ports.m_refTorsoVel_.data.vy) && std::isfinite(ports.m_refTorsoVel_.data.vz) && std::isfinite(ports.m_refTorsoVel_.data.vr) && std::isfinite(ports.m_refTorsoVel_.data.vp) && std::isfinite(ports.m_refTorsoVel_.data.va)){
       cnoid::Vector3 angvel(ports.m_refTorsoVel_.data.vr, ports.m_refTorsoVel_.data.vp, ports.m_refTorsoVel_.data.va);
+      angvel = mathutil::clampMatrix<cnoid::Vector3>(angvel, gaitParam.wbmsTorsoAngularVelocityLimit);
       refTorsoAngvel.setGoal(angvel, gaitParam.wbmsInterpolateDuration);
     } else {
-      std::cerr << "m_refTorsoAngVel is not finite!" << std::endl;
+      std::cerr << "m_refTorsoVel is not finite!" << std::endl;
+      refTorsoAngvel.setGoal(cnoid::Vector3::Zero(), gaitParam.wbmsInterpolateDuration);
     }
-    refTorsoAngvel.interpolate(dt);
+  }else{
+    if(refTorsoAngvel.getGoal().norm() != 0.0) refTorsoAngvel.setGoal(cnoid::Vector3::Zero(), gaitParam.wbmsInterpolateDuration);
   }
+  refTorsoAngvel.interpolate(dt);
 
   return qRef_updated;
 }
@@ -1027,6 +1031,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
       this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
     }
     this->wbmsWalkingCommandDelay_.proc(this->gaitParam_, this->dt_, this->cmdVelGenerator_, this->footStepGenerator_);
+    this->wbmsTorsoControl_.proc(this->gaitParam_, this->dt_, this->mode_.isABCRunning());
     AutoStabilizer::execAutoStabilizer(this->mode_, this->gaitParam_, this->dt_, this->footStepGenerator_, this->legCoordsGenerator_, this->refToGenFrameConverter_, this->actToGenFrameConverter_, this->impedanceController_, this->stabilizer_,this->externalForceHandler_, this->fullbodyIKSolver_, this->legManualController_, this->cmdVelGenerator_);
   }
 
@@ -1188,6 +1193,7 @@ bool AutoStabilizer::stopAutoBalancer(){
     while (this->mode_.now() != ControlMode::MODE_IDLE) usleep(1000);
     usleep(1000);
     this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
+    this->gaitParam_.resetWbmsTorsoControl();
     return true;
   }else{
     std::cerr << "[" << this->m_profile.instance_name << "] auto balancer is already stopped or stabilizer is running" << std::endl;
@@ -1266,10 +1272,10 @@ bool AutoStabilizer::startWholeBodyMasterSlave(void){
       std::cerr << "[" << this->m_profile.instance_name << "] WholeBodyMasterSlave is already started" << std::endl;
       return false;
     }
-    if(std::abs(((long long)this->ports_.refEEPoseLastUpdateTime_.sec - (long long)this->ports_.m_qRef_.tm.sec) + 1e-9 * ((long long)this->ports_.refEEPoseLastUpdateTime_.nsec - (long long)this->ports_.m_qRef_.tm.nsec)) > 1.0) { // 最新のm_refEEPose_が1秒以上前. master sideが立ち上がっていないので、姿勢の急変を引き起こし危険. RTC::Timeはunsigned long型なので、符号付きの型に変換してから引き算
-      std::cerr << "[" << this->m_profile.instance_name << "] Please start master side" << std::endl;
-      return false;
-    }
+    // if(std::abs(((long long)this->ports_.refEEPoseLastUpdateTime_.sec - (long long)this->ports_.m_qRef_.tm.sec) + 1e-9 * ((long long)this->ports_.refEEPoseLastUpdateTime_.nsec - (long long)this->ports_.m_qRef_.tm.nsec)) > 1.0) { // 最新のm_refEEPose_が1秒以上前. master sideが立ち上がっていないので、姿勢の急変を引き起こし危険. RTC::Timeはunsigned long型なので、符号付きの型に変換してから引き算
+    //   std::cerr << "[" << this->m_profile.instance_name << "] Please start master side" << std::endl;
+    //   return false;
+    // }
     this->refToGenFrameConverter_.solveFKMode.setGoal(0.0, 5.0); // 5秒で遷移
     this->gaitParam_.wbmsMode.setGoal(1.0, 5.0);
     for(int i=0;i<NUM_LEGS;i++){ // startWholeBodyMasterSlave時のEE姿勢を保存
@@ -1281,6 +1287,7 @@ bool AutoStabilizer::startWholeBodyMasterSlave(void){
       this->gaitParam_.wbmsOffsetPoseMaster[i] = this->gaitParam_.refEEPoseRaw[i].value();
       this->gaitParam_.wbmsOffsetPoseSlave[i] = torsoReferenceLink->T().inverse() * this->gaitParam_.refEEPose[i];
     }
+    this->gaitParam_.resetWbmsTorsoControl();
     std::cerr << "[" << this->m_profile.instance_name << "] Start WholeBodyMasterSlave" << std::endl;
     return true;
   }else{
@@ -1297,6 +1304,7 @@ bool AutoStabilizer::stopWholeBodyMasterSlave(void){
     }
     this->refToGenFrameConverter_.solveFKMode.setGoal(1.0, 5.0); // 5秒で遷移
     this->gaitParam_.wbmsMode.setGoal(0.0, 5.0);
+    this->gaitParam_.resetWbmsTorsoControl();
     std::cerr << "[" << this->m_profile.instance_name << "] Stop WholeBodyMasterSlave" << std::endl;
     return true;
   }else{
@@ -1597,6 +1605,25 @@ bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilize
   this->gaitParam_.wbmsInterpolateDuration = std::max(i_param.wbms_interpolate_duration, 0.0);
   this->gaitParam_.wbmsWalkingStabilityStartTime = std::max(i_param.wbms_walking_stability_start_time, 0.0);
   this->gaitParam_.wbmsWalkingStabilityStopTime = std::max(i_param.wbms_walking_stability_stop_time, 0.0);
+  if(i_param.wbms_torso_angular_velocity_limit.length() == 3){
+    for(int i=0;i<3;i++) this->gaitParam_.wbmsTorsoAngularVelocityLimit[i] = std::max(i_param.wbms_torso_angular_velocity_limit[i], 0.0);
+  }
+  if(i_param.wbms_torso_rpy_lower_limit.length() == 3 &&
+     i_param.wbms_torso_rpy_upper_limit.length() == 3){
+    for(int i=0;i<3;i++){
+      this->gaitParam_.wbmsTorsoRpyLowerLimit[i] = std::min(i_param.wbms_torso_rpy_lower_limit[i], i_param.wbms_torso_rpy_upper_limit[i]);
+      this->gaitParam_.wbmsTorsoRpyUpperLimit[i] = std::max(i_param.wbms_torso_rpy_lower_limit[i], i_param.wbms_torso_rpy_upper_limit[i]);
+    }
+    this->gaitParam_.wbmsTorsoTargetRpy = mathutil::clampMatrix<cnoid::Vector3>(this->gaitParam_.wbmsTorsoTargetRpy,
+                                                                               this->gaitParam_.wbmsTorsoRpyLowerLimit,
+                                                                               this->gaitParam_.wbmsTorsoRpyUpperLimit);
+  }
+  if(i_param.wbms_torso_orientation_weight.length() == 3){
+    for(int i=0;i<3;i++) this->gaitParam_.wbmsTorsoOrientationWeight[i] = std::max(i_param.wbms_torso_orientation_weight[i], 0.0);
+  }
+  if(i_param.wbms_torso_orientation_max_error.length() == 3){
+    for(int i=0;i<3;i++) this->gaitParam_.wbmsTorsoOrientationMaxError[i] = std::max(i_param.wbms_torso_orientation_max_error[i], 0.0);
+  }
 
   return true;
 }
@@ -1821,6 +1848,18 @@ bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerServi
   i_param.wbms_interpolate_duration = this->gaitParam_.wbmsInterpolateDuration;
   i_param.wbms_walking_stability_start_time = this->gaitParam_.wbmsWalkingStabilityStartTime;
   i_param.wbms_walking_stability_stop_time = this->gaitParam_.wbmsWalkingStabilityStopTime;
+  i_param.wbms_torso_angular_velocity_limit.length(3);
+  i_param.wbms_torso_rpy_lower_limit.length(3);
+  i_param.wbms_torso_rpy_upper_limit.length(3);
+  i_param.wbms_torso_orientation_weight.length(3);
+  i_param.wbms_torso_orientation_max_error.length(3);
+  for(int i=0;i<3;i++){
+    i_param.wbms_torso_angular_velocity_limit[i] = this->gaitParam_.wbmsTorsoAngularVelocityLimit[i];
+    i_param.wbms_torso_rpy_lower_limit[i] = this->gaitParam_.wbmsTorsoRpyLowerLimit[i];
+    i_param.wbms_torso_rpy_upper_limit[i] = this->gaitParam_.wbmsTorsoRpyUpperLimit[i];
+    i_param.wbms_torso_orientation_weight[i] = this->gaitParam_.wbmsTorsoOrientationWeight[i];
+    i_param.wbms_torso_orientation_max_error[i] = this->gaitParam_.wbmsTorsoOrientationMaxError[i];
+  }
 
   return true;
 }

@@ -44,6 +44,7 @@ add_library(AutoStabilizer SHARED
   LegManualController.cpp
   CmdVelGenerator.cpp
   WbmsWalkingCommandDelay.cpp
+  WbmsTorsoControl.cpp
   MathUtil.cpp
   )
 target_link_libraries(AutoStabilizer

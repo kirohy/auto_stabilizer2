@@ -1,6 +1,99 @@
 #include "FullbodyIKSolver.h"
 #include <prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h>
 #include <algorithm>
+#include <cmath>
+
+void FullbodyIKSolver::calcWbmsPostureReference(double dt, const GaitParam& gaitParam,
+                                                double wbmsOperationMode,
+                                                const cnoid::BodyPtr& genRobot,
+                                                std::vector<double>& refq) const{
+  refq.resize(genRobot->numJoints());
+  for(int i=0;i<genRobot->numJoints();i++) refq[i] = gaitParam.refRobot->joint(i)->q();
+  if(!this->wbmsPostureRobot || wbmsOperationMode <= 0.0) return;
+
+  this->wbmsPostureRobot->rootLink()->p() = genRobot->rootLink()->p();
+  this->wbmsPostureRobot->rootLink()->R() = genRobot->rootLink()->R();
+  for(int i=0;i<genRobot->numJoints();i++) this->wbmsPostureRobot->joint(i)->q() = genRobot->joint(i)->q();
+  this->wbmsPostureRobot->calcForwardKinematics();
+
+  std::vector<cnoid::LinkPtr> variables; variables.reserve(1+this->wbmsPostureRobot->numJoints());
+  std::vector<double> dqWeight; dqWeight.reserve(6+this->wbmsPostureRobot->numJoints());
+  variables.push_back(this->wbmsPostureRobot->rootLink());
+  for(int i=0;i<6;i++) dqWeight.push_back(1.0);
+  for(size_t i=0;i<this->wbmsPostureRobot->numJoints();i++){
+    if(gaitParam.jointControllable[i]) {
+      variables.push_back(this->wbmsPostureRobot->joint(i));
+      dqWeight.push_back(this->dqWeight[i].value());
+    }
+  }
+
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > footConstraints;
+  for(int i=0;i<NUM_LEGS;i++){
+    this->wbmsPostureFootConstraint[i]->A_link() = this->wbmsPostureRobot->link(gaitParam.eeParentLink[i]);
+    this->wbmsPostureFootConstraint[i]->A_localpos() = gaitParam.eeLocalT[i];
+    this->wbmsPostureFootConstraint[i]->B_link() = nullptr;
+    this->wbmsPostureFootConstraint[i]->B_localpos() = gaitParam.abcEETargetPose[i];
+    this->wbmsPostureFootConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
+    this->wbmsPostureFootConstraint[i]->precision() = 0.0;
+    this->wbmsPostureFootConstraint[i]->weight() = this->ikEEPositionWeight[i].value();
+    this->wbmsPostureFootConstraint[i]->eval_link() = this->wbmsPostureRobot->link(this->ikEEEvalLink[i]);
+    if(this->wbmsPostureFootConstraint[i]->eval_link()) this->wbmsPostureFootConstraint[i]->eval_localR() = this->wbmsPostureFootConstraint[i]->eval_link()->R().transpose() * this->wbmsPostureFootConstraint[i]->B_localpos().linear();
+    else this->wbmsPostureFootConstraint[i]->eval_localR() = this->wbmsPostureFootConstraint[i]->B_localpos().linear();
+    footConstraints.push_back(this->wbmsPostureFootConstraint[i]);
+  }
+
+  cnoid::Isometry3 targetRootPose = gaitParam.stTargetRootPose;
+  targetRootPose.linear() = gaitParam.footMidCoords.value().linear()
+    * cnoid::rotFromRpy(gaitParam.wbmsTorsoTargetRpy)
+    * gaitParam.footMidCoords.value().linear().transpose()
+    * gaitParam.stTargetRootPose.linear();
+
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > rootConstraints;
+  this->wbmsPostureRootConstraint->A_link() = this->wbmsPostureRobot->rootLink();
+  this->wbmsPostureRootConstraint->A_localpos() = cnoid::Isometry3::Identity();
+  this->wbmsPostureRootConstraint->B_link() = nullptr;
+  this->wbmsPostureRootConstraint->B_localpos() = targetRootPose;
+  this->wbmsPostureRootConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
+    std::max(0.0, gaitParam.wbmsTorsoOrientationMaxError[0]) * dt,
+    std::max(0.0, gaitParam.wbmsTorsoOrientationMaxError[1]) * dt,
+    std::max(0.0, gaitParam.wbmsTorsoOrientationMaxError[2]) * dt;
+  this->wbmsPostureRootConstraint->precision() = 0.0;
+  const double yawCommandEps = 1e-6;
+  double yawWeight = (std::abs(gaitParam.wbmsTorsoTargetRpy[2]) > yawCommandEps || std::abs(gaitParam.refTorsoAnglVel.value()[2]) > yawCommandEps) ? std::max(0.0, gaitParam.wbmsTorsoOrientationWeight[2]) : 0.0;
+  this->wbmsPostureRootConstraint->weight() << 0.0, 0.0, 0.0,
+    std::max(0.0, gaitParam.wbmsTorsoOrientationWeight[0]) * wbmsOperationMode,
+    std::max(0.0, gaitParam.wbmsTorsoOrientationWeight[1]) * wbmsOperationMode,
+    yawWeight * wbmsOperationMode;
+  this->wbmsPostureRootConstraint->eval_link() = this->wbmsPostureRobot->rootLink();
+  this->wbmsPostureRootConstraint->eval_localR() = cnoid::Matrix3::Identity();
+  rootConstraints.push_back(this->wbmsPostureRootConstraint);
+
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > jointLimitConstraints;
+  for(size_t i=0;i<this->wbmsPostureRobot->numJoints();i++){
+    if(!gaitParam.jointControllable[i]) continue;
+    this->jointLimitConstraint[i]->joint() = this->wbmsPostureRobot->joint(i);
+    this->jointLimitConstraint[i]->jointLimitTables() = gaitParam.jointLimitTables[i];
+    this->jointLimitConstraint[i]->maxError() = 1.0 * dt;
+    this->jointLimitConstraint[i]->weight() = 1.0;
+    jointLimitConstraints.push_back(this->jointLimitConstraint[i]);
+  }
+
+  std::vector<std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > > constraints{jointLimitConstraints, footConstraints, rootConstraints};
+  prioritized_inverse_kinematics_solver2::IKParam param;
+  param.maxIteration = 1;
+  param.dqWeight = dqWeight;
+  param.wn = 1e-6;
+  param.we = 1e2;
+  param.debugLevel = 0;
+  param.dt = dt;
+  prioritized_inverse_kinematics_solver2::solveIKLoop(variables,
+                                                     constraints,
+                                                     this->wbmsPostureTasks,
+                                                     param
+                                                     );
+
+  for(int i=0;i<this->wbmsPostureRobot->numJoints();i++) refq[i] = this->wbmsPostureRobot->joint(i)->q();
+}
 
 bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
                                        cnoid::BodyPtr& genRobot) const{
@@ -12,6 +105,10 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
   }
   this->wbmsWalkingStabilityMode.interpolate(dt);
   double wbmsStabilityMode = std::max(1.0 - wbmsMode, this->wbmsWalkingStabilityMode.value());
+  double wbmsOperationMode = wbmsMode * (1.0 - this->wbmsWalkingStabilityMode.value());
+  bool wbmsActive = (gaitParam.wbmsMode.value() > 0.0 || gaitParam.wbmsMode.getGoal() > 0.0);
+  std::vector<double> refq;
+  this->calcWbmsPostureReference(dt, gaitParam, wbmsOperationMode, genRobot, refq);
 
   // !jointControllableの関節は指令値をそのまま入れる
   for(size_t i=0;i<genRobot->numJoints();i++){
@@ -72,7 +169,10 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     }
   }
 
+  // 優先度順: 0 joint安全系, 1 自己干渉, 2 足, 3 通常タスク, 4 reference angle.
   std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint2;
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint3;
+  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > ikConstraint4;
 
   // EEF
   // 足
@@ -94,29 +194,39 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
   for(int i=NUM_LEGS;i<gaitParam.eeName.size();i++){
     this->ikEEPositionConstraint[i]->A_link() = genRobot->link(gaitParam.eeParentLink[i]);
     this->ikEEPositionConstraint[i]->A_localpos() = gaitParam.eeLocalT[i];
-    this->ikEEPositionConstraint[i]->B_link() = genRobot->rootLink();
-    this->ikEEPositionConstraint[i]->B_localpos() = gaitParam.refRobot->rootLink()->T().inverse() * gaitParam.abcEETargetPose[i];
+    cnoid::LinkPtr torsoGenLink = genRobot->link(gaitParam.chestLinkName);
+    cnoid::LinkPtr torsoRefLink = gaitParam.refRobot->link(gaitParam.chestLinkName);
+    if(wbmsActive && torsoGenLink && torsoRefLink){
+      this->ikEEPositionConstraint[i]->B_link() = torsoGenLink;
+      this->ikEEPositionConstraint[i]->B_localpos() = torsoRefLink->T().inverse() * gaitParam.abcEETargetPose[i];
+    }else{
+      this->ikEEPositionConstraint[i]->B_link() = genRobot->rootLink();
+      this->ikEEPositionConstraint[i]->B_localpos() = gaitParam.refRobot->rootLink()->T().inverse() * gaitParam.abcEETargetPose[i];
+    }
     this->ikEEPositionConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
     this->ikEEPositionConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
     this->ikEEPositionConstraint[i]->weight() = this->ikEEPositionWeight[i].value();
     this->ikEEPositionConstraint[i]->eval_link() = genRobot->link(this->ikEEEvalLink[i]);
-    if(this->ikEEPositionConstraint[i]->eval_link()) this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->eval_link()->R().transpose() * this->ikEEPositionConstraint[i]->B_localpos().linear();
-    else this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->B_localpos().linear();
-    ikConstraint2.push_back(this->ikEEPositionConstraint[i]);
+    cnoid::Matrix3 eeTargetR;
+    if(this->ikEEPositionConstraint[i]->B_link()) eeTargetR = this->ikEEPositionConstraint[i]->B_link()->R() * this->ikEEPositionConstraint[i]->B_localpos().linear();
+    else eeTargetR = this->ikEEPositionConstraint[i]->B_localpos().linear();
+    if(this->ikEEPositionConstraint[i]->eval_link()) this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->eval_link()->R().transpose() * eeTargetR;
+    else this->ikEEPositionConstraint[i]->eval_localR() = eeTargetR;
+    ikConstraint3.push_back(this->ikEEPositionConstraint[i]);
   }
-
 
   // COM
   {
     this->comConstraint->A_robot() = genRobot;
     this->comConstraint->A_localp() = cnoid::Vector3::Zero();
     this->comConstraint->B_robot() = nullptr;
-    this->comConstraint->B_localp() = gaitParam.genCog + gaitParam.sbpOffset;
+    cnoid::Vector3 cogTarget = gaitParam.genCog + gaitParam.sbpOffset;
+    this->comConstraint->B_localp() = cogTarget;
     this->comConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt;
     this->comConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     this->comConstraint->weight() << 10.0, 10.0, 1.0*wbmsStabilityMode;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
-    ikConstraint2.push_back(this->comConstraint);
+    ikConstraint3.push_back(this->comConstraint);
   }
 
   // Angular Momentum
@@ -128,25 +238,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->angularMomentumConstraint->weight() << 1e-4, 1e-4, 0.0; // TODO
     this->angularMomentumConstraint->dt() = dt;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
-    ikConstraint2.push_back(this->angularMomentumConstraint);
+    ikConstraint3.push_back(this->angularMomentumConstraint);
   }
-
-  // Torso Angular Velocity
-  // {
-  //   // this->angularVelocityConstraint->A_link() = genRobot->link("CHEST_JOINT2");
-  //   this->angularVelocityConstraint->A_link() = genRobot->rootLink();
-  //   this->angularVelocityConstraint->A_localpos() = cnoid::Isometry3::Identity();
-  //   this->angularVelocityConstraint->B_link() = nullptr;
-  //   this->angularVelocityConstraint->base_velocity() << genRobot->rootLink()->v()[0], genRobot->rootLink()->v()[1], genRobot->rootLink()->v()[1], 0.0, 0.0, 0.0;
-  //   this->angularVelocityConstraint->target_velocity() << 0.0, 0.0, 0.0, gaitParam.refTorsoAnglVel.value()[0], gaitParam.refTorsoAnglVel.value()[1], gaitParam.refTorsoAnglVel.value()[2];
-  //   this->angularVelocityConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-  //   this->angularVelocityConstraint->precision() = 0.0;
-  //   this->angularVelocityConstraint->weight() << 0.0, 0.0, 0.0, 1.0*wbmsMode, 1.0*wbmsMode, 0.0*wbmsMode;
-  //   this->angularVelocityConstraint->dt() = dt;
-  //   this->angularVelocityConstraint->eval_link() = nullptr;
-  //   this->angularVelocityConstraint->eval_localR() = cnoid::Matrix3d::Identity();
-  //   ikConstraint2.push_back(this->angularVelocityConstraint);
-  // }
 
   // root
   {
@@ -161,7 +254,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode;
     this->rootPositionConstraint->eval_link() = genRobot->rootLink();
     this->rootPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
-    ikConstraint2.push_back(this->rootPositionConstraint);
+    ikConstraint3.push_back(this->rootPositionConstraint);
   }
 
   // reference angle
@@ -171,10 +264,16 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
       this->refJointAngleConstraint[i]->joint() = genRobot->joint(i);
       this->refJointAngleConstraint[i]->maxError() = 10.0 * dt; // 高優先度のmaxError以下にしないと優先度逆転するおそれ
       // this->refJointAngleConstraint[i]->weight() = 1e-1; // 小さい値すぎると、qp終了判定のtoleranceによって無視されてしまう
-      this->refJointAngleConstraint[i]->weight() = 1e-1*(1.0-wbmsMode);
-      this->refJointAngleConstraint[i]->targetq() = gaitParam.refRobot->joint(i)->q();
+      this->refJointAngleConstraint[i]->weight() = 1e-1;
+      double u = gaitParam.refRobot->joint(i)->q_upper();
+      double l = gaitParam.refRobot->joint(i)->q_lower();
+      for(int j=0;j<gaitParam.jointLimitTables[i].size();j++){
+        u = std::min(u,gaitParam.jointLimitTables[i][j]->getUlimit());
+        l = std::max(l,gaitParam.jointLimitTables[i][j]->getLlimit());
+      }
+      this->refJointAngleConstraint[i]->targetq() = std::min(u, std::max(l, refq[i]));
       this->refJointAngleConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
-      ikConstraint2.push_back(this->refJointAngleConstraint[i]);
+      ikConstraint4.push_back(this->refJointAngleConstraint[i]);
     }
   }
 
@@ -182,7 +281,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
   //  この現象を防ぐには、未来の情報を含んだIKを作るか、歩行動作中にIKが解きづらい姿勢を経由しないように着地位置等をリミットするか. 後者を採用
   //  歩行動作ではないゆっくりとした動作であれば、この現象が発生しても問題ない
 
-  std::vector<std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > > constraints{ikConstraint0,ikConstraint1,ikConstraint2};
+  std::vector<std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > > constraints{ikConstraint0,ikConstraint1,ikConstraint2,ikConstraint3,ikConstraint4};
   for(size_t i=0;i<constraints.size();i++){
     for(size_t j=0;j<constraints[i].size();j++){
       constraints[i][j]->debugLevel() = 0;//debuglevel
