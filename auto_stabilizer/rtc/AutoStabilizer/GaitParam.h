@@ -43,7 +43,6 @@ public:
   cnoid::BodyPtr refRobotRaw; // reference. reference world frame
   std::vector<cnoid::Vector6> refEEWrenchOrigin; // 要素数と順序はeeNameと同じ.FootOrigin frame. EndEffector origin. ロボットが受ける力
   std::vector<cpp_filters::TwoPointInterpolatorSE3> refEEPoseRaw; // 要素数と順序はeeNameと同じ. reference world frame. EEPoseはjoint angleなどと比べて遅い周期で届くことが多いので、interpolaterで補間する.
-  cpp_filters::TwoPointInterpolator<cnoid::Vector3> refTorsoAnglVel = cpp_filters::TwoPointInterpolator<cnoid::Vector3>(cnoid::Vector3::Zero(), cnoid::Vector3::Zero(), cnoid::Vector3::Zero(), cpp_filters::HOFFARBIB);
   cnoid::BodyPtr actRobotRaw; // actual. actual imu world frame
   class Collision {
   public:
@@ -168,12 +167,39 @@ public:
   double wbmsWalkingStabilityStopTime = 1.0; // [s]. WBMS中に静止へ戻ったとき、root姿勢を弱める補間時間
   bool isWbmsWalkingStartDelay = false; // WBMS中の歩行開始前に姿勢復帰待ちをしている
   double wbmsWalkingStartDelayRemainTime = 0.0; // [s]. WBMS中の歩行開始前姿勢復帰待ちの残り時間
-  cnoid::Vector3 wbmsTorsoTargetRpy = cnoid::Vector3::Zero(); // [rad]. WBMS開始時姿勢からの体幹相対姿勢差分
-  cnoid::Vector3 wbmsTorsoAngularVelocityLimit = cnoid::Vector3(0.15, 0.15, 0.3); // [rad/s]. 体幹姿勢指令の角速度limit
-  cnoid::Vector3 wbmsTorsoRpyLowerLimit = cnoid::Vector3(-0.10, -0.02, -0.30); // [rad]. WBMS体幹姿勢差分の下限
-  cnoid::Vector3 wbmsTorsoRpyUpperLimit = cnoid::Vector3(0.10, 0.25, 0.30); // [rad]. WBMS体幹姿勢差分の上限
-  cnoid::Vector3 wbmsTorsoOrientationWeight = cnoid::Vector3(0.3, 0.3, 0.3); // WBMS体幹姿勢IKの姿勢weight
-  cnoid::Vector3 wbmsTorsoOrientationMaxError = cnoid::Vector3(0.03, 0.03, 0.05); // [rad/s相当]. WBMS体幹姿勢IKの1周期補正量limit
+  double wbmsVelocityCommandTimeout = 0.2; // [s]. refTorsoVelInを最後に受信してから速度指令を無効にするまでの時間
+  cnoid::Vector3 wbmsTorsoAngularVelocityLimit = cnoid::Vector3(0.15, 0.15, 0.3); // [rad/s]. CHEST角速度指令のlimit
+  cnoid::Vector3 wbmsTorsoAngularAccelerationLimit = cnoid::Vector3(0.5, 0.5, 1.0); // [rad/s^2]. CHEST角速度指令の加速度limit
+  cnoid::Vector3 wbmsTorsoRpyLowerLimit = cnoid::Vector3(-0.10, -0.02, -0.30); // [rad]. WBMS開始時CHEST姿勢からの実現姿勢差分下限
+  cnoid::Vector3 wbmsTorsoRpyUpperLimit = cnoid::Vector3(0.10, 0.25, 0.30); // [rad]. WBMS開始時CHEST姿勢からの実現姿勢差分上限
+  cnoid::Vector3 wbmsTorsoOrientationWeight = cnoid::Vector3(0.3, 0.3, 0.3); // WBMS CHEST姿勢IKの姿勢weight
+  cnoid::Vector3 wbmsTorsoOrientationMaxError = cnoid::Vector3(0.15, 0.15, 0.30); // [rad/s]. WBMS CHEST姿勢IKの1秒あたりの最大姿勢補正量
+  cnoid::Vector3 wbmsComVelocityLimit = cnoid::Vector3(0.05, 0.05, 0.05); // [m/s]. COM速度limit
+  cnoid::Vector3 wbmsComAccelerationLimit = cnoid::Vector3(0.2, 0.2, 0.2); // [m/s^2]. COM速度指令の加速度limit
+  cnoid::Vector3 wbmsComOffsetLowerLimit = cnoid::Vector3(-0.10, -0.08, -0.20); // [m]. WBMS開始時COMからの位置差分下限。footMidCoords座標系
+  cnoid::Vector3 wbmsComOffsetUpperLimit = cnoid::Vector3(0.10, 0.08, 0.05); // [m]. WBMS開始時COMからの位置差分上限。footMidCoords座標系
+  cnoid::Vector3 wbmsComPositionWeight = cnoid::Vector3(3.0, 3.0, 1.0); // WBMS COM位置IKのweight
+  double wbmsComXYSupportMargin = 0.03; // [m]. 支持多角形境界から内側へ確保するCOM/ZMP XY余裕
+
+  cnoid::Vector3 wbmsRawComVelocityCommand = cnoid::Vector3::Zero(); // [m/s]. refTorsoVelIn vx/vy/vzから保持したCOM速度指令。footMidCoords座標系
+  cnoid::Vector3 wbmsRawTorsoAngularVelocityCommand = cnoid::Vector3::Zero(); // [rad/s]. refTorsoVelIn vr/vp/vaから保持したCHEST角速度指令。footMidCoords軸
+  cnoid::Vector3 wbmsAppliedComVelocityCommand = cnoid::Vector3::Zero(); // [m/s]. 加速度limit通過後のCOM速度指令
+  cnoid::Vector3 wbmsAppliedTorsoAngularVelocityCommand = cnoid::Vector3::Zero(); // [rad/s]. 加速度limit通過後のCHEST角速度指令
+  double wbmsVelocityCommandAge = 1.0; // [s]. 最後にfiniteなrefTorsoVelInを受信してからの経過時間
+  bool wbmsVelocityCommandValid = false;
+
+  cnoid::Matrix3 wbmsStartChestRInFootMid = cnoid::Matrix3::Identity(); // WBMS開始時CHEST姿勢。footMidCoords座標系
+  cnoid::Vector3 wbmsStartComInFootMid = cnoid::Vector3::Zero(); // [m]. WBMS開始時robot COM。footMidCoords座標系
+  bool wbmsPostureBaselineValid = false;
+
+  std::vector<double> wbmsPostureReferenceQ; // 投影IK後の関節角参照。M1では旧IKへ接続しない
+  cnoid::Matrix3 wbmsProjectedChestR = cnoid::Matrix3::Identity(); // 投影後CHEST姿勢。generate frame
+  cnoid::Vector3 wbmsProjectedRobotCom = cnoid::Vector3::Zero(); // 投影後robot COM。generate frame
+  cnoid::Vector3 wbmsRealizedComVelocity = cnoid::Vector3::Zero(); // [m/s]. 投影後に実現したCOM速度
+  cnoid::Vector3 wbmsRealizedTorsoAngularVelocity = cnoid::Vector3::Zero(); // [rad/s]. 投影後に実現したCHEST角速度
+  bool wbmsPostureReferenceValid = false;
+  double wbmsWalkingStabilityModeValue = 0.0; // 0〜1。歩行中および歩行開始遅延中に1へ近づく
+  double wbmsOperationModeValue = 0.0; // wbmsMode * (1 - walkingStabilityMode)
 
   // for debug data
   class DebugData {
@@ -185,9 +211,32 @@ public:
   DebugData debugData; // デバッグ用のOutPortから出力するためのデータ. AutoStabilizer内の制御処理では使われることは無い. そのため、モード遷移や初期化等の処理にはあまり注意を払わなくて良い
 
 public:
-  void resetWbmsTorsoControl(){
-    wbmsTorsoTargetRpy = cnoid::Vector3::Zero();
-    refTorsoAnglVel.reset(cnoid::Vector3::Zero());
+  void clearWbmsPostureCommand(bool resetApplied){
+    wbmsRawComVelocityCommand.setZero();
+    wbmsRawTorsoAngularVelocityCommand.setZero();
+    wbmsVelocityCommandAge = wbmsVelocityCommandTimeout + 1.0;
+    wbmsVelocityCommandValid = false;
+    if(resetApplied){
+      wbmsAppliedComVelocityCommand.setZero();
+      wbmsAppliedTorsoAngularVelocityCommand.setZero();
+    }
+  }
+
+  void clearWbmsPostureReference(){
+    wbmsPostureReferenceQ.clear();
+    wbmsProjectedChestR.setIdentity();
+    wbmsProjectedRobotCom.setZero();
+    wbmsRealizedComVelocity.setZero();
+    wbmsRealizedTorsoAngularVelocity.setZero();
+    wbmsPostureReferenceValid = false;
+  }
+
+  void resetWbmsPostureControl(){
+    clearWbmsPostureCommand(true);
+    clearWbmsPostureReference();
+    wbmsPostureBaselineValid = false;
+    wbmsWalkingStabilityModeValue = 0.0;
+    wbmsOperationModeValue = 0.0;
   }
 
   bool isStatic() const{ // 現在static状態かどうか
@@ -249,7 +298,7 @@ public:
     relLandingNormal = cnoid::Vector3::UnitZ();
     isWbmsWalkingStartDelay = false;
     wbmsWalkingStartDelayRemainTime = 0.0;
-    resetWbmsTorsoControl();
+    resetWbmsPostureControl();
   }
 
   // 毎周期呼ばれる. 内部の補間器をdtだけ進める

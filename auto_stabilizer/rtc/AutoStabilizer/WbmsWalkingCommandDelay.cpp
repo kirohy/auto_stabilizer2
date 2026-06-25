@@ -72,5 +72,6 @@ void WbmsWalkingCommandDelay::startDelay(GaitParam& gaitParam){
   if(!gaitParam.isWbmsWalkingStartDelay){
     gaitParam.isWbmsWalkingStartDelay = true;
     gaitParam.wbmsWalkingStartDelayRemainTime = gaitParam.wbmsWalkingStabilityStartTime;
+    gaitParam.clearWbmsPostureCommand(false);
   }
 }

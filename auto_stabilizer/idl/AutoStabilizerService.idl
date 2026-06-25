@@ -77,22 +77,38 @@ module auto_stabilizer
       sequence<double, 2> leg_default_translate_pos;
       /// 要素数2. 0: rleg. 1: lleg. 0~1. 1ならicEETargetPoseに従い、refEEWrenchに応じて重心をオフセットする. 0ならImpedanceControlをせず、refEEWrenchを無視し、GainControlを行わない. 静止状態で無い場合や、支持脚の場合は、勝手に0になる. 両足が同時に1になることはない. 1にするなら、RefToGenFrameConverter.refFootOriginWeightを0にしたほうが良い.
       sequence<boolean, 2> is_manual_control_mode;
-      // 操縦指令の補間時間
+      // エンドエフェクタ姿勢操縦指令の補間時間。refTorsoVelInの速度指令保持には使わない
       double wbms_interpolate_duration;
       /// WBMS中に静止から歩行開始するとき、歩行開始前にroot姿勢を復帰させる時間[s]. 下限0.0[s]
       double wbms_walking_stability_start_time;
       /// WBMS中に歩行から静止へ戻ったとき、root姿勢を弱める補間時間[s]. 下限0.0[s]
       double wbms_walking_stability_stop_time;
-      /// WBMS体幹姿勢指令の角速度limit[rad/s]. 要素はroll,pitch,yaw. 下限0.0
+      /// CHEST角速度指令のlimit[rad/s]. 要素はroll,pitch,yaw. 下限0.0
       sequence<double, 3> wbms_torso_angular_velocity_limit;
-      /// WBMS開始時姿勢からの体幹姿勢差分下限[rad]. 要素はroll,pitch,yaw
+      /// WBMS開始時CHEST姿勢からの実現姿勢差分下限[rad]. 要素はroll,pitch,yaw
       sequence<double, 3> wbms_torso_rpy_lower_limit;
-      /// WBMS開始時姿勢からの体幹姿勢差分上限[rad]. 要素はroll,pitch,yaw
+      /// WBMS開始時CHEST姿勢からの実現姿勢差分上限[rad]. 要素はroll,pitch,yaw
       sequence<double, 3> wbms_torso_rpy_upper_limit;
-      /// WBMS体幹姿勢IKの姿勢weight. 要素はroll,pitch,yaw. 下限0.0
+      /// 投影IKおよび最終IKのCHEST姿勢weight. 要素はroll,pitch,yaw. 下限0.0
       sequence<double, 3> wbms_torso_orientation_weight;
-      /// WBMS体幹姿勢IKの1周期補正量limit[rad/s相当]. 要素はroll,pitch,yaw. 下限0.0
+      /// 投影IKおよび最終IKで許容する1秒あたりの最大姿勢補正量[rad/s]. 要素はroll,pitch,yaw. 下限0.0
       sequence<double, 3> wbms_torso_orientation_max_error;
+      /// refTorsoVelInを最後に受信してから指令を無効にするまでの時間[s]. 下限0.0
+      double wbms_velocity_command_timeout;
+      /// CHEST角速度指令の加速度limit[rad/s^2]. 要素はroll,pitch,yaw. 下限0.0
+      sequence<double, 3> wbms_torso_angular_acceleration_limit;
+      /// COM速度limit[m/s]. 要素はx,y,z. 下限0.0
+      sequence<double, 3> wbms_com_velocity_limit;
+      /// COM速度指令の加速度limit[m/s^2]. 要素はx,y,z. 下限0.0
+      sequence<double, 3> wbms_com_acceleration_limit;
+      /// WBMS開始時COMからの位置差分下限[m]. footMidCoords座標系. 要素はx,y,z
+      sequence<double, 3> wbms_com_offset_lower_limit;
+      /// WBMS開始時COMからの位置差分上限[m]. footMidCoords座標系. 要素はx,y,z
+      sequence<double, 3> wbms_com_offset_upper_limit;
+      /// 投影IKおよび最終IKのCOM位置weight. 要素はx,y,z. 下限0.0
+      sequence<double, 3> wbms_com_position_weight;
+      /// 支持多角形境界から内側へ確保するCOM/ZMP XY余裕[m]. 下限0.0
+      double wbms_com_xy_support_margin;
 
       // RefToGenFrameConverter
       /// trueならHandは重心の動きに合わせて左右に揺れる. falseなら揺れない.

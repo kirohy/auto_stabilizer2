@@ -20,12 +20,8 @@ public:
 
   // FullbodyIKSolverでのみ使うパラメータ
   // 内部にヤコビアンの情報をキャッシュするが、クリアしなくても副作用はあまりない
-  mutable cpp_filters::TwoPointInterpolator<double> wbmsWalkingStabilityMode = cpp_filters::TwoPointInterpolator<double>(0.0,0.0,0.0,cpp_filters::HOFFARBIB); // 0~1. WBMS中でも歩行中はroot姿勢を復帰させる
   mutable std::vector<std::shared_ptr<ik_constraint2::PositionConstraint> > ikEEPositionConstraint; // 要素数と順序はeeNameと同じ.
   mutable std::vector<std::shared_ptr<ik_constraint2::JointAngleConstraint> > refJointAngleConstraint; // 要素数と順序はrobot->numJoints()と同じ
-  mutable cnoid::BodyPtr wbmsPostureRobot; // WBMS体幹姿勢指令から関節角参照を生成するための内部ロボット
-  mutable std::vector<std::shared_ptr<ik_constraint2::PositionConstraint> > wbmsPostureFootConstraint; // 要素数はNUM_LEGS
-  mutable std::shared_ptr<ik_constraint2::PositionConstraint> wbmsPostureRootConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
   mutable std::shared_ptr<ik_constraint2::PositionConstraint> rootPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
   mutable std::shared_ptr<ik_constraint2::COMConstraint> comConstraint = std::make_shared<ik_constraint2::COMConstraint>();
   mutable std::shared_ptr<ik_constraint2::AngularMomentumConstraint> angularMomentumConstraint = std::make_shared<ik_constraint2::AngularMomentumConstraint>();
@@ -36,7 +32,6 @@ protected:
   // クリアしなくても副作用はあまりない
   mutable cnoid::VectorX jlim_avoid_weight;
   mutable std::vector<std::shared_ptr<prioritized_qp_base::Task> > tasks;
-  mutable std::vector<std::shared_ptr<prioritized_qp_base::Task> > wbmsPostureTasks;
 public:
   // 初期化時に一回呼ばれる
   void init(const cnoid::BodyPtr& genRobot, const GaitParam& gaitParam){
@@ -49,10 +44,6 @@ public:
     for(int i=0;i<gaitParam.eeName.size();i++) ikEEPositionConstraint.push_back(std::make_shared<ik_constraint2::PositionConstraint>());
     refJointAngleConstraint.clear();
     for(int i=0;i<genRobot->numJoints();i++) refJointAngleConstraint.push_back(std::make_shared<ik_constraint2::JointAngleConstraint>());
-    wbmsPostureRobot = genRobot->clone();
-    wbmsPostureRobot->calcForwardKinematics(); wbmsPostureRobot->calcCenterOfMass();
-    wbmsPostureFootConstraint.clear();
-    for(int i=0;i<NUM_LEGS;i++) wbmsPostureFootConstraint.push_back(std::make_shared<ik_constraint2::PositionConstraint>());
     jointVelocityConstraint.clear();
     for(int i=0;i<genRobot->numJoints();i++) jointVelocityConstraint.push_back(std::make_shared<ik_constraint2::JointVelocityConstraint>());
     jointLimitConstraint.clear();
@@ -65,7 +56,6 @@ public:
   void reset(){
     for(int i=0;i<dqWeight.size();i++) dqWeight[i].reset(dqWeight[i].getGoal());
     for(int i=0;i<ikEEPositionWeight.size();i++) ikEEPositionWeight[i].reset(ikEEPositionWeight[i].getGoal());
-    wbmsWalkingStabilityMode.reset(0.0);
   }
 
   // 毎周期呼ばれる
@@ -76,10 +66,6 @@ public:
 
   bool solveFullbodyIK(double dt, const GaitParam& gaitParam,
                        cnoid::BodyPtr& genRobot) const;
-  void calcWbmsPostureReference(double dt, const GaitParam& gaitParam,
-                                double wbmsOperationMode,
-                                const cnoid::BodyPtr& genRobot,
-                                std::vector<double>& refq) const;
 };
 
 #endif

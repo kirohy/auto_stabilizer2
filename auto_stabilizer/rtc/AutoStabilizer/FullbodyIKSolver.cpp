@@ -3,112 +3,14 @@
 #include <algorithm>
 #include <cmath>
 
-void FullbodyIKSolver::calcWbmsPostureReference(double dt, const GaitParam& gaitParam,
-                                                double wbmsOperationMode,
-                                                const cnoid::BodyPtr& genRobot,
-                                                std::vector<double>& refq) const{
-  refq.resize(genRobot->numJoints());
-  for(int i=0;i<genRobot->numJoints();i++) refq[i] = gaitParam.refRobot->joint(i)->q();
-  if(!this->wbmsPostureRobot || wbmsOperationMode <= 0.0) return;
-
-  this->wbmsPostureRobot->rootLink()->p() = genRobot->rootLink()->p();
-  this->wbmsPostureRobot->rootLink()->R() = genRobot->rootLink()->R();
-  for(int i=0;i<genRobot->numJoints();i++) this->wbmsPostureRobot->joint(i)->q() = genRobot->joint(i)->q();
-  this->wbmsPostureRobot->calcForwardKinematics();
-
-  std::vector<cnoid::LinkPtr> variables; variables.reserve(1+this->wbmsPostureRobot->numJoints());
-  std::vector<double> dqWeight; dqWeight.reserve(6+this->wbmsPostureRobot->numJoints());
-  variables.push_back(this->wbmsPostureRobot->rootLink());
-  for(int i=0;i<6;i++) dqWeight.push_back(1.0);
-  for(size_t i=0;i<this->wbmsPostureRobot->numJoints();i++){
-    if(gaitParam.jointControllable[i]) {
-      variables.push_back(this->wbmsPostureRobot->joint(i));
-      dqWeight.push_back(this->dqWeight[i].value());
-    }
-  }
-
-  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > footConstraints;
-  for(int i=0;i<NUM_LEGS;i++){
-    this->wbmsPostureFootConstraint[i]->A_link() = this->wbmsPostureRobot->link(gaitParam.eeParentLink[i]);
-    this->wbmsPostureFootConstraint[i]->A_localpos() = gaitParam.eeLocalT[i];
-    this->wbmsPostureFootConstraint[i]->B_link() = nullptr;
-    this->wbmsPostureFootConstraint[i]->B_localpos() = gaitParam.abcEETargetPose[i];
-    this->wbmsPostureFootConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->wbmsPostureFootConstraint[i]->precision() = 0.0;
-    this->wbmsPostureFootConstraint[i]->weight() = this->ikEEPositionWeight[i].value();
-    this->wbmsPostureFootConstraint[i]->eval_link() = this->wbmsPostureRobot->link(this->ikEEEvalLink[i]);
-    if(this->wbmsPostureFootConstraint[i]->eval_link()) this->wbmsPostureFootConstraint[i]->eval_localR() = this->wbmsPostureFootConstraint[i]->eval_link()->R().transpose() * this->wbmsPostureFootConstraint[i]->B_localpos().linear();
-    else this->wbmsPostureFootConstraint[i]->eval_localR() = this->wbmsPostureFootConstraint[i]->B_localpos().linear();
-    footConstraints.push_back(this->wbmsPostureFootConstraint[i]);
-  }
-
-  cnoid::Isometry3 targetRootPose = gaitParam.stTargetRootPose;
-  targetRootPose.linear() = gaitParam.footMidCoords.value().linear()
-    * cnoid::rotFromRpy(gaitParam.wbmsTorsoTargetRpy)
-    * gaitParam.footMidCoords.value().linear().transpose()
-    * gaitParam.stTargetRootPose.linear();
-
-  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > rootConstraints;
-  this->wbmsPostureRootConstraint->A_link() = this->wbmsPostureRobot->rootLink();
-  this->wbmsPostureRootConstraint->A_localpos() = cnoid::Isometry3::Identity();
-  this->wbmsPostureRootConstraint->B_link() = nullptr;
-  this->wbmsPostureRootConstraint->B_localpos() = targetRootPose;
-  this->wbmsPostureRootConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
-    std::max(0.0, gaitParam.wbmsTorsoOrientationMaxError[0]) * dt,
-    std::max(0.0, gaitParam.wbmsTorsoOrientationMaxError[1]) * dt,
-    std::max(0.0, gaitParam.wbmsTorsoOrientationMaxError[2]) * dt;
-  this->wbmsPostureRootConstraint->precision() = 0.0;
-  const double yawCommandEps = 1e-6;
-  double yawWeight = (std::abs(gaitParam.wbmsTorsoTargetRpy[2]) > yawCommandEps || std::abs(gaitParam.refTorsoAnglVel.value()[2]) > yawCommandEps) ? std::max(0.0, gaitParam.wbmsTorsoOrientationWeight[2]) : 0.0;
-  this->wbmsPostureRootConstraint->weight() << 0.0, 0.0, 0.0,
-    std::max(0.0, gaitParam.wbmsTorsoOrientationWeight[0]) * wbmsOperationMode,
-    std::max(0.0, gaitParam.wbmsTorsoOrientationWeight[1]) * wbmsOperationMode,
-    yawWeight * wbmsOperationMode;
-  this->wbmsPostureRootConstraint->eval_link() = this->wbmsPostureRobot->rootLink();
-  this->wbmsPostureRootConstraint->eval_localR() = cnoid::Matrix3::Identity();
-  rootConstraints.push_back(this->wbmsPostureRootConstraint);
-
-  std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > jointLimitConstraints;
-  for(size_t i=0;i<this->wbmsPostureRobot->numJoints();i++){
-    if(!gaitParam.jointControllable[i]) continue;
-    this->jointLimitConstraint[i]->joint() = this->wbmsPostureRobot->joint(i);
-    this->jointLimitConstraint[i]->jointLimitTables() = gaitParam.jointLimitTables[i];
-    this->jointLimitConstraint[i]->maxError() = 1.0 * dt;
-    this->jointLimitConstraint[i]->weight() = 1.0;
-    jointLimitConstraints.push_back(this->jointLimitConstraint[i]);
-  }
-
-  std::vector<std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > > constraints{jointLimitConstraints, footConstraints, rootConstraints};
-  prioritized_inverse_kinematics_solver2::IKParam param;
-  param.maxIteration = 1;
-  param.dqWeight = dqWeight;
-  param.wn = 1e-6;
-  param.we = 1e2;
-  param.debugLevel = 0;
-  param.dt = dt;
-  prioritized_inverse_kinematics_solver2::solveIKLoop(variables,
-                                                     constraints,
-                                                     this->wbmsPostureTasks,
-                                                     param
-                                                     );
-
-  for(int i=0;i<this->wbmsPostureRobot->numJoints();i++) refq[i] = this->wbmsPostureRobot->joint(i)->q();
-}
-
 bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
                                        cnoid::BodyPtr& genRobot) const{
   double wbmsMode = gaitParam.wbmsMode.value();
-  double wbmsWalkingStabilityTarget = (!gaitParam.isStatic() || gaitParam.isWbmsWalkingStartDelay) ? 1.0 : 0.0;
-  if(this->wbmsWalkingStabilityMode.getGoal() != wbmsWalkingStabilityTarget){
-    this->wbmsWalkingStabilityMode.setGoal(wbmsWalkingStabilityTarget,
-                                           wbmsWalkingStabilityTarget > this->wbmsWalkingStabilityMode.getGoal() ? gaitParam.wbmsWalkingStabilityStartTime : gaitParam.wbmsWalkingStabilityStopTime);
-  }
-  this->wbmsWalkingStabilityMode.interpolate(dt);
-  double wbmsStabilityMode = std::max(1.0 - wbmsMode, this->wbmsWalkingStabilityMode.value());
-  double wbmsOperationMode = wbmsMode * (1.0 - this->wbmsWalkingStabilityMode.value());
+  double wbmsStabilityMode = std::max(1.0 - wbmsMode, gaitParam.wbmsWalkingStabilityModeValue);
   bool wbmsActive = (gaitParam.wbmsMode.value() > 0.0 || gaitParam.wbmsMode.getGoal() > 0.0);
   std::vector<double> refq;
-  this->calcWbmsPostureReference(dt, gaitParam, wbmsOperationMode, genRobot, refq);
+  refq.resize(genRobot->numJoints());
+  for(int i=0;i<genRobot->numJoints();i++) refq[i] = gaitParam.refRobot->joint(i)->q();
 
   // !jointControllableの関節は指令値をそのまま入れる
   for(size_t i=0;i<genRobot->numJoints();i++){
