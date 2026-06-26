@@ -3,6 +3,7 @@
 #include "MathUtil.h"
 #include <cnoid/EigenUtil>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 void WbmsPostureControl::init(const cnoid::BodyPtr& genRobot, const GaitParam& gaitParam){
@@ -375,8 +376,15 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   }
 
   gaitParam.wbmsPostureReferenceQ.resize(gaitParam.genRobot->numJoints());
+  gaitParam.wbmsPostureReferenceJointMask.assign(gaitParam.genRobot->numJoints(), false);
   for(int i=0;i<gaitParam.genRobot->numJoints();i++){
     gaitParam.wbmsPostureReferenceQ[i] = this->wbmsPostureRobot_->joint(i)->q();
+  }
+  for(size_t i=0;i<this->projectionJointIds_.size();i++){
+    int jointId = this->projectionJointIds_[i];
+    if(jointId >= 0 && jointId < gaitParam.wbmsPostureReferenceJointMask.size()){
+      gaitParam.wbmsPostureReferenceJointMask[jointId] = true;
+    }
   }
   cnoid::LinkPtr projectedChestLink = this->wbmsPostureRobot_->link(gaitParam.chestLinkName);
   gaitParam.wbmsProjectedChestR = projectedChestLink->R();
@@ -427,6 +435,7 @@ bool WbmsPostureControl::validateProjection(const GaitParam& gaitParam, double d
 
 void WbmsPostureControl::setFallbackReference(GaitParam& gaitParam) const{
   gaitParam.wbmsPostureReferenceQ.resize(gaitParam.genRobot->numJoints());
+  gaitParam.wbmsPostureReferenceJointMask.assign(gaitParam.genRobot->numJoints(), false);
   for(int i=0;i<gaitParam.genRobot->numJoints();i++){
     gaitParam.wbmsPostureReferenceQ[i] = gaitParam.genRobot->joint(i)->q();
   }
@@ -488,6 +497,7 @@ void WbmsPostureControl::applyStaticComZmpIntegration(GaitParam& gaitParam, doub
 }
 
 void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight){
+  std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
   double walkingStabilityTarget = (!gaitParam.isStatic() || gaitParam.isWbmsWalkingStartDelay) ? 1.0 : 0.0;
   if(this->wbmsWalkingStabilityMode_.getGoal() != walkingStabilityTarget){
     this->wbmsWalkingStabilityMode_.setGoal(walkingStabilityTarget,
@@ -501,4 +511,5 @@ void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning
   if(this->solveProjection(gaitParam, dt, referenceDqWeight)){
     this->applyStaticComZmpIntegration(gaitParam, dt);
   }
+  gaitParam.debugData.wbmsProjectorTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
 }

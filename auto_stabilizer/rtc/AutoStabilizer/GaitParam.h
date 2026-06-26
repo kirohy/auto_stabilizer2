@@ -193,6 +193,7 @@ public:
   bool wbmsPostureBaselineValid = false;
 
   std::vector<double> wbmsPostureReferenceQ; // 投影IK後の関節角参照。M1では旧IKへ接続しない
+  std::vector<bool> wbmsPostureReferenceJointMask; // 投影IKのvariableに含まれる関節。falseの関節は最終IKで従来referenceを使う
   cnoid::Matrix3 wbmsProjectedChestR = cnoid::Matrix3::Identity(); // 投影後CHEST姿勢。generate frame
   cnoid::Vector3 wbmsProjectedRobotCom = cnoid::Vector3::Zero(); // 投影後robot COM。generate frame
   cnoid::Vector3 wbmsRealizedComVelocity = cnoid::Vector3::Zero(); // [m/s]. 投影後に実現したCOM速度
@@ -207,6 +208,9 @@ public:
     std::vector<cnoid::Vector3> strideLimitationHull = std::vector<cnoid::Vector3>(); // generate frame. overwritableStrideLimitationHullの範囲内の着地位置(自己干渉・IKの考慮が含まれる). Z成分には0を入れる
     std::vector<std::vector<cnoid::Vector3> > capturableHulls = std::vector<std::vector<cnoid::Vector3> >(); // generate frame. 要素数と順番はcandidatesに対応
     std::vector<double> cpViewerLog = std::vector<double>(37, 0.0);
+    double wbmsProjectorTime = 0.0; // [s]. WbmsPostureControl::procの計算時間
+    double wbmsFinalIKTime = 0.0; // [s]. FullbodyIKSolver::solveFullbodyIKの計算時間
+    double onExecuteTime = 0.0; // [s]. AutoStabilizer::onExecuteの計算時間
   };
   DebugData debugData; // デバッグ用のOutPortから出力するためのデータ. AutoStabilizer内の制御処理では使われることは無い. そのため、モード遷移や初期化等の処理にはあまり注意を払わなくて良い
 
@@ -224,6 +228,7 @@ public:
 
   void clearWbmsPostureReference(){
     wbmsPostureReferenceQ.clear();
+    wbmsPostureReferenceJointMask.clear();
     wbmsProjectedChestR.setIdentity();
     wbmsProjectedRobotCom.setZero();
     wbmsRealizedComVelocity.setZero();

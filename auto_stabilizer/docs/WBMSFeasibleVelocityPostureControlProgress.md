@@ -2,7 +2,7 @@
 
 ## 現在の全体状態
 
-対象ブランチは `wbms-dev`。現在の作業は、承認済み実装計画の「マイルストーン2: 実現可能速度投影とCOM/ZMP統合」まで完了している。
+対象ブランチは `wbms-dev`。現在の作業は、承認済み実装計画の「マイルストーン3: 最終IK統合・旧方式削除・debug/計測」まで完了している。
 
 本記録時点で、以下はコード上実装済みである。
 
@@ -28,17 +28,22 @@
 - 投影成功時に `wbmsPostureReferenceQ`、projected CHEST/COM、realized velocity、valid flagを `GaitParam` へ反映する処理。
 - static WBMS操作中だけ、投影COMを `genCog`、`genCogVel`、`genCogAcc`、`refdz`、`omega`、`l`、static用 `refZmpTraj` へblend反映する処理。
 - `WbmsPostureControl::proc()` を `calcCOMCoords` および `abcEETargetPose` 更新後、Stabilizerより前に呼ぶ処理。
+- 最終IKへ投影済みCHEST姿勢 `PositionConstraint` を追加する処理。
+- 最終IKのCOM targetを `genCog + sbpOffset` のまま維持し、COM weightだけを通常値と `wbms_com_position_weight` の間で `wbmsOperationModeValue` によりblendする処理。
+- 最終IKのreference angleを、投影validかつ投影IK variableに含まれる関節だけ `wbmsPostureReferenceQ` と従来 `refRobot` の間でmode blendする処理。
+- 投影variable外の腕などの関節へ従来referenceを使う処理。
+- 投影invalid時に最終IKのCHEST姿勢拘束と投影reference angleを無効化し、従来referenceへfallbackする処理。
+- 上半身EEのWBMS中CHEST相対拘束を維持する処理。
+- 旧root reference IK関連識別子と旧 `WbmsTorsoControl` の削除。
+- 既存 `cpViewerLog` の固定indexを変更せず、新規 `wbmsDebugOut` OutPortでWBMS debug情報と計算時間を公開する処理。
+- projector、final IK、`onExecute()` の時間計測。通常実行で毎周期標準出力しない。
 
 本記録時点で、以下は未実装であり、後続マイルストーン範囲である。
 
-- 最終IKへの投影CHEST姿勢拘束追加。
-- 最終IKのCOM weight blend。
-- 最終IKのreference angleを `wbmsPostureReferenceQ` へ切り替える処理。
-- 旧reference IK関連の最終整理。
-- 腕CHEST相対拘束の最終確認と、M3範囲の最終IK優先度整理。
-- debug OutPortまたはdebug logの公開整備。
-- 500 Hz実時間計測。
-- シミュレータ上の応答、安定性、操作感確認。
+- シミュレータ上での安定性、操作感、腕同時操作、歩行遷移、逆方向応答、500 Hz実時間性能の合否判定。
+- `wbmsDebugOut` を用いた運用側logger/viewer設定。
+- `wbmsDebugOut` にprojector invalid理由や `solveIKLoop()` 戻り値を追加公開するかどうかの判断。
+- projector validが常にfalseになるシミュレータ問題の原因切り分けと修正。
 
 ## 完了済みマイルストーン一覧
 
@@ -46,7 +51,7 @@
 |---|---|---|
 | 1 | API・状態・入力保持基盤 | 完了。ビルド成功、review指摘対応済み |
 | 2 | 実現可能速度投影とCOM/ZMP統合 | 完了。ビルド成功、review指摘対応済み |
-| 3 | 最終IK統合・旧方式削除・debug/計測 | 未着手 |
+| 3 | 最終IK統合・旧方式削除・debug/計測 | 完了。ビルド成功、review指摘対応済み。シミュレータでprojector invalid問題を確認 |
 
 ## 完了済みマイルストーン1記録
 
@@ -77,7 +82,7 @@
 - WBMS停止中は速度commandを受け付けない必要がある指摘を修正した。
   - `isOperationAllowed()` のWBMS判定を `wbmsMode.getGoal() > 0.0` にした。
 
-## 今回のマイルストーン完了記録
+## 完了済みマイルストーン2記録
 
 ### マイルストーン番号と名称
 
@@ -208,7 +213,7 @@ M2で実際に使用開始した主なparameterは以下。
 - `wbms_com_position_weight`
 - `wbms_com_xy_support_margin`
 
-## 重要な実装判断とその理由
+## M2の重要な実装判断とその理由
 
 - 投影IK variableへ腕関節を含めない。
   - 正式仕様の「腕関節を投影IKのvariableへ含めない。ただし腕の現在姿勢と質量はCOM計算へ含める」を満たすため。
@@ -225,7 +230,7 @@ M2で実際に使用開始した主なparameterは以下。
 - 最終IKにはM2で触れない。
   - M3の範囲を先行実装せず、後続で削除する暫定接続を作らないため。
 
-## 仕様との差異
+## M2時点の仕様との差異
 
 ### M1で旧reference IKの一部削除を先行した
 
@@ -243,7 +248,7 @@ M2で実際に使用開始した主なparameterは以下。
 
 COM拘束をCHEST姿勢拘束より高優先度へ分離するreview指摘があったが、正式仕様書8.6と承認済み計画M2は、COM位置3DとCHEST姿勢3Dを同じ優先度のソフトタスクとして解くことを明記している。このため、コードは `projectionConstraints_[3]` に両方を入れる現状を維持している。
 
-## ビルド・review結果
+## M2のビルド・review結果
 
 ### ビルドコマンドと結果
 
@@ -367,7 +372,7 @@ rg -n "projectionConstraints_\\[3\\]|chestConstraint_|comConstraint_|同じ優�
 - 確認:
   - 仕様・計画・コードの一致を静的検索で確認。
 
-## コードとビルドで確認済みの事項
+## M2でコードとビルドにより確認済みの事項
 
 - 投影用robot cloneは `init()` 時のみ。
 - ancestor探索は `init()` 時のみ。
@@ -386,20 +391,20 @@ rg -n "projectionConstraints_\\[3\\]|chestConstraint_|comConstraint_|同じ優�
 - 歩行中および歩行開始遅延中は `isOperationAllowed()` によりCOM/ZMP/CHEST操作が無効になる。
 - ビルドは成功している。
 
-## 未解決事項
+## M2終了時点の未解決事項
 
-- M3の最終IK CHEST姿勢拘束は未実装。
-- M3のCOM weight blendは未実装。
-- M3のreference angle切替は未実装。
-- M3の旧reference IK最終整理は未実装。
-- M3のdebug OutPortまたはdebug logの最終仕様は未決定。
-- M3の500 Hz実時間計測は未実施。
+- M3の最終IK CHEST姿勢拘束は未実装だったが、M3で実装済み。
+- M3のCOM weight blendは未実装だったが、M3で実装済み。
+- M3のreference angle切替は未実装だったが、M3で実装済み。
+- M3の旧reference IK最終整理は未実装だったが、M3で実装済み。
+- M3のdebug OutPortまたはdebug logの最終仕様は未決定だったが、M3で新規 `wbmsDebugOut` OutPortを採用済み。
+- M3の500 Hz実時間計測は未実施だったが、M3で計測値の公開は実装済み。実時間性能の合否判定はシミュレータ未確認。
 - self collision入力数が周期中に増える場合は、正式仕様で許容されている範囲ではあるが、その周期に `resize()` / `make_shared()` が発生し得る。
 - 支持多角形縮小が頻繁に退化する場合、パラメータ調整または追加の異常報告が必要。
 - シミュレータ確認前のため、実応答、操作感、安定性、500 Hz実測は未確認。
 - `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/docs/WBMSTorsoArmIKDesignPlan.md`、`auto_stabilizer/docs/WBMSTorsoArmIKExperimentLog.md`、`auto_stabilizer/docs/WBMSWalkingControlSummary.md` は未追跡として存在する。既存ユーザー変更扱いで、不要に削除しないこと。
 
-## シミュレータ確認待ち項目
+## M2終了時点のシミュレータ確認待ち項目
 
 以下はコードとビルドだけではPASS扱いしない。
 
@@ -419,7 +424,7 @@ rg -n "projectionConstraints_\\[3\\]|chestConstraint_|comConstraint_|同じ優�
 - 既存歩行APIと歩行開始遅延が壊れていないこと。
 - 500 Hz周期が継続すること。
 
-## 次マイルストーンへの引き継ぎ
+## M2終了時点のM3引き継ぎ
 
 ### 次のマイルストーンが使用するinterface、state、前提条件
 
@@ -484,3 +489,307 @@ rg -n "IKParam param|param\\.dqWeight|projectionDqWeight" auto_stabilizer/rtc/Au
 ```
 
 M3実装後は承認済み計画に従い、最終IKのCHEST拘束、COM weight blend、reference angle切替、腕CHEST相対拘束維持、旧reference IK整理、debug/計測を確認する。
+
+## 今回のマイルストーン完了記録（M3）
+
+### マイルストーン番号と名称
+
+マイルストーン3: 最終IK統合・旧方式削除・debug/計測。
+
+### 完了状態
+
+コード、API、構造面の実装は完了。`catkin build auto_stabilizer --no-deps` に成功している。M3実装後の `/review` 指摘は修正済みであり、最終 `/review` では差分上の破壊的問題は報告されていない。
+
+シミュレータでは `wbmsDebugOut` のログ取得まで実施済み。ただし、体幹角速度指令を送っても前傾しない問題を確認しており、M3完了後の未解決事項として扱う。ログ上はraw/applied pitch角速度指令は入っている一方、projector valid flagが全周期0、realized torso angular velocityが全周期0であった。
+
+### 実装した範囲
+
+- `FullbodyIKSolver` の最終IKへ、投影済み `wbmsProjectedChestR` をtargetとするCHEST姿勢 `PositionConstraint` を追加した。
+- CHEST姿勢拘束は位置weightをゼロ、姿勢weightを `wbmsTorsoOrientationWeight * wbmsOperationModeValue` とした。
+- CHEST姿勢拘束の角度 `maxError` は `wbmsTorsoOrientationMaxError * dt` とした。
+- COM拘束targetは従来どおり `gaitParam.genCog + gaitParam.sbpOffset` とし、weightだけを通常値 `[10, 10, wbmsStabilityMode]` と `wbmsComPositionWeight` の間で `wbmsOperationModeValue` によりblendした。
+- reference angleは、投影validかつ投影IK variableに含まれる関節だけ `wbmsPostureReferenceQ` と従来 `refRobot` を `wbmsOperationModeValue` でblendするようにした。
+- 投影IK variable外の腕などの関節は従来 `refRobot` referenceを使う。
+- 投影invalid時は `wbmsPostureReferenceJointMask` を全falseにし、最終IKのreference angleは従来referenceへfallbackする。
+- 投影invalid時は最終IKのCHEST姿勢拘束も追加しない。歩行開始遅延や投影失敗時に現在CHEST姿勢保持がroot姿勢復帰・通常COM安定化と競合しないようにするため。
+- 上半身EEのWBMS中CHEST相対拘束は、従来どおり `B_link = torsoGenLink`、`B_localpos = torsoRefLink->T().inverse() * gaitParam.abcEETargetPose[i]` のまま維持した。
+- 既存 `cpViewerLog` は固定indexを変更せず、新規 `wbmsDebugOut` `TimedDoubleSeq` OutPortを追加した。
+- `WbmsPostureControl::proc()`、`FullbodyIKSolver::solveFullbodyIK()`、`AutoStabilizer::onExecute()` の計算時間を `std::chrono::steady_clock` で計測し、毎周期標準出力へは出さず `wbmsDebugOut` で確認できるようにした。
+- `GaitParam::wbmsPostureReferenceJointMask` を追加し、投影IK variableに含まれる関節だけ最終IKのreference angle blend対象にした。
+- `GaitParam::DebugData` に `wbmsProjectorTime`、`wbmsFinalIKTime`、`onExecuteTime` を追加した。
+- `FullbodyIKSolver::solveFullbodyIK()` は計測値を書き込むため `const GaitParam&` ではなく `GaitParam&` を受け取るようにした。
+
+### 意図的に未実装とした後続範囲
+
+- simulator上のゲイン・limit調整。
+- logger/viewer側の `wbmsDebugOut` 表示設定。
+- projector invalid理由の詳細debug公開。
+- `wbmsDebugOut` の統計集計。現状は周期ごとの値のみを出力する。
+- 歩行中にstatic WBMSと同じCOM速度操作を有効化する機能。正式仕様どおり今回範囲外。
+
+### 変更ファイルと変更概要
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp` | 最終IKのCHEST姿勢拘束、COM weight mode blend、reference angle mode blend、final IK時間計測を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.h` | CHEST姿勢拘束メンバを追加し、`solveFullbodyIK()` の引数を `GaitParam&` へ変更 |
+| `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h` | `wbmsPostureReferenceJointMask` とdebug計測値を追加し、clear処理へ反映 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | 投影成功時のjoint mask設定、fallback時のmask clear、projector時間計測を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp` | `wbmsDebugOut` OutPort登録、debug値の詰め替え、`onExecute()` 全体時間計測を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.h` | `wbmsDebugOut` 用 `TimedDoubleSeq` とOutPortを追加 |
+| `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md` | M3実装結果、review対応、シミュレータで確認した未解決事項、次セッションへの引き継ぎを記録 |
+
+### 追加・変更した主要class、function、state、parameter
+
+#### class / function
+
+- `FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam, cnoid::BodyPtr& genRobot)`
+  - 最終IKの主拘束へ投影済みCHEST姿勢拘束を追加する。
+  - COM weightを通常値とWBMS用値の間でmode blendする。
+  - reference angleを投影joint maskに従ってmode blendする。
+  - final IK計算時間を `gaitParam.debugData.wbmsFinalIKTime` に保存する。
+- `WbmsPostureControl::solveProjection()`
+  - 投影成功時に `wbmsPostureReferenceJointMask` を設定する。
+- `WbmsPostureControl::setFallbackReference()`
+  - fallback時に `wbmsPostureReferenceJointMask` を全falseにする。
+- `WbmsPostureControl::proc()`
+  - projector計算時間を `gaitParam.debugData.wbmsProjectorTime` に保存する。
+- `AutoStabilizer::writeOutPortData()`
+  - `wbmsDebugOut` の30要素を出力する。
+- `AutoStabilizer::onExecute()`
+  - OutPort書き込み後に `onExecute()` 全体時間を確定し、次回出力周期の `wbmsDebugOut[29]` で公開する。
+
+#### state
+
+- `FullbodyIKSolver::chestPositionConstraint`
+- `GaitParam::wbmsPostureReferenceJointMask`
+- `GaitParam::DebugData::wbmsProjectorTime`
+- `GaitParam::DebugData::wbmsFinalIKTime`
+- `GaitParam::DebugData::onExecuteTime`
+- `AutoStabilizer::Ports::m_wbmsDebug_`
+- `AutoStabilizer::Ports::m_wbmsDebugOut_`
+
+#### parameter
+
+M3で新しい設定parameterは追加していない。M1/M2で追加済みの以下を最終IKでも使用する。
+
+- `wbms_torso_orientation_weight`
+- `wbms_torso_orientation_max_error`
+- `wbms_com_position_weight`
+
+### 重要な実装判断とその理由
+
+- 最終IKのCHEST拘束は投影valid時だけ追加する。
+  - 投影invalid時や歩行開始遅延中に現在CHEST姿勢保持が残ると、root姿勢復帰・通常COM安定化と競合するため。
+- CHEST拘束の位置weightはゼロにする。
+  - 体幹位置ではなくCHEST世界姿勢だけを操作対象にする正式仕様に従うため。
+- CHEST拘束の姿勢weightは `wbmsTorsoOrientationWeight * wbmsOperationModeValue` とする。
+  - static WBMS操作と歩行安定化切替の共通係数を `wbmsOperationModeValue` に一本化するため。
+- COM targetは `genCog + sbpOffset` のままとし、targetではなくweightをmode blendする。
+  - M2でstatic WBMS中の `genCog` は投影済みCOMと整合済みであり、最終IK側で別targetを作るとCOM/ZMP/omega/lとの整合を崩すため。
+- reference angleは投影validかつ投影IK variableの関節だけ投影Qを使う。
+  - 腕など投影variable外の関節commandを上書きしないため。
+- debugは既存 `cpViewerLog` へ追加せず、新規OutPortにした。
+  - `cpViewerLog` の固定indexを壊すと既存viewer互換へ影響するため。
+- `onExecute()` 時間はOutPort書き込み後に確定し、次回出力周期で公開する。
+  - `wbmsDebugOut` 自身を含むOutPort書き込み時間を計測値へ含めるため。
+
+### `wbmsDebugOut` の要素順
+
+`wbmsDebugOut` は30要素の `TimedDoubleSeq` とする。
+
+| index | 内容 |
+|---|---|
+| 0-2 | raw COM velocity |
+| 3-5 | applied COM velocity |
+| 6-8 | realized COM velocity |
+| 9-11 | raw torso angular velocity |
+| 12-14 | applied torso angular velocity |
+| 15-17 | realized torso angular velocity |
+| 18-20 | WBMS開始時からのCOM offset |
+| 21-23 | WBMS開始時からのCHEST RPY offset |
+| 24 | `wbmsOperationModeValue` |
+| 25 | `wbmsWalkingStabilityModeValue` |
+| 26 | projector valid flag |
+| 27 | projector計算時間[s] |
+| 28 | final IK計算時間[s] |
+| 29 | 前回出力更新周期の `onExecute()` 全体計算時間[s]。OutPort書き込み後に確定した値 |
+
+### 採用初期値
+
+M3で新しい調整パラメータは追加していない。M1/M2で追加済みの正式仕様書6.3の推奨初期値を継続して使う。
+
+- `wbms_torso_orientation_weight = [0.3, 0.3, 0.3]`
+- `wbms_torso_orientation_max_error = [0.15, 0.15, 0.30]`
+- `wbms_com_position_weight = [3.0, 3.0, 1.0]`
+- その他の速度limit、加速度limit、offset limit、support marginも正式仕様書6.3どおり。
+
+## 仕様との差異
+
+### `wbmsDebugOut[29]` は前回出力更新周期の値
+
+`onExecute()` 全体時間にOutPort書き込み時間を含めるため、`writeOutPortData()` の後で `debugData.onExecuteTime` を更新している。このため、`wbmsDebugOut[29]` に出る値は同一周期で確定した値ではなく、前回出力更新周期の値である。
+
+### 支持多角形退化時は投影全体をfallback
+
+M2 review対応で記録済みの差異をM3でも継続している。正式仕様書は「COM XY速度入力をその周期はゼロ扱い」としているが、縮小支持多角形が無い状態ではZMP XY射影もできないため、現在実装は投影全体を失敗扱いにして現在姿勢へfallbackする。
+
+### projector valid判定が保守的すぎる可能性
+
+現在コードは `solveIKLoop()` の戻り値と独自検証の両方がtrueの場合だけ投影validにしている。承認済み計画では `maxIteration=1` のため戻り値だけで成功/失敗を判断すると過剰失敗の可能性があり、独自検証を最終判定に使う方針が記載されている。シミュレータログではvalidが全周期0であり、この点が未解決リスクとして残っている。
+
+## ビルド・review結果
+
+### ビルドコマンドと結果
+
+M3実装後およびreview対応後に以下を実行した。
+
+```sh
+catkin build auto_stabilizer --no-deps
+```
+
+結果は成功。`All 1 packages succeeded`、warningsなし。
+
+### 静的確認コマンドと結果
+
+以下を実行した。
+
+```sh
+rg -n "wbmsTorsoTargetRpy|refTorsoAnglVel|calcWbmsPostureReference|wbmsPostureRootConstraint|WbmsTorsoControl" auto_stabilizer/rtc/AutoStabilizer
+```
+
+結果は該当なし。旧root姿勢積分方式と旧 `WbmsTorsoControl` 識別子は制御コード配下に残っていない。
+
+以下を実行した。
+
+```sh
+rg -n "B_link\\(\\) = torsoGenLink|wbmsProjectedChestR|wbmsComPositionWeight|wbmsOperationModeValue" auto_stabilizer/rtc/AutoStabilizer
+```
+
+結果:
+
+- 腕CHEST相対拘束の `B_link() = torsoGenLink` を確認。
+- 最終IKの投影済みCHEST姿勢target、COM weight blend、operation mode参照を確認。
+- `WbmsPostureControl` 側のoperation mode計算とCOM/ZMP統合処理を確認。
+
+以下を実行した。
+
+```sh
+git diff --stat
+```
+
+結果はM3対象ファイルと進捗文書のみの変更である。
+
+### `/review`で報告された重要な指摘と対応
+
+#### 指摘1: `onExecute()` 時間がOutPort書き込み時間を含まない
+
+- 分類: 修正対象。
+- 問題: `writeOutPortData()` 前に `wbmsDebugOut[29]` 用の値を確定すると、新規 `wbmsDebugOut` 自身を含むOutPort書き込み時間が計測値に含まれない。
+- 修正:
+  - `AutoStabilizer::onExecute()` で `writeOutPortData()` 後に `debugData.onExecuteTime` を更新するようにした。
+  - `wbmsDebugOut[29]` は前回出力更新周期の確定値として扱う。
+- 確認:
+  - 該当コード再確認、ビルド成功、静的確認実施。
+
+#### 指摘2: 投影無効時にも最終IKのCHEST拘束が残る
+
+- 分類: 修正対象。
+- 問題: 歩行開始遅延や投影失敗で `wbmsPostureReferenceValid=false` の周期でもCHEST姿勢拘束が残ると、root姿勢復帰・通常COM安定化と競合する。
+- 修正:
+  - `FullbodyIKSolver` のCHEST拘束追加条件を `chestLink && gaitParam.wbmsPostureReferenceValid` にした。
+  - fallback時は `wbmsPostureReferenceJointMask` も全falseにする。
+- 確認:
+  - 該当コード再確認、ビルド成功、静的確認実施。
+
+#### 指摘3: 最終review結果
+
+- 分類: 対応不要。
+- 内容: CHEST相対腕拘束維持、旧root reference IK除去、COM/reference angle mode blend、debug OutPort追加、計測追加に対して、差分上で明確な破壊的問題は見つからなかった。ビルドも成功している。
+- 対応:
+  - 追加コード変更なし。
+
+## コードとビルドで確認済みの事項
+
+- 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
+- `FullbodyIKSolver` 側に旧reference IK専用robot、旧root姿勢拘束、旧task cache、内部walking stability modeは残っていない。
+- `WbmsPostureControl` 側の `wbmsPostureRobot_` はM2の実現可能速度投影用robotであり、削除対象の旧reference IK robotではない。
+- 最終IKの優先度は、優先度0 joint velocity / joint limit、優先度1 self collision、優先度2 足、優先度3 上半身EE・CHEST姿勢・COM・角運動量・root姿勢、優先度4 reference angle の構成である。
+- 最終IKのCHEST姿勢targetは `gaitParam.wbmsProjectedChestR` である。
+- CHEST姿勢拘束の位置weightはゼロ、姿勢weightは `wbmsTorsoOrientationWeight * wbmsOperationModeValue` である。
+- CHEST姿勢拘束の角度 `maxError` は `wbmsTorsoOrientationMaxError * dt` である。
+- COM targetは `gaitParam.genCog + gaitParam.sbpOffset` である。
+- COM weightは通常値と `wbmsComPositionWeight` の間で `wbmsOperationModeValue` によりblendされる。
+- reference angleは投影valid、operation mode、投影対象joint maskを考慮して切り替わる。
+- 投影variable外の腕などは従来referenceを使う。
+- 上半身EEのCHEST相対拘束は `FullbodyIKSolver.cpp` の `B_link() = torsoGenLink` と `B_localpos() = torsoRefLink->T().inverse() * gaitParam.abcEETargetPose[i]` で維持されている。
+- `cpViewerLog` の固定indexは変更していない。
+- debug/計測は `wbmsDebugOut` で確認でき、毎周期標準出力は行わない。
+
+## 未解決事項
+
+- `wbmsDebugOut` は新規OutPortであり、既存viewer互換は壊さない判断だが、利用側のlogger設定追加は別途必要。
+- `wbmsDebugOut[29]` はOutPort書き込み時間を含めるため、同一周期ではなく前回出力更新周期の確定値を公開する。
+- 時間計測は各周期の値を出すのみで、平均、最大、p99の集計は未実装。必要であればlogger側または後続実装で集計する。
+- final IKのCHEST姿勢weight、COM weight、各limitは正式仕様の保守的初期値であり、シミュレータ確認後に調整が必要。
+- self collision入力数が周期中に増えた場合の `resize()` / constraint生成はM2時点の許容範囲として残る。
+- シミュレータログ `auto_stabilizer/log/wbmsDebugOut.txt` では、体幹pitch角速度指令を送っている間も `wbmsDebugOut[26]` のprojector valid flagが全周期0、`wbmsDebugOut[15-17]` のrealized torso angular velocityが全周期0だった。このため最終IKのCHEST拘束と投影reference angleが無効化され、前傾しない。
+- 上記問題の直接原因はprojector invalid継続である。現状のdebugだけでは、`solveIKLoop()` 戻り値がfalseなのか、`validateProjection()` がfalseなのかは切り分けられない。
+- `WbmsPostureControl::solveProjection()` は `bool valid = solved && validateProjection(...)` としている。`maxIteration=1` の `solveIKLoop()` 戻り値をvalid条件に含めることが過剰失敗の原因になっている可能性がある。次セッションではここを最初に確認する。
+- `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/docs/WBMSTorsoArmIKDesignPlan.md`、`auto_stabilizer/docs/WBMSTorsoArmIKExperimentLog.md`、`auto_stabilizer/docs/WBMSWalkingControlSummary.md`、`auto_stabilizer/log/` は未追跡として存在する。既存ユーザー変更またはログ扱いで、不要に削除しないこと。
+
+## シミュレータ確認待ち項目
+
+以下はコードとビルドだけではPASS扱いしない。
+
+- 50Hz入力時のsample-and-hold応答と入力周期非依存性。
+- CHEST roll/pitch/yaw、COM前後左右/上下の実応答。
+- limit到達時のhidden goal非蓄積と逆方向入力への応答。
+- 腕同時操縦時にCHEST相対拘束が期待通り機能すること。
+- 前傾、しゃがみ、腕操作の同時実行時に足踏み、yaw振動、急激な下半身振動が出ないこと。
+- 歩行開始遅延中にoperation modeが0へ戻り、通常安定化とroot姿勢復帰が維持されること。
+- 歩行終了後に古い体幹/COM速度commandが再開しないこと。
+- `wbmsDebugOut` のprojector/final IK/onExecute時間を用いた500Hz実時間性能。
+- projector invalid問題を解消した後、同じログ条件で `wbmsDebugOut[26]` が1になり、`wbmsDebugOut[15-17]` とCHEST RPY offsetが指令方向に変化すること。
+
+## 次マイルストーンへの引き継ぎ
+
+### 次のマイルストーンが使用するinterface、state、前提条件
+
+- `WbmsPostureControl::proc()` はStabilizer前に呼ばれ、投影結果を `GaitParam` に保存する。
+- 投影成功時は `wbmsPostureReferenceValid=true`、`wbmsPostureReferenceQ`、`wbmsPostureReferenceJointMask`、`wbmsProjectedChestR`、`wbmsProjectedRobotCom`、realized velocityが更新される。
+- 投影失敗時は `wbmsPostureReferenceValid=false`、`wbmsPostureReferenceJointMask` 全false、realized velocityゼロ、現在姿勢fallbackになる。
+- 最終IKは投影valid時だけ `wbmsProjectedChestR` をCHEST姿勢拘束として使う。
+- 最終IKのCOM targetは `genCog + sbpOffset`。M2のCOM/ZMP統合によりstatic WBMS中の `genCog` は投影COMへblend済みである。
+- 最終IKのreference angleはjoint mask trueの関節だけ投影Qへmode blendし、腕などmask falseの関節は従来referenceを使う。
+- `wbmsOperationModeValue` はstatic WBMS操作と通常歩行安定化を切り替える共通係数として使う。
+- `wbmsDebugOut` は30要素。既存 `cpViewerLog` とは別OutPortであり、固定index互換を壊していない。
+
+### 次のセッションで最初に確認すべきコード箇所
+
+- `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp`
+  - `solveProjection()`: `solveIKLoop()` 戻り値と `validateProjection()` のvalid判定。
+  - `validateProjection()`: nominal姿勢でもfalseになり得る条件。
+  - `setFallbackReference()`: invalid時のdebug値とfallback。
+- `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp`
+  - CHEST拘束追加条件。
+  - COM weight blend。
+  - reference angle blend。
+- `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp`
+  - `wbmsDebugOut` 要素順。
+  - `onExecute()` 計測タイミング。
+- `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h`
+  - `wbmsPostureReferenceJointMask` とdebug計測値。
+- `auto_stabilizer/log/wbmsDebugOut.txt`
+  - シミュレータで前傾しなかったログ。raw/applied指令、valid、realized velocity、mode値を確認する。
+
+### 次に実行すべきビルド・確認コマンド
+
+```sh
+git status --short
+catkin build auto_stabilizer --no-deps
+rg -n "wbmsTorsoTargetRpy|refTorsoAnglVel|calcWbmsPostureReference|wbmsPostureRootConstraint|WbmsTorsoControl" auto_stabilizer/rtc/AutoStabilizer
+rg -n "B_link\\(\\) = torsoGenLink|wbmsProjectedChestR|wbmsComPositionWeight|wbmsOperationModeValue" auto_stabilizer/rtc/AutoStabilizer
+rg -n "solveIKLoop|bool valid|validateProjection|wbmsPostureReferenceValid|wbmsPostureReferenceJointMask" auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp
+git diff --stat
+```

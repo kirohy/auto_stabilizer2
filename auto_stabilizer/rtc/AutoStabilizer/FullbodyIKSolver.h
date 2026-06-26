@@ -23,6 +23,7 @@ public:
   mutable std::vector<std::shared_ptr<ik_constraint2::PositionConstraint> > ikEEPositionConstraint; // 要素数と順序はeeNameと同じ.
   mutable std::vector<std::shared_ptr<ik_constraint2::JointAngleConstraint> > refJointAngleConstraint; // 要素数と順序はrobot->numJoints()と同じ
   mutable std::shared_ptr<ik_constraint2::PositionConstraint> rootPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
+  mutable std::shared_ptr<ik_constraint2::PositionConstraint> chestPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
   mutable std::shared_ptr<ik_constraint2::COMConstraint> comConstraint = std::make_shared<ik_constraint2::COMConstraint>();
   mutable std::shared_ptr<ik_constraint2::AngularMomentumConstraint> angularMomentumConstraint = std::make_shared<ik_constraint2::AngularMomentumConstraint>();
   mutable std::vector<std::shared_ptr<ik_constraint2_joint_limit_table::JointLimitMinMaxTableConstraint> > jointLimitConstraint;
@@ -64,7 +65,7 @@ public:
     for(int i=0;i<ikEEPositionWeight.size();i++) ikEEPositionWeight[i].interpolate(dt);
   }
 
-  bool solveFullbodyIK(double dt, const GaitParam& gaitParam,
+  bool solveFullbodyIK(double dt, GaitParam& gaitParam,
                        cnoid::BodyPtr& genRobot) const;
 };
 

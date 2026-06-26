@@ -173,6 +173,8 @@ protected:
     RTC::OutPort<RTC::TimedDoubleSeq> m_strideLimitationHullOut_; // for log
     RTC::TimedDoubleSeq m_cpViewerLog_;
     RTC::OutPort<RTC::TimedDoubleSeq> m_cpViewerLogOut_; // for log
+    RTC::TimedDoubleSeq m_wbmsDebug_;
+    RTC::OutPort<RTC::TimedDoubleSeq> m_wbmsDebugOut_; // WBMS姿勢/COM操縦のdebug log
     std::vector<RTC::TimedDoubleSeq> m_tgtEEWrench_; // Generate World frame. EndEffector origin. 要素数及び順番はgaitParam_.eeNameと同じ. ロボットが受ける力
     std::vector<std::unique_ptr<RTC::OutPort<RTC::TimedDoubleSeq> > > m_tgtEEWrenchOut_;
   };

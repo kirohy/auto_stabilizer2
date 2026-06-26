@@ -1,16 +1,27 @@
 #include "FullbodyIKSolver.h"
 #include <prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
-bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
+bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
                                        cnoid::BodyPtr& genRobot) const{
+  std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
   double wbmsMode = gaitParam.wbmsMode.value();
   double wbmsStabilityMode = std::max(1.0 - wbmsMode, gaitParam.wbmsWalkingStabilityModeValue);
+  double wbmsOperationMode = std::min(1.0, std::max(0.0, gaitParam.wbmsOperationModeValue));
   bool wbmsActive = (gaitParam.wbmsMode.value() > 0.0 || gaitParam.wbmsMode.getGoal() > 0.0);
   std::vector<double> refq;
   refq.resize(genRobot->numJoints());
-  for(int i=0;i<genRobot->numJoints();i++) refq[i] = gaitParam.refRobot->joint(i)->q();
+  for(int i=0;i<genRobot->numJoints();i++){
+    refq[i] = gaitParam.refRobot->joint(i)->q();
+    if(gaitParam.wbmsPostureReferenceValid &&
+       i < gaitParam.wbmsPostureReferenceQ.size() &&
+       i < gaitParam.wbmsPostureReferenceJointMask.size() &&
+       gaitParam.wbmsPostureReferenceJointMask[i]){
+      refq[i] = gaitParam.refRobot->joint(i)->q() * (1.0 - wbmsOperationMode) + gaitParam.wbmsPostureReferenceQ[i] * wbmsOperationMode;
+    }
+  }
 
   // !jointControllableの関節は指令値をそのまま入れる
   for(size_t i=0;i<genRobot->numJoints();i++){
@@ -126,9 +137,35 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     this->comConstraint->B_localp() = cogTarget;
     this->comConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt;
     this->comConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
-    this->comConstraint->weight() << 10.0, 10.0, 1.0*wbmsStabilityMode;
+    cnoid::Vector3 nominalComWeight(10.0, 10.0, 1.0 * wbmsStabilityMode);
+    this->comConstraint->weight() = nominalComWeight * (1.0 - wbmsOperationMode) + gaitParam.wbmsComPositionWeight * wbmsOperationMode;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
     ikConstraint3.push_back(this->comConstraint);
+  }
+
+  // WBMS CHEST姿勢。投影済み姿勢だけを使い、位置は拘束しない。
+  {
+    cnoid::LinkPtr chestLink = genRobot->link(gaitParam.chestLinkName);
+    if(chestLink && gaitParam.wbmsPostureReferenceValid){
+      this->chestPositionConstraint->A_link() = chestLink;
+      this->chestPositionConstraint->A_localpos() = cnoid::Isometry3::Identity();
+      this->chestPositionConstraint->B_link() = nullptr;
+      this->chestPositionConstraint->B_localpos() = cnoid::Isometry3::Identity();
+      this->chestPositionConstraint->B_localpos().linear() = gaitParam.wbmsProjectedChestR;
+      this->chestPositionConstraint->B_localpos().translation() = chestLink->p();
+      this->chestPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
+        gaitParam.wbmsTorsoOrientationMaxError[0] * dt,
+        gaitParam.wbmsTorsoOrientationMaxError[1] * dt,
+        gaitParam.wbmsTorsoOrientationMaxError[2] * dt;
+      this->chestPositionConstraint->precision() = 0.0;
+      this->chestPositionConstraint->weight() << 0.0, 0.0, 0.0,
+        gaitParam.wbmsTorsoOrientationWeight[0] * wbmsOperationMode,
+        gaitParam.wbmsTorsoOrientationWeight[1] * wbmsOperationMode,
+        gaitParam.wbmsTorsoOrientationWeight[2] * wbmsOperationMode;
+      this->chestPositionConstraint->eval_link() = chestLink;
+      this->chestPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
+      ikConstraint3.push_back(this->chestPositionConstraint);
+    }
   }
 
   // Angular Momentum
@@ -216,5 +253,6 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, const GaitParam& gaitParam,
     joint->q() = std::min(u, std::max(l, joint->q()));
   }
 
+  gaitParam.debugData.wbmsFinalIKTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
   return true;
 }

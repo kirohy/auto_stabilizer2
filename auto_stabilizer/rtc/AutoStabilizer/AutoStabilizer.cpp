@@ -6,6 +6,7 @@
 #include <cnoid/EigenUtil>
 #include "MathUtil.h"
 #include "CnoidBodyUtil.h"
+#include <chrono>
 #include <limits>
 
 namespace {
@@ -96,6 +97,7 @@ AutoStabilizer::Ports::Ports() :
   m_steppableRegionNumLogOut_("steppableRegionNumLogOut", m_steppableRegionNumLog_),
   m_strideLimitationHullOut_("strideLimitationHullOut", m_strideLimitationHull_),
   m_cpViewerLogOut_("cpViewerLogOut", m_cpViewerLog_),
+  m_wbmsDebugOut_("wbmsDebugOut", m_wbmsDebug_),
 
   m_AutoStabilizerServicePort_("AutoStabilizerService"),
 
@@ -146,6 +148,7 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
   this->addOutPort("steppableRegionNumLogOut", this->ports_.m_steppableRegionNumLogOut_);
   this->addOutPort("strideLimitationHullOut", this->ports_.m_strideLimitationHullOut_);
   this->addOutPort("cpViewerLogOut", this->ports_.m_cpViewerLogOut_);
+  this->addOutPort("wbmsDebugOut", this->ports_.m_wbmsDebugOut_);
   this->ports_.m_AutoStabilizerServicePort_.registerProvider("service0", "AutoStabilizerService", this->ports_.m_service0_);
   this->addPort(this->ports_.m_AutoStabilizerServicePort_);
   this->ports_.m_RobotHardwareServicePort_.registerConsumer("service0", "RobotHardware2Service", this->ports_.m_robotHardwareService0_);
@@ -1035,6 +1038,34 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_cpViewerLog_.data[i] = gaitParam.debugData.cpViewerLog[i];
     }
     ports.m_cpViewerLogOut_.write();
+    {
+      cnoid::Vector3 wbmsComOffset = cnoid::Vector3::Zero();
+      cnoid::Vector3 wbmsChestRpyOffset = cnoid::Vector3::Zero();
+      if(gaitParam.wbmsPostureBaselineValid){
+        const cnoid::Isometry3 footMid = gaitParam.footMidCoords.value();
+        wbmsComOffset = footMid.inverse() * gaitParam.wbmsProjectedRobotCom - gaitParam.wbmsStartComInFootMid;
+        cnoid::Matrix3 projectedChestRInFootMid = footMid.linear().transpose() * gaitParam.wbmsProjectedChestR;
+        wbmsChestRpyOffset = cnoid::rpyFromRot(projectedChestRInFootMid * gaitParam.wbmsStartChestRInFootMid.transpose());
+      }
+      ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
+      ports.m_wbmsDebug_.data.length(30);
+      int index = 0;
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRealizedComVelocity[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawTorsoAngularVelocityCommand[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedTorsoAngularVelocityCommand[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRealizedTorsoAngularVelocity[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = wbmsComOffset[i];
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = wbmsChestRpyOffset[i];
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsOperationModeValue;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsWalkingStabilityModeValue;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsPostureReferenceValid ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsProjectorTime;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsFinalIKTime;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.onExecuteTime;
+      ports.m_wbmsDebugOut_.write();
+    }
     for(int i=0;i<gaitParam.eeName.size();i++){
       ports.m_tgtEEWrench_[i].tm = ports.m_qRef_.tm;
       ports.m_tgtEEWrench_[i].data.length(6);
@@ -1047,6 +1078,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
 }
 
 RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
+  std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
   std::lock_guard<std::mutex> guard(this->mutex_);
 
   std::string instance_name = std::string(this->m_profile.instance_name);
@@ -1082,6 +1114,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
 
   AutoStabilizer::writeOutPortData(this->ports_, this->mode_, this->idleToAbcTransitionInterpolator_, this->dt_, this->gaitParam_);
 
+  this->gaitParam_.debugData.onExecuteTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
   return RTC::RTC_OK;
 }
 
