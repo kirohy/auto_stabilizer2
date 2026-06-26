@@ -400,11 +400,7 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   this->wbmsPostureRobot_->calcCenterOfMass();
   ProjectionValidationResult validation = this->validateProjectionCandidate(gaitParam, dt);
   this->storeProjectionValidationResult(gaitParam, validation);
-  if(validation.safe && !allConstraintsSatisfied){
-    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_VALID_BLOCKED;
-  }
-  bool valid = allConstraintsSatisfied && validation.safe;
-  if(!valid){
+  if(!validation.safe){
     this->setFallbackReference(gaitParam);
     return false;
   }
@@ -429,6 +425,27 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   gaitParam.wbmsRealizedComVelocity = (projectedComInFootMid - currentComInFootMid) / dt;
   gaitParam.wbmsRealizedTorsoAngularVelocity = cnoid::rpyFromRot(projectedChestRInFootMid * currentChestRInFootMid.transpose()) / dt;
   gaitParam.wbmsPostureReferenceValid = true;
+
+  const double commandEps = 1e-6;
+  const double realizedComVelocityEps = 1e-5;
+  const double realizedTorsoVelocityEps = 1e-5;
+  bool comCommanded = gaitParam.wbmsAppliedComVelocityCommand.norm() > commandEps;
+  bool torsoCommanded = gaitParam.wbmsAppliedTorsoAngularVelocityCommand.norm() > commandEps;
+  cnoid::Vector3 realizedComVelocityOnCommandedAxes = cnoid::Vector3::Zero();
+  cnoid::Vector3 realizedTorsoVelocityOnCommandedAxes = cnoid::Vector3::Zero();
+  for(int i=0;i<3;i++){
+    if(std::abs(gaitParam.wbmsAppliedComVelocityCommand[i]) > commandEps) realizedComVelocityOnCommandedAxes[i] = gaitParam.wbmsRealizedComVelocity[i];
+    if(std::abs(gaitParam.wbmsAppliedTorsoAngularVelocityCommand[i]) > commandEps) realizedTorsoVelocityOnCommandedAxes[i] = gaitParam.wbmsRealizedTorsoAngularVelocity[i];
+  }
+  bool comActive = realizedComVelocityOnCommandedAxes.norm() > realizedComVelocityEps;
+  bool torsoActive = realizedTorsoVelocityOnCommandedAxes.norm() > realizedTorsoVelocityEps;
+  if(!comCommanded && !torsoCommanded){
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_VALID_IDLE;
+  }else if((comCommanded && comActive) || (torsoCommanded && torsoActive)){
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_VALID_ACTIVE;
+  }else{
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_VALID_BLOCKED;
+  }
   return true;
 }
 

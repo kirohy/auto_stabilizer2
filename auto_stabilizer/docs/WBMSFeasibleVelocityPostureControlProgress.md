@@ -962,6 +962,194 @@ git diff --check
 - `auto_stabilizer/log/wbmsDebugOut.txt`
   - 次回シミュレータ確認時、index 30-39でprojector invalid原因を確認する。
 
+## M4.2 safe candidate採用記録
+
+### マイルストーン番号と名称
+
+M4.2: safe candidate採用。
+
+### 実装した範囲
+
+- `WbmsPostureControl::solveProjection()` で、`solveIKLoop()` のbool戻り値をcandidate採用条件から外した。
+- `solveIKLoop()` の戻り値は `allConstraintsSatisfied` として扱い、`gaitParam.wbmsProjectionAllConstraintsSatisfied` へ保存する診断値に限定した。
+- candidate採否は `validateProjectionCandidate()` が返す `validation.safe` だけで判断するようにした。
+- `validation.safe == false` の場合だけ `setFallbackReference()` へ進み、現在姿勢fallback、realized velocityゼロ、`wbmsPostureReferenceValid=false` を維持する。
+- `validation.safe == true` の場合、`allConstraintsSatisfied == false` でも以下を保存して最終IKへ接続できるようにした。
+  - `wbmsPostureReferenceQ`
+  - `wbmsPostureReferenceJointMask`
+  - `wbmsProjectedChestR`
+  - `wbmsProjectedRobotCom`
+  - `wbmsRealizedComVelocity`
+  - `wbmsRealizedTorsoAngularVelocity`
+  - `wbmsPostureReferenceValid = true`
+- safe candidate採用後、applied commandとrealized velocityから `VALID_IDLE` / `VALID_ACTIVE` / `VALID_BLOCKED` を分類する処理を追加した。
+- `VALID_ACTIVE` / `VALID_BLOCKED` 判定では、COMとtorsoを別々に扱い、指令された軸に対応するrealized velocity normだけを見るようにした。
+- hidden goalや未達成残差を次周期へ保持する処理は追加していない。従来どおり毎周期 `genRobot` から投影robotを同期し、1周期候補だけを生成する。
+
+### 意図的に実装しなかった後続範囲
+
+- final IK後のCOM realized velocityとCHEST realized angular velocityを `wbmsDebugOut[40-45]` へ追加するM4.3候補は実装していない。
+- `wbmsDebugOut` 長を46へ拡張する変更は行っていない。M4.2ではM4.1で追加済みのindex 30-39を維持する。
+- 指令方向への内積判定は実装していない。M4.2では計画書8.5の「初回実装ではnorm判定でよい」に従い、指令軸だけを抽出したnorm判定に留めた。
+- validation閾値、weight、maxError、COM/CHEST優先度、dependency solver、task scaling、parameter tuningは変更していない。
+- self collision完全充足や `JointVelocityConstraint` 完全充足を新しいcandidate validation条件へ追加していない。
+- 腕CHEST相対拘束、歩行中COM操作、新規テストコードは追加していない。
+
+### 変更ファイルと変更概要
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | `allConstraintsSatisfied && validation.safe` の採用条件を削除し、`validation.safe` のみでfallbackを判断するよう変更。safe candidate保存後にIDLE/ACTIVE/BLOCKED分類を追加 |
+| `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md` | M4.2の実装内容、review対応、確認結果、未解決事項、次マイルストーンへの引き継ぎを追記 |
+
+### 追加・変更した主要class、function、state、debug index
+
+#### class
+
+- 新規classは追加していない。
+- `WbmsPostureControl` の `solveProjection()` 内の採用フローとstatus分類だけを変更した。
+
+#### function
+
+- `WbmsPostureControl::solveProjection()`
+  - `allConstraintsSatisfied` をdebug保存専用へ変更。
+  - unsafe candidateだけfallbackするように変更。
+  - safe candidateの投影姿勢、CHEST、COM、realized velocity、valid flag保存を `allConstraintsSatisfied` から独立させた。
+  - safe candidate採用後にIDLE/ACTIVE/BLOCKED分類を実行するようにした。
+- `WbmsPostureControl::validateProjectionCandidate()`
+  - 閾値と検査項目は変更していない。
+
+#### state
+
+- 新規stateは追加していない。
+- M4.1で追加済みの以下をM4.2で採用フローに使用した。
+  - `wbmsProjectionAllConstraintsSatisfied`
+  - `wbmsProjectionCandidateSafe`
+  - `wbmsProjectionStatus`
+  - `wbmsPostureReferenceQ`
+  - `wbmsPostureReferenceJointMask`
+  - `wbmsProjectedChestR`
+  - `wbmsProjectedRobotCom`
+  - `wbmsRealizedComVelocity`
+  - `wbmsRealizedTorsoAngularVelocity`
+  - `wbmsPostureReferenceValid`
+
+#### debug index
+
+M4.2ではdebug indexの追加・順序変更は行っていない。M4.1で追加済みの以下をそのまま使う。
+
+| index | 内容 |
+|---:|---|
+| 30 | `wbmsProjectionStatus` |
+| 31 | `wbmsProjectionAllConstraintsSatisfied` |
+| 32 | `wbmsProjectionCandidateSafe` |
+| 33 | `wbmsProjectionSupportHullValid` |
+| 34 | candidate root translation step [m] |
+| 35 | candidate root rotation step [rad] |
+| 36 | candidate max joint step [rad or m] |
+| 37 | candidate minimum joint limit margin |
+| 38 | candidate max foot position error [m] |
+| 39 | candidate max foot rotation error [rad] |
+
+### 重要な実装判断とその理由
+
+- `allConstraintsSatisfied` を採用条件へ使わない。
+  - 計画書5.1が、`solveIKLoop()` のbool戻り値を安全性判定として扱わず、debug出力と観測に限定すると定めているため。
+- candidate採用条件を `validation.safe == true` に限定する。
+  - 計画書5.2と8.4が、安全性と全constraint完全充足を分離し、独立validationを通ったcandidateを採用する方針を定めているため。
+- `VALID_ACTIVE` / `VALID_BLOCKED` は指令された軸のrealized velocity normで判定する。
+  - 未指令軸の副作用的な移動だけでACTIVEにすると、計画書5.4の「非ゼロ指令に対する実現速度が極小」を表すBLOCKED診断が崩れるため。
+- unsafe candidateのfallbackは維持する。
+  - 数値異常、limit違反、足誤差過大、root変位過大などは候補を破棄して現在姿勢へ戻す安全側挙動が必要なため。
+- hidden goalを作らない。
+  - 毎周期 `syncProjectionRobot()` で現在の `genRobot` から投影を開始する既存構造を維持し、blocked時も未達成目標を次周期へ蓄積しないため。
+
+### 正式計画からの差異
+
+- 計画書8.5の概念例はrealized velocity全体のnormでACTIVE判定しているが、review指摘を受け、実装では指令された軸だけのrealized velocity normを使う。
+  - これは指令方向への内積判定ではなく、初回実装のnorm判定の範囲内で、未指令軸の副作用をACTIVE判定から除外するための限定的な差異である。
+- M4.2ではdebug index 30-39を新規追加していない。
+  - M4.1で追加済みであり、M4.2ではその値を使って採用条件とstatus分類を確認する。
+- self collision完全充足と `JointVelocityConstraint` 完全充足をvalidationへ追加していない。
+  - 計画書5.2のcandidate採用最低条件に含まれておらず、追加すると新しいstatusや閾値設計を伴うため、M4.2では扱わない。
+
+### 実行したビルド・静的確認コマンドと結果
+
+M4.2実装後およびreview対応後に以下を実行した。
+
+```sh
+catkin build auto_stabilizer --no-deps
+git diff --check
+rg -n "solved|allConstraintsSatisfied|validateProjection|wbmsPostureReferenceValid" auto_stabilizer/rtc/AutoStabilizer
+```
+
+- `catkin build auto_stabilizer --no-deps`: 成功。
+- `git diff --check`: 指摘なし。
+- `rg`: `solved` は該当なし。`allConstraintsSatisfied` は `solveIKLoop()` 戻り値の変数宣言と `wbmsProjectionAllConstraintsSatisfied` 保存だけに残る。
+
+### reviewで報告された重要指摘と対応
+
+#### 指摘1: `VALID_ACTIVE` / `VALID_BLOCKED` が未指令軸の移動で誤分類され得る
+
+- 分類: 修正対象。
+- 対応: 指令ベクトルで非ゼロの軸だけを抽出し、その軸に対応するrealized velocity normでACTIVE/BLOCKEDを判定するよう修正した。
+- 補足: 指令方向への内積判定や閾値変更は行っていない。
+
+#### 指摘2: `allConstraintsSatisfied` を採用条件から外すとsolver内の安全制約未充足候補が採用され得る
+
+- 分類: 対応不要。
+- 判断理由: 計画書5.1は `allConstraintsSatisfied` をdebug専用とし、採用可否に直接使わないことを明記している。また計画書5.2のcandidate採用最低条件は、finite、joint limit、1周期関節変位、root変位、足誤差、support hull/target、projected CHEST/COM/realized velocityの検証であり、self collision完全充足はvalidation最低条件に含まれていない。
+- 対応: コード変更なし。`JointVelocityConstraint` の完全充足やself collision完全充足を採用条件へ追加すると、`allConstraintsSatisfied`相当を採用条件へ戻す、または新しいvalidation項目・status・閾値を追加する設計変更になるため、M4.2では行わない。
+
+### 完了条件ごとの結果
+
+| 完了条件 | 結果 | 備考 |
+|---|---|---|
+| `rg`で`solved && validateProjection`相当が残っていない | PASS | `solved` は該当なし |
+| `allConstraintsSatisfied` がdebug以外の採用条件に使われていない | PASS | 変数宣言と `wbmsProjectionAllConstraintsSatisfied` 保存のみ |
+| unsafe candidateでは従来どおりfallbackする | PASS | `!validation.safe` で `setFallbackReference()` へ進む |
+| safe candidateでは `allConstraintsSatisfied == false` でもvalidになり得る | PASS | 採用条件は `validation.safe` のみ |
+| safe candidateが最終IKへ接続される | PASS | `wbmsPostureReferenceValid=true`、joint mask、CHEST、COM、realized velocityを保存する |
+| IDLE/ACTIVE/BLOCKEDを区別する | PASS | applied commandと指令軸realized velocityでstatus設定する |
+| hidden goalや未達成残差を次周期へ保持しない | PASS | 新しい蓄積stateは追加していない。毎周期現在姿勢から投影する既存構造を維持 |
+| build成功 | PASS | `catkin build auto_stabilizer --no-deps` 成功 |
+| `git diff --check` 指摘なし | PASS | 指摘なし |
+| シミュレータでstatus/valid/realized velocityが期待通り出る | シミュレータ未確認 | ログ取得が必要 |
+| projector valid問題の解消 | シミュレータ未確認 | M4.2の主目的だが、実ログ確認は未実施 |
+
+### 未解決事項
+
+- シミュレータで `wbmsDebugOut[26]` のprojector valid flagが1になるかは未確認。
+- `wbmsDebugOut[30]` のstatusが `20` / `21` / `22` としてIDLE、ACTIVE、BLOCKEDを期待通り区別するかは未確認。
+- `wbmsDebugOut[31] == 0` かつ `wbmsDebugOut[32] == 1` の周期で、safe candidateが採用されるかは未確認。
+- BLOCKED時にhidden goalが蓄積せず、逆方向入力へ反応するかは未確認。
+- self collision近傍での挙動がシミュレータ上で安全側に見えるかは未確認。
+- 利用側logger/viewerが `wbmsDebugOut` 40要素を記録する設定になっているかは未確認。
+
+### 次のマイルストーンへのinterfaceと前提条件
+
+- `WbmsPostureControl::solveProjection()` は、`validation.safe == true` のcandidateを採用し、`allConstraintsSatisfied` はdebug値としてだけ公開する。
+- 投影成功時は `wbmsPostureReferenceValid=true`、`wbmsPostureReferenceQ`、`wbmsPostureReferenceJointMask`、`wbmsProjectedChestR`、`wbmsProjectedRobotCom`、realized velocityが更新される。
+- 投影失敗時は `wbmsPostureReferenceValid=false`、joint mask全false、realized velocityゼロ、現在姿勢fallbackになる。
+- `wbmsProjectionStatus` は、candidate生成前失敗、INVALID、VALID_IDLE、VALID_ACTIVE、VALID_BLOCKEDを区別する。
+- `wbmsDebugOut` は40要素のまま。index 0-29はM3定義、30-39はM4.1定義を維持する。
+- M4.3で最終IK伝達診断を追加する場合は、計画書9.3のindex 40-45を候補として扱う。
+- M4.3へ進む前に、M4.2後のシミュレータログでprojector valid、status、candidate safe、all constraints satisfied、realized velocityを確認する。
+
+### 次のセッションで最初に確認すべきコード箇所
+
+- `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp`
+  - `solveProjection()`: `allConstraintsSatisfied` 保存、`validation.safe` fallback、safe candidate保存、IDLE/ACTIVE/BLOCKED分類。
+  - `validateProjectionCandidate()`: finite、joint limit、joint step、root step、foot errorの検証範囲。
+  - `setFallbackReference()`: invalid時の現在姿勢fallbackとdebug値保持。
+- `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp`
+  - `wbmsPostureReferenceValid` を使うCHEST姿勢拘束。
+  - `wbmsPostureReferenceJointMask` を使うreference angle blend。
+- `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp`
+  - `wbmsDebugOut` index 0-39の出力順。
+- `auto_stabilizer/log/wbmsDebugOut.txt`
+  - 次回シミュレータ確認時、index 26、30-39、12-20を確認する。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
