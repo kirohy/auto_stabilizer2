@@ -202,6 +202,38 @@ public:
   double wbmsWalkingStabilityModeValue = 0.0; // 0〜1。歩行中および歩行開始遅延中に1へ近づく
   double wbmsOperationModeValue = 0.0; // wbmsMode * (1 - walkingStabilityMode)
 
+  enum WbmsProjectionStatus {
+    WBMS_PROJECTION_NOT_RUN = 0,
+    WBMS_PROJECTION_DISABLED = 1,
+    WBMS_PROJECTION_BASELINE_INVALID = 2,
+    WBMS_PROJECTION_NO_VARIABLE = 3,
+    WBMS_PROJECTION_TARGET_INVALID = 4,
+    WBMS_PROJECTION_SUPPORT_HULL_INVALID = 5,
+
+    WBMS_PROJECTION_INVALID_NONFINITE = 10,
+    WBMS_PROJECTION_INVALID_JOINT_LIMIT = 11,
+    WBMS_PROJECTION_INVALID_JOINT_STEP = 12,
+    WBMS_PROJECTION_INVALID_ROOT_TRANSLATION = 13,
+    WBMS_PROJECTION_INVALID_ROOT_ROTATION = 14,
+    WBMS_PROJECTION_INVALID_FOOT_POSITION = 15,
+    WBMS_PROJECTION_INVALID_FOOT_ROTATION = 16,
+
+    WBMS_PROJECTION_VALID_IDLE = 20,
+    WBMS_PROJECTION_VALID_ACTIVE = 21,
+    WBMS_PROJECTION_VALID_BLOCKED = 22
+  };
+
+  WbmsProjectionStatus wbmsProjectionStatus = WBMS_PROJECTION_NOT_RUN;
+  bool wbmsProjectionAllConstraintsSatisfied = false;
+  bool wbmsProjectionCandidateSafe = false;
+  bool wbmsProjectionSupportHullValid = false;
+  double wbmsProjectionRootTranslationStep = 0.0; // [m]
+  double wbmsProjectionRootRotationStep = 0.0; // [rad]
+  double wbmsProjectionMaxJointStep = 0.0; // [rad or m]
+  double wbmsProjectionMinJointLimitMargin = std::numeric_limits<double>::max();
+  double wbmsProjectionMaxFootPositionError = 0.0; // [m]
+  double wbmsProjectionMaxFootRotationError = 0.0; // [rad]
+
   // for debug data
   class DebugData {
   public:
@@ -234,6 +266,16 @@ public:
     wbmsRealizedComVelocity.setZero();
     wbmsRealizedTorsoAngularVelocity.setZero();
     wbmsPostureReferenceValid = false;
+    wbmsProjectionStatus = WBMS_PROJECTION_NOT_RUN;
+    wbmsProjectionAllConstraintsSatisfied = false;
+    wbmsProjectionCandidateSafe = false;
+    wbmsProjectionSupportHullValid = false;
+    wbmsProjectionRootTranslationStep = 0.0;
+    wbmsProjectionRootRotationStep = 0.0;
+    wbmsProjectionMaxJointStep = 0.0;
+    wbmsProjectionMinJointLimitMargin = std::numeric_limits<double>::max();
+    wbmsProjectionMaxFootPositionError = 0.0;
+    wbmsProjectionMaxFootRotationError = 0.0;
   }
 
   void resetWbmsPostureControl(){

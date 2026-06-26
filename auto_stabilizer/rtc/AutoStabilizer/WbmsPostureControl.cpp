@@ -208,7 +208,8 @@ bool WbmsPostureControl::updateSupportHull(const GaitParam& gaitParam){
   return true;
 }
 
-bool WbmsPostureControl::calcProjectionTargets(const GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid){
+bool WbmsPostureControl::calcProjectionTargets(const GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid, bool& supportHullValid){
+  supportHullValid = true;
   if(!this->wbmsPostureRobot_ || !gaitParam.wbmsPostureBaselineValid) return false;
   cnoid::LinkPtr chestLink = this->wbmsPostureRobot_->link(gaitParam.chestLinkName);
   if(!chestLink) return false;
@@ -231,7 +232,8 @@ bool WbmsPostureControl::calcProjectionTargets(const GaitParam& gaitParam, doubl
                                                        gaitParam.wbmsComOffsetUpperLimit);
   targetComInFootMid = gaitParam.wbmsStartComInFootMid + clampedOffset;
 
-  if(!this->updateSupportHull(gaitParam)) return false;
+  supportHullValid = this->updateSupportHull(gaitParam);
+  if(!supportHullValid) return false;
   cnoid::Vector3 nearest = mathutil::calcNearestPointOfHull(targetComInFootMid, this->shrunkSupportHullInFootMid_);
   targetComInFootMid[0] = nearest[0];
   targetComInFootMid[1] = nearest[1];
@@ -240,8 +242,30 @@ bool WbmsPostureControl::calcProjectionTargets(const GaitParam& gaitParam, doubl
 }
 
 bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight){
+  gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_NOT_RUN;
+  gaitParam.wbmsProjectionAllConstraintsSatisfied = false;
+  gaitParam.wbmsProjectionCandidateSafe = false;
+  gaitParam.wbmsProjectionSupportHullValid = false;
+  gaitParam.wbmsProjectionRootTranslationStep = 0.0;
+  gaitParam.wbmsProjectionRootRotationStep = 0.0;
+  gaitParam.wbmsProjectionMaxJointStep = 0.0;
+  gaitParam.wbmsProjectionMinJointLimitMargin = std::numeric_limits<double>::max();
+  gaitParam.wbmsProjectionMaxFootPositionError = 0.0;
+  gaitParam.wbmsProjectionMaxFootRotationError = 0.0;
+
   this->syncProjectionRobot(gaitParam);
-  if(!this->isOperationAllowed(gaitParam, true) || !gaitParam.wbmsPostureBaselineValid || this->projectionJointIds_.empty()){
+  if(!this->isOperationAllowed(gaitParam, true)){
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_DISABLED;
+    this->setFallbackReference(gaitParam);
+    return false;
+  }
+  if(!gaitParam.wbmsPostureBaselineValid){
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_BASELINE_INVALID;
+    this->setFallbackReference(gaitParam);
+    return false;
+  }
+  if(this->projectionJointIds_.empty()){
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_NO_VARIABLE;
     this->setFallbackReference(gaitParam);
     return false;
   }
@@ -250,10 +274,14 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   cnoid::Vector3 targetRobotCom;
   cnoid::Vector3 currentComInFootMid;
   cnoid::Matrix3 currentChestRInFootMid;
-  if(!this->calcProjectionTargets(gaitParam, dt, targetChestR, targetRobotCom, currentComInFootMid, currentChestRInFootMid)){
+  bool supportHullValid = false;
+  if(!this->calcProjectionTargets(gaitParam, dt, targetChestR, targetRobotCom, currentComInFootMid, currentChestRInFootMid, supportHullValid)){
+    gaitParam.wbmsProjectionSupportHullValid = supportHullValid;
+    gaitParam.wbmsProjectionStatus = supportHullValid ? GaitParam::WBMS_PROJECTION_TARGET_INVALID : GaitParam::WBMS_PROJECTION_SUPPORT_HULL_INVALID;
     this->setFallbackReference(gaitParam);
     return false;
   }
+  gaitParam.wbmsProjectionSupportHullValid = true;
 
   for(size_t i=0;i<this->projectionConstraints_.size();i++) this->projectionConstraints_[i].clear();
 
@@ -362,14 +390,20 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   }
 
   this->projectionIKParam_.dt = dt;
-  bool solved = prioritized_inverse_kinematics_solver2::solveIKLoop(this->projectionVariables_,
-                                                                    this->projectionConstraints_,
-                                                                    this->projectionTasks_,
-                                                                    this->projectionIKParam_);
+  bool allConstraintsSatisfied = prioritized_inverse_kinematics_solver2::solveIKLoop(this->projectionVariables_,
+                                                                                    this->projectionConstraints_,
+                                                                                    this->projectionTasks_,
+                                                                                    this->projectionIKParam_);
+  gaitParam.wbmsProjectionAllConstraintsSatisfied = allConstraintsSatisfied;
 
   this->wbmsPostureRobot_->calcForwardKinematics();
   this->wbmsPostureRobot_->calcCenterOfMass();
-  bool valid = solved && this->validateProjection(gaitParam, dt);
+  ProjectionValidationResult validation = this->validateProjectionCandidate(gaitParam, dt);
+  this->storeProjectionValidationResult(gaitParam, validation);
+  if(validation.safe && !allConstraintsSatisfied){
+    gaitParam.wbmsProjectionStatus = GaitParam::WBMS_PROJECTION_VALID_BLOCKED;
+  }
+  bool valid = allConstraintsSatisfied && validation.safe;
   if(!valid){
     this->setFallbackReference(gaitParam);
     return false;
@@ -398,39 +432,96 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   return true;
 }
 
-bool WbmsPostureControl::validateProjection(const GaitParam& gaitParam, double dt) const{
-  if(!this->wbmsPostureRobot_ || !this->wbmsPostureRobot_->rootLink()->p().allFinite() || !this->wbmsPostureRobot_->rootLink()->R().allFinite()) return false;
+WbmsPostureControl::ProjectionValidationResult WbmsPostureControl::validateProjectionCandidate(const GaitParam& gaitParam, double dt) const{
+  ProjectionValidationResult result;
+  if(!this->wbmsPostureRobot_ || !this->wbmsPostureRobot_->rootLink()->p().allFinite() || !this->wbmsPostureRobot_->rootLink()->R().allFinite()){
+    result.status = GaitParam::WBMS_PROJECTION_INVALID_NONFINITE;
+    return result;
+  }
   cnoid::LinkPtr chestLink = this->wbmsPostureRobot_->link(gaitParam.chestLinkName);
-  if(!chestLink || !chestLink->R().allFinite() || !this->wbmsPostureRobot_->centerOfMass().allFinite()) return false;
+  if(!chestLink || !chestLink->R().allFinite() || !this->wbmsPostureRobot_->centerOfMass().allFinite()){
+    result.status = GaitParam::WBMS_PROJECTION_INVALID_NONFINITE;
+    return result;
+  }
 
   const double maxRootTranslation = 0.20;
   const double maxRootRotation = 0.50;
-  if((this->wbmsPostureRobot_->rootLink()->p() - gaitParam.genRobot->rootLink()->p()).norm() > maxRootTranslation) return false;
-  if(cnoid::AngleAxis(this->wbmsPostureRobot_->rootLink()->R() * gaitParam.genRobot->rootLink()->R().transpose()).angle() > maxRootRotation) return false;
+  result.rootTranslationStep = (this->wbmsPostureRobot_->rootLink()->p() - gaitParam.genRobot->rootLink()->p()).norm();
+  result.rootRotationStep = cnoid::AngleAxis(this->wbmsPostureRobot_->rootLink()->R() * gaitParam.genRobot->rootLink()->R().transpose()).angle();
+  if(result.rootTranslationStep > maxRootTranslation){
+    result.status = GaitParam::WBMS_PROJECTION_INVALID_ROOT_TRANSLATION;
+    return result;
+  }
+  if(result.rootRotationStep > maxRootRotation){
+    result.status = GaitParam::WBMS_PROJECTION_INVALID_ROOT_ROTATION;
+    return result;
+  }
 
   for(size_t i=0;i<this->projectionJointIds_.size();i++){
     int jointId = this->projectionJointIds_[i];
     cnoid::LinkPtr joint = this->wbmsPostureRobot_->joint(jointId);
-    if(!std::isfinite(joint->q())) return false;
+    if(!std::isfinite(joint->q())){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_NONFINITE;
+      return result;
+    }
     double u = gaitParam.refRobot->joint(jointId)->q_upper();
     double l = gaitParam.refRobot->joint(jointId)->q_lower();
     for(size_t j=0;j<gaitParam.jointLimitTables[jointId].size();j++){
       u = std::min(u, gaitParam.jointLimitTables[jointId][j]->getUlimit());
       l = std::max(l, gaitParam.jointLimitTables[jointId][j]->getLlimit());
     }
-    if(joint->q() < l - 1e-6 || joint->q() > u + 1e-6) return false;
-    if(std::abs(joint->q() - gaitParam.genRobot->joint(jointId)->q()) > std::max(0.20, 2.0 * dt)) return false;
+    result.minJointLimitMargin = std::min(result.minJointLimitMargin, std::min(joint->q() - l, u - joint->q()));
+    if(joint->q() < l - 1e-6 || joint->q() > u + 1e-6){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_JOINT_LIMIT;
+      return result;
+    }
+    double jointStep = std::abs(joint->q() - gaitParam.genRobot->joint(jointId)->q());
+    result.maxJointStep = std::max(result.maxJointStep, jointStep);
+    if(jointStep > std::max(0.20, 2.0 * dt)){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_JOINT_STEP;
+      return result;
+    }
   }
 
   for(int i=0;i<NUM_LEGS;i++){
     cnoid::LinkPtr footLink = this->wbmsPostureRobot_->link(gaitParam.eeParentLink[i]);
-    if(!footLink) return false;
+    if(!footLink){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_NONFINITE;
+      return result;
+    }
     cnoid::Isometry3 footPose = footLink->T() * gaitParam.eeLocalT[i];
     cnoid::Isometry3 error = gaitParam.abcEETargetPose[i].inverse() * footPose;
-    if(error.translation().norm() > 0.02) return false;
-    if(cnoid::AngleAxis(error.linear()).angle() > 0.10) return false;
+    if(!footPose.matrix().allFinite() || !error.matrix().allFinite()){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_NONFINITE;
+      return result;
+    }
+    double footPositionError = error.translation().norm();
+    double footRotationError = cnoid::AngleAxis(error.linear()).angle();
+    result.maxFootPositionError = std::max(result.maxFootPositionError, footPositionError);
+    result.maxFootRotationError = std::max(result.maxFootRotationError, footRotationError);
+    if(footPositionError > 0.02){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_FOOT_POSITION;
+      return result;
+    }
+    if(footRotationError > 0.10){
+      result.status = GaitParam::WBMS_PROJECTION_INVALID_FOOT_ROTATION;
+      return result;
+    }
   }
-  return true;
+  result.safe = true;
+  result.status = GaitParam::WBMS_PROJECTION_VALID_ACTIVE;
+  return result;
+}
+
+void WbmsPostureControl::storeProjectionValidationResult(GaitParam& gaitParam, const ProjectionValidationResult& result) const{
+  gaitParam.wbmsProjectionStatus = result.status;
+  gaitParam.wbmsProjectionCandidateSafe = result.safe;
+  gaitParam.wbmsProjectionRootTranslationStep = result.rootTranslationStep;
+  gaitParam.wbmsProjectionRootRotationStep = result.rootRotationStep;
+  gaitParam.wbmsProjectionMaxJointStep = result.maxJointStep;
+  gaitParam.wbmsProjectionMinJointLimitMargin = result.minJointLimitMargin;
+  gaitParam.wbmsProjectionMaxFootPositionError = result.maxFootPositionError;
+  gaitParam.wbmsProjectionMaxFootRotationError = result.maxFootRotationError;
 }
 
 void WbmsPostureControl::setFallbackReference(GaitParam& gaitParam) const{

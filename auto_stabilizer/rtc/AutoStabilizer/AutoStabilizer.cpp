@@ -1048,7 +1048,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
         wbmsChestRpyOffset = cnoid::rpyFromRot(projectedChestRInFootMid * gaitParam.wbmsStartChestRInFootMid.transpose());
       }
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(30);
+      ports.m_wbmsDebug_.data.length(40);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1064,6 +1064,16 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsProjectorTime;
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsFinalIKTime;
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.onExecuteTime;
+      ports.m_wbmsDebug_.data[index++] = static_cast<double>(gaitParam.wbmsProjectionStatus);
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionAllConstraintsSatisfied ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionCandidateSafe ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionSupportHullValid ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionRootTranslationStep;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionRootRotationStep;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMaxJointStep;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMinJointLimitMargin;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMaxFootPositionError;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMaxFootRotationError;
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){

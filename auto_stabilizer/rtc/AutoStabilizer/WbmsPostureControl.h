@@ -10,6 +10,7 @@
 #include <ik_constraint2/ClientCollisionConstraint.h>
 #include <ik_constraint2_joint_limit_table/JointLimitMinMaxTableConstraint.h>
 #include <prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h>
+#include <limits>
 
 class WbmsPostureControl{
 public:
@@ -24,6 +25,17 @@ public:
   const std::vector<int>& variableJointIds() const { return this->projectionJointIds_; }
 
 private:
+  struct ProjectionValidationResult {
+    bool safe = false;
+    GaitParam::WbmsProjectionStatus status = GaitParam::WBMS_PROJECTION_NOT_RUN;
+    double rootTranslationStep = 0.0;
+    double rootRotationStep = 0.0;
+    double maxJointStep = 0.0;
+    double minJointLimitMargin = std::numeric_limits<double>::max();
+    double maxFootPositionError = 0.0;
+    double maxFootRotationError = 0.0;
+  };
+
   cnoid::BodyPtr wbmsPostureRobot_;
   cpp_filters::TwoPointInterpolator<double> wbmsWalkingStabilityMode_ = cpp_filters::TwoPointInterpolator<double>(0.0,0.0,0.0,cpp_filters::HOFFARBIB);
   std::vector<int> projectionJointIds_;
@@ -51,9 +63,10 @@ private:
   void addAncestorJointIds(const cnoid::LinkPtr& link, const cnoid::BodyPtr& robot, std::vector<bool>& jointUsed);
   void syncProjectionRobot(const GaitParam& gaitParam);
   bool updateSupportHull(const GaitParam& gaitParam);
-  bool calcProjectionTargets(const GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid);
+  bool calcProjectionTargets(const GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid, bool& supportHullValid);
   bool solveProjection(GaitParam& gaitParam, double dt, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight);
-  bool validateProjection(const GaitParam& gaitParam, double dt) const;
+  ProjectionValidationResult validateProjectionCandidate(const GaitParam& gaitParam, double dt) const;
+  void storeProjectionValidationResult(GaitParam& gaitParam, const ProjectionValidationResult& result) const;
   void setFallbackReference(GaitParam& gaitParam) const;
   void applyStaticComZmpIntegration(GaitParam& gaitParam, double dt);
 };
