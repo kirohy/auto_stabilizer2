@@ -600,8 +600,22 @@ void WbmsPostureControl::applyStaticComZmpIntegration(GaitParam& gaitParam, doub
     wbmsZmp[1] = nearest[1];
   }
   cnoid::Vector3 blendedZmp = nominalZmp * (1.0 - operationMode) + wbmsZmp * operationMode;
-  gaitParam.refZmpTraj.clear();
-  gaitParam.refZmpTraj.push_back(footguidedcontroller::LinearTrajectory<cnoid::Vector3>(blendedZmp, blendedZmp, 0.0));
+  cnoid::Vector3 zmpOffset = blendedZmp - nominalZmp;
+  double zmpTrajTotalTime = 0.0;
+  for(size_t i=0;i<gaitParam.refZmpTraj.size();i++) zmpTrajTotalTime += gaitParam.refZmpTraj[i].getTime();
+  if(gaitParam.refZmpTraj.empty() || zmpTrajTotalTime <= 0.0){
+    // FootGuidedControlはZMP軌道の時間和が0だと破綻するため、最低1周期分の定常軌道を作る。
+    const double fallbackZmpTrajTime = (std::isfinite(dt) && dt > 0.0) ? dt : 1e-6;
+    gaitParam.refZmpTraj.clear();
+    gaitParam.refZmpTraj.push_back(footguidedcontroller::LinearTrajectory<cnoid::Vector3>(blendedZmp, blendedZmp, fallbackZmpTrajTime));
+  }else{
+    for(size_t i=0;i<gaitParam.refZmpTraj.size();i++){
+      gaitParam.refZmpTraj[i] =
+        footguidedcontroller::LinearTrajectory<cnoid::Vector3>(gaitParam.refZmpTraj[i].getStart() + zmpOffset,
+                                                               gaitParam.refZmpTraj[i].getGoal() + zmpOffset,
+                                                               gaitParam.refZmpTraj[i].getTime());
+    }
+  }
 }
 
 void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight){

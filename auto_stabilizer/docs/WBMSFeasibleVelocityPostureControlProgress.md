@@ -1150,6 +1150,163 @@ rg -n "solved|allConstraintsSatisfied|validateProjection|wbmsPostureReferenceVal
 - `auto_stabilizer/log/wbmsDebugOut.txt`
   - 次回シミュレータ確認時、index 26、30-39、12-20を確認する。
 
+## M4.2.1 ZMP軌道破綻修正記録
+
+### マイルストーン番号と名称
+
+M4.2.1: ZMP軌道破綻修正。
+
+### 実装した範囲
+
+- M4.2でsafe candidateが採用されるようになった結果、static WBMS中に `applyStaticComZmpIntegration()` が実行されるようになった。
+- `applyStaticComZmpIntegration()` が `refZmpTraj` を0秒の1点軌道へ置き換えていたため、後段の `footguidedcontroller::calcFootGuidedControl()` でZMP軌道の時間和が0になり、ゼロ除算チェックにかかっていた。
+- `refZmpTraj` を0秒軌道へ潰す処理をやめ、既存preview軌道を `blendedZmp - nominalZmp` だけ平行移動するようにした。
+- 既存 `refZmpTraj` が空、または時間和が0の場合だけ、最低1周期分の定常ZMP軌道を作るfallbackを追加した。
+- M4.2のcandidate採用条件、validation閾値、debug index、最終IK接続条件は変更していない。
+
+### 意図的に実装しなかった後続範囲
+
+- 歩行開始時・歩行中の体幹/COM操縦と歩行安定化の両立は未解決として残した。
+- final IK後のCOM/CHEST realized velocityを `wbmsDebugOut[40-45]` へ追加するM4.3相当の診断拡張は行っていない。
+- ZMP軌道の時間和が0になる根本原因を `FootGuidedController` 側で吸収する変更は行っていない。
+- ZMP軌道生成全体の再設計、COM/ZMP制御則変更、歩行中COM操作、task scaling、solver変更、validation閾値変更は行っていない。
+- 新規テストコードは追加していない。
+
+### 変更ファイルと変更概要
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | `applyStaticComZmpIntegration()` の `refZmpTraj` 更新を、0秒1点軌道への置換から既存preview軌道の平行移動へ変更。空または時間和0の軌道だけ1周期以上の定常軌道へfallback |
+| `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md` | M4.2.1記録を追記 |
+
+歩行移行問題の試行として `WbmsPostureControl.h`、`WbmsPostureControl.cpp`、`GaitParam.h` に別差分がworking treeへ存在するが、跳ねる挙動は未解決であるためM4.2.1のコミット対象には含めない。
+
+### 追加・変更した主要class、function、state、debug index
+
+#### class
+
+- 新規classは追加していない。
+
+#### function
+
+- `WbmsPostureControl::applyStaticComZmpIntegration()`
+  - `refZmpTraj.clear()` 後に0秒軌道を1つだけ入れる処理を削除。
+  - `nominalZmp` から `blendedZmp` へのoffsetを既存preview軌道全体へ加える処理を追加。
+  - 既存軌道が空または時間和0の場合だけ、`dt` 以上の定常軌道を生成するfallbackを追加。
+- `WbmsPostureControl::isProjectionReferenceAllowed()`
+  - 歩行移行問題への試行としてworking treeに存在するが、M4.2.1のコミット対象ではない。歩行開始遅延中も投影referenceを維持し、`wbmsOperationModeValue` で滑らかに抜くことを狙った。
+  - シミュレータでは歩行指令時の跳ねは解消しなかったため、未解決事項として扱う。
+
+#### state
+
+- ZMP軌道破綻修正として新規stateは追加していない。
+- 歩行移行問題への試行として、`wbmsWalkingStabilityStartTime` の既定値を2.0秒から5.0秒へ変更する差分がworking treeに存在するが、M4.2.1のコミット対象ではない。
+
+#### debug index
+
+- debug indexの追加・順序変更は行っていない。
+- 既存の `wbmsDebugOut[24]` (`wbmsOperationModeValue`)、`[25]` (`wbmsWalkingStabilityModeValue`)、`[26]` (`wbmsPostureReferenceValid`)、`[30-39]` を確認対象とする。
+
+### 重要な実装判断とその理由
+
+- `refZmpTraj` の総時間を0にしない。
+  - `FootGuidedController.h` の `calcFootGuidedControl()` は、入力ZMP軌道の時間和が0だと分母 `1 - exp(-2 * w * Tj)` が0になり破綻するため。
+- 既存preview軌道を平行移動する。
+  - 軌道時間構造を維持でき、foot guided controlの終端条件を不要に壊さないため。
+- 空または時間和0の場合だけfallbackする。
+  - 通常の `LegCoordsGenerator::calcLegCoords()` が作る正の時間を持つpreview軌道を優先し、異常時だけ安全側に最低1周期分の定常軌道を作るため。
+- M4.2のsafe candidate採用条件には触れない。
+  - 正式計画では `allConstraintsSatisfied` を採用条件へ戻さないことがM4.2の目的であり、今回の問題はZMP軌道更新側の破綻であるため。
+
+### 正式計画からの差異
+
+- `WBMSProjectionAcceptanceFixImplementationPlan.md` は主にcandidate採用条件とdebug拡張を扱っており、`refZmpTraj` の具体的な更新方法までは定義していない。
+- 本修正は、M4.2でsafe candidateが採用されるようになったことで表面化した既存COM/ZMP統合経路の破綻を直す補修である。
+- M4.2.1ではdebug indexやstatus enumは変更していない。
+- 歩行開始時の跳ね対策として、歩行開始遅延中も投影referenceを維持する試行と `wbmsWalkingStabilityStartTime=5.0` への変更を行ったが、シミュレータで跳ねが残ったため、正式な解決策としては確定していない。
+
+### 実行したビルド・静的確認コマンドと結果
+
+M4.2.1実装後に以下を実行した。
+
+```sh
+catkin build auto_stabilizer --no-deps
+git diff --check
+rg -n "solved|allConstraintsSatisfied|validateProjection|wbmsPostureReferenceValid" auto_stabilizer/rtc/AutoStabilizer
+```
+
+- `catkin build auto_stabilizer --no-deps`: 成功。
+- `git diff --check`: 指摘なし。
+- `rg`: `solved` は該当なし。`allConstraintsSatisfied` は `solveIKLoop()` 戻り値の変数宣言と `wbmsProjectionAllConstraintsSatisfied` 保存だけに残る。
+
+### reviewで報告された重要指摘と対応
+
+M4.2.1に対する `/review` は未実施。
+
+シミュレータ確認で、`startWholeBodyMasterSlave()` 直後から `[calcFootGuidedControl] (1 - exp(-2 * w * Tj))==0 !` が連続出力され、足踏みを繰り返す問題が報告された。これはreview指摘ではないが、M4.2.1で修正対象とした。
+
+対応:
+
+- `applyStaticComZmpIntegration()` が `refZmpTraj` を0秒1点軌道へ置換する処理を削除した。
+- 既存preview軌道をZMP offsetで平行移動する処理へ置き換えた。
+- 空または時間和0の場合だけ、正の時間を持つ定常軌道を生成するfallbackを追加した。
+
+### 完了条件ごとの結果
+
+| 完了条件 | 結果 | 備考 |
+|---|---|---|
+| `refZmpTraj` を0秒1点軌道へ潰さない | PASS | 通常時は既存preview軌道を平行移動する |
+| 空または時間和0のZMP軌道でfallbackする | PASS | `dt` 以上の定常軌道を作る |
+| M4.2のsafe candidate採用条件を維持する | PASS | `allConstraintsSatisfied` はdebug専用のまま |
+| build成功 | PASS | `catkin build auto_stabilizer --no-deps` 成功 |
+| `git diff --check` 指摘なし | PASS | 指摘なし |
+| start直後の `calcFootGuidedControl` 連続エラーが止まる | シミュレータ未確認 | 修正後のログ取得が必要 |
+| 体幹角速度指令でほぼ等速に傾く | PASS | ユーザー確認済み |
+| COM Z速度指令でしゃがみながら前屈する | PASS | ユーザー確認済み |
+| 体幹を傾けた状態から `goPos` / `goVelocity` で安定に歩行移行する | FAIL | 跳ねる挙動が残る |
+
+### 未解決事項
+
+- 体幹を傾けた状態で `goPos` / `goVelocity` を送ると、歩行開始時に跳ねる挙動が残る。
+- 歩行移行時は重心・体幹操縦よりバランスを優先し、腕操縦は歩行中も可能にする方針だが、その実装は未確定。
+- 試行した内容:
+  - `isOperationAllowed()` とは別に `isProjectionReferenceAllowed()` を追加し、歩行開始遅延中も投影referenceを維持するようにした。
+  - `solveProjection()` のcandidate生成前判定を `isProjectionReferenceAllowed()` へ変更した。
+  - 速度指令とCOM/ZMP統合は従来通り `isOperationAllowed()` で止める構造にした。
+  - `wbmsWalkingStabilityStartTime` の既定値を5.0秒へ変更した。
+- 試行結果:
+  - シミュレータでは、体幹を傾けた状態から `goPos` / `goVelocity` を送ると、以前と同様に跳ねる挙動が残った。
+  - この試行差分は現在のworking treeに残っているが、解決策としては未確定であり、M4.2.1のコミット対象には含めない。
+- 次に切り分けるべき仮説:
+  - 歩行開始遅延中に最終IKのroot姿勢・COM Z復帰と投影referenceが同時に競合している。
+  - `wbmsOperationModeValue` は滑らかでも、`refRobot` / `genRobot` / `stTargetRootPose` / COM targetの基準が不連続に切り替わっている。
+  - 腕CHEST相対拘束は歩行中も維持される一方、CHEST姿勢拘束やreference angle blendの消し方が歩行開始遷移に対して適切でない。
+  - `WbmsWalkingCommandDelay` の遅延中にfuture stepは生成していないが、姿勢復帰だけで既に下半身IKが大きく動いている可能性がある。
+
+### 次のマイルストーンへのinterfaceと前提条件
+
+- M4.2.1後の `applyStaticComZmpIntegration()` は、`refZmpTraj` の時間構造を維持する前提でZMP offsetを加える。
+- `refZmpTraj` が空または時間和0の場合でも、正の時間を持つ定常軌道へfallbackする。
+- M4.2のsafe candidate採用条件、projection status、debug index 30-39は維持されている。
+- 歩行移行問題を扱う次マイルストーンでは、現在working treeに残っている `isProjectionReferenceAllowed()` 試行と `wbmsWalkingStabilityStartTime=5.0` 変更を、採用するか戻すかを明示的に判断する必要がある。
+- 歩行中・歩行開始遷移中は、体幹/COM操縦指令よりバランスを優先する。ただし腕操縦はCHEST相対拘束を通して継続可能にする方針を維持する。
+
+### 次のセッションで最初に確認すべきコード箇所
+
+- `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp`
+  - `applyStaticComZmpIntegration()`: `refZmpTraj` の平行移動とfallback。
+  - `isOperationAllowed()`: static WBMS操作、速度指令、COM/ZMP統合の許可条件。
+  - `isProjectionReferenceAllowed()`: 歩行開始遅延中reference維持の試行差分。
+  - `solveProjection()`: projection referenceの有効/無効判定。
+- `auto_stabilizer/rtc/AutoStabilizer/WbmsWalkingCommandDelay.cpp`
+  - `startDelay()` と `proc()` による歩行開始遅延、pending command投入タイミング。
+- `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp`
+  - `wbmsOperationModeValue` によるCHEST姿勢拘束weight、COM weight、reference angle blend。
+  - 上半身EEのCHEST相対拘束。
+- `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp`
+  - `onExecute()` の `wbmsWalkingCommandDelay_.proc()` と `execAutoStabilizer()` の呼び順。
+  - `wbmsDebugOut` index 24-26、30-39。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
