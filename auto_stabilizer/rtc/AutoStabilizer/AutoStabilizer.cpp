@@ -380,7 +380,7 @@ RTC::ReturnCode_t AutoStabilizer::onInitialize(){
 
   // init FullbodyIKSolver
   this->fullbodyIKSolver_.init(this->gaitParam_.genRobot, this->gaitParam_);
-  this->wbmsPostureControl_.init(this->gaitParam_.genRobot);
+  this->wbmsPostureControl_.init(this->gaitParam_.genRobot, this->gaitParam_);
 
   // initialize parameters
   this->loop_ = 0;
@@ -630,7 +630,7 @@ bool AutoStabilizer::readInPortData(const double& dt, GaitParam& gaitParam, cons
 }
 
 // static function
-bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode, GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator, const LegCoordsGenerator& legCoordsGenerator, const RefToGenFrameConverter& refToGenFrameConverter, const ActToGenFrameConverter& actToGenFrameConverter, const ImpedanceController& impedanceController, const Stabilizer& stabilizer, const ExternalForceHandler& externalForceHandler, const FullbodyIKSolver& fullbodyIKSolver,const LegManualController& legManualController, const CmdVelGenerator& cmdVelGenerator) {
+bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode, GaitParam& gaitParam, double dt, FootStepGenerator& footStepGenerator, const LegCoordsGenerator& legCoordsGenerator, const RefToGenFrameConverter& refToGenFrameConverter, const ActToGenFrameConverter& actToGenFrameConverter, const ImpedanceController& impedanceController, const Stabilizer& stabilizer, const ExternalForceHandler& externalForceHandler, const FullbodyIKSolver& fullbodyIKSolver, WbmsPostureControl& wbmsPostureControl, const LegManualController& legManualController, const CmdVelGenerator& cmdVelGenerator) {
   if(mode.isSyncToABCInit()){ // startAutoBalancer直後の初回. gaitParamのリセット
     refToGenFrameConverter.initGenRobot(gaitParam,
                                         gaitParam.genRobot, gaitParam.footMidCoords, gaitParam.genCogVel, gaitParam.genCogAcc);
@@ -684,6 +684,7 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
     if(i<NUM_LEGS) gaitParam.abcEETargetPose[i] = gaitParam.genCoords[i].value();
     else gaitParam.abcEETargetPose[i] = gaitParam.icEETargetPose[i];
   }
+  wbmsPostureControl.proc(gaitParam, dt, mode.isABCRunning(), fullbodyIKSolver.dqWeight);
 
   // Stabilizer
   if(mode.isSyncToStopSTInit()){ // stopST直後の初回
@@ -1076,8 +1077,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
       this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
     }
     this->wbmsWalkingCommandDelay_.proc(this->gaitParam_, this->dt_, this->cmdVelGenerator_, this->footStepGenerator_);
-    this->wbmsPostureControl_.proc(this->gaitParam_, this->dt_, this->mode_.isABCRunning());
-    AutoStabilizer::execAutoStabilizer(this->mode_, this->gaitParam_, this->dt_, this->footStepGenerator_, this->legCoordsGenerator_, this->refToGenFrameConverter_, this->actToGenFrameConverter_, this->impedanceController_, this->stabilizer_,this->externalForceHandler_, this->fullbodyIKSolver_, this->legManualController_, this->cmdVelGenerator_);
+    AutoStabilizer::execAutoStabilizer(this->mode_, this->gaitParam_, this->dt_, this->footStepGenerator_, this->legCoordsGenerator_, this->refToGenFrameConverter_, this->actToGenFrameConverter_, this->impedanceController_, this->stabilizer_,this->externalForceHandler_, this->fullbodyIKSolver_, this->wbmsPostureControl_, this->legManualController_, this->cmdVelGenerator_);
   }
 
   AutoStabilizer::writeOutPortData(this->ports_, this->mode_, this->idleToAbcTransitionInterpolator_, this->dt_, this->gaitParam_);
@@ -1373,6 +1373,7 @@ bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilize
       cnoid::LinkPtr joint = this->gaitParam_.genRobot->link(std::string(i_param.controllable_joints[i]));
       if(joint) this->gaitParam_.jointControllable[joint->jointId()] = true;
     }
+    this->wbmsPostureControl_.init(this->gaitParam_.genRobot, this->gaitParam_);
   }
   this->mode_.abc_start_transition_time = std::max(i_param.abc_start_transition_time, 0.01);
   this->mode_.abc_stop_transition_time = std::max(i_param.abc_stop_transition_time, 0.01);

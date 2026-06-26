@@ -90,22 +90,35 @@ namespace mathutil {
 
   std::vector<Eigen::Vector3d> calcConvexHull(const std::vector<Eigen::Vector3d>& vertices){
     // Z成分は無視する.
-    std::vector<Eigen::Vector3d> tmpVertices(vertices.size());
+    std::vector<Eigen::Vector3d> convexHull;
+    std::vector<Eigen::Vector3d> tmpVertices;
+    calcConvexHull(vertices, convexHull, tmpVertices);
+    return convexHull;
+  }
+
+  void calcConvexHull(const std::vector<Eigen::Vector3d>& vertices, std::vector<Eigen::Vector3d>& convexHull, std::vector<Eigen::Vector3d>& tmpVertices){
+    // Z成分は無視する.
+    convexHull.clear();
+    tmpVertices.resize(vertices.size());
     for (int i = 0; i < vertices.size(); i++) tmpVertices[i] = Eigen::Vector3d(vertices[i][0],vertices[i][1],0.0);
-    if(tmpVertices.size() == 1) return tmpVertices;
+    if(tmpVertices.size() == 0) return;
+    if(tmpVertices.size() == 1) {
+      convexHull.push_back(tmpVertices[0]);
+      return;
+    }
     if(tmpVertices.size() == 2) {
-      if(tmpVertices[0] != tmpVertices[1]) return tmpVertices;
-      else return std::vector<Eigen::Vector3d>{tmpVertices[0]};
+      convexHull.push_back(tmpVertices[0]);
+      if(tmpVertices[0] != tmpVertices[1]) convexHull.push_back(tmpVertices[1]);
+      return;
     }
     std::sort(tmpVertices.begin(), tmpVertices.end(), [](const Eigen::Vector3d& lv, const Eigen::Vector3d& rv){ return lv(0) < rv(0) || (lv(0) == rv(0) && lv(1) < rv(1));});
-    std::vector<Eigen::Vector3d> convexHull(2*tmpVertices.size());
+    convexHull.resize(2*tmpVertices.size());
     int n_ch = 0;
     for (int i = 0; i < tmpVertices.size(); convexHull[n_ch++] = tmpVertices[i++])
       while (n_ch >= 2 && (convexHull[n_ch-1] - convexHull[n_ch-2]).cross(tmpVertices[i] - convexHull[n_ch-2])[2] <= 0) n_ch--;
     for (int i = tmpVertices.size()-2, j = n_ch+1; i >= 0; convexHull[n_ch++] = tmpVertices[i--])
       while (n_ch >= j && (convexHull[n_ch-1] - convexHull[n_ch-2]).cross(tmpVertices[i] - convexHull[n_ch-2])[2] <= 0) n_ch--;
     convexHull.resize(std::max(0,n_ch-1));
-    return convexHull;
   }
 
   // Z成分は無視する. P, Qは半時計回りの凸包. あまり計算量が賢いアルゴリズムではないので変えたいが、そもそもそんなにvertexの数が多いpolygonを扱わないので、そんなに問題は無い
@@ -215,6 +228,87 @@ namespace mathutil {
       }
       return Eigen::Vector3d(nearestPoint[0],nearestPoint[1],0.0);
     }
+  }
+
+  std::vector<Eigen::Vector3d> shrinkConvexHull2D(const std::vector<Eigen::Vector3d>& hull, double margin){
+    // 半時計回り凸包では各辺の左側が内側なので、辺を左法線方向へ平行移動して隣接直線の交点を作る.
+    std::vector<Eigen::Vector3d> ret;
+    std::vector<Eigen::Vector3d> shiftedPoints;
+    std::vector<Eigen::Vector3d> shiftedDirs;
+    shrinkConvexHull2D(hull, margin, ret, shiftedPoints, shiftedDirs);
+    return ret;
+  }
+
+  bool shrinkConvexHull2D(const std::vector<Eigen::Vector3d>& hull,
+                          double margin,
+                          std::vector<Eigen::Vector3d>& ret,
+                          std::vector<Eigen::Vector3d>& shiftedPoints,
+                          std::vector<Eigen::Vector3d>& shiftedDirs){
+    // 半時計回り凸包では各辺の左側が内側なので、辺を左法線方向へ平行移動して隣接直線の交点を作る.
+    ret.clear();
+    if(hull.size() < 3) return false;
+    if(margin <= 0.0) {
+      ret = hull;
+      return true;
+    }
+
+    shiftedPoints.resize(hull.size());
+    shiftedDirs.resize(hull.size());
+    for(size_t i=0;i<hull.size();i++){
+      Eigen::Vector3d edge = hull[(i+1)%hull.size()] - hull[i];
+      edge[2] = 0.0;
+      double edgeNorm = edge.head<2>().norm();
+      if(edgeNorm < 1e-10) {
+        ret.clear();
+        return false;
+      }
+      Eigen::Vector3d dir = edge / edgeNorm;
+      Eigen::Vector3d inward(-dir[1], dir[0], 0.0);
+      shiftedPoints[i] = Eigen::Vector3d(hull[i][0], hull[i][1], 0.0) + inward * margin;
+      shiftedDirs[i] = dir;
+    }
+
+    ret.resize(hull.size());
+    for(size_t i=0;i<hull.size();i++){
+      size_t prev = (i + hull.size() - 1) % hull.size();
+      double d = shiftedDirs[prev].cross(shiftedDirs[i])[2];
+      if(std::abs(d) < 1e-10) {
+        ret.clear();
+        return false;
+      }
+      double t = (shiftedPoints[i] - shiftedPoints[prev]).cross(shiftedDirs[i])[2] / d;
+      ret[i] = shiftedPoints[prev] + shiftedDirs[prev] * t;
+      ret[i][2] = 0.0;
+      if(!ret[i].allFinite()) {
+        ret.clear();
+        return false;
+      }
+    }
+
+    // 隣接直線の交点が全ての縮小後半平面を満たす場合だけ有効とする.
+    // marginが過大で半平面の共通部分が空の場合、ここで必ず弾く.
+    for(size_t i=0;i<ret.size();i++){
+      for(size_t j=0;j<shiftedPoints.size();j++){
+        if(shiftedDirs[j].cross(ret[i] - shiftedPoints[j])[2] < -1e-9){
+          ret.clear();
+          return false;
+        }
+      }
+    }
+
+    if(ret.size() < 3) {
+      ret.clear();
+      return false;
+    }
+    double area2 = 0.0;
+    for(size_t i=0;i<ret.size();i++){
+      area2 += ret[i].cross(ret[(i+1)%ret.size()])[2];
+    }
+    if(area2 <= 1e-10) {
+      ret.clear();
+      return false;
+    }
+    return true;
   }
 
   // Z成分は無視する. P, Qは半時計回りの凸包. (返り値のZ成分はhullの値が入る). PQが重なっている場合はP, Q上のどこかになる. 複数点ある場合は、それらの凸包が返る.

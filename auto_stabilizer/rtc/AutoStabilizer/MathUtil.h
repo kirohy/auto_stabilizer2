@@ -42,6 +42,8 @@ namespace mathutil {
   bool isIntersect (Eigen::Vector3d& r, const Eigen::Vector3d& a0, const Eigen::Vector3d& a1, const Eigen::Vector3d& b0, const Eigen::Vector3d& b1);
   // Z成分は無視する.(0が入る)
   std::vector<Eigen::Vector3d> calcConvexHull(const std::vector<Eigen::Vector3d>& vertices);
+  // Z成分は無視する.(0が入る). convexHull/tmpVerticesのcapacityが足りていればheap allocationしない.
+  void calcConvexHull(const std::vector<Eigen::Vector3d>& vertices, std::vector<Eigen::Vector3d>& convexHull, std::vector<Eigen::Vector3d>& tmpVertices);
   // Z成分は無視する. P, Qは半時計回りの凸包. (P,QのZ成分が0なら、RのZ成分にも0が入る)
   std::vector<Eigen::Vector3d> calcIntersectConvexHull(const std::vector<Eigen::Vector3d>& P, const std::vector<Eigen::Vector3d>& Q);
 
@@ -50,6 +52,15 @@ namespace mathutil {
 
   // Z成分は無視する. hullは半時計回りの凸包. (返り値のZ成分はhullの値が入る)
   Eigen::Vector3d calcNearestPointOfHull(const Eigen::Vector3d& p_, const std::vector<Eigen::Vector3d>& hull);
+
+  // Z成分は無視する. hullは半時計回りの凸包. 各辺を内側へmarginだけ縮小する. 退化時は空vectorを返す.
+  std::vector<Eigen::Vector3d> shrinkConvexHull2D(const std::vector<Eigen::Vector3d>& hull, double margin);
+  // Z成分は無視する. hullは半時計回りの凸包. ret/shiftedPoints/shiftedDirsのcapacityが足りていればheap allocationしない.
+  bool shrinkConvexHull2D(const std::vector<Eigen::Vector3d>& hull,
+                          double margin,
+                          std::vector<Eigen::Vector3d>& ret,
+                          std::vector<Eigen::Vector3d>& shiftedPoints,
+                          std::vector<Eigen::Vector3d>& shiftedDirs);
 
   // Z成分は無視する. P, Qは半時計回りの凸包. (返り値のZ成分はhullの値が入る). 点同士がが最近傍の場合、p,qのサイズは1になる. 線分同士が最近傍の場合、p,qのサイズが2になり線分の端点が入る.  PQが重なっている場合の挙動は、定義されない
   double calcNearestPointOfTwoHull(const std::vector<Eigen::Vector3d>& P, const std::vector<Eigen::Vector3d>& Q, std::vector<Eigen::Vector3d>& p, std::vector<Eigen::Vector3d>& q);
