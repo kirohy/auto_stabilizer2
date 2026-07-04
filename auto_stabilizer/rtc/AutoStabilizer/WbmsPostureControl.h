@@ -19,6 +19,9 @@ public:
   void start(GaitParam& gaitParam);
   void clearStaleCommand(GaitParam& gaitParam, bool resetApplied) const;
   void updateVelocityCommand(GaitParam& gaitParam, double dt, bool isABCRunning) const;
+  void applyWalkingComHeightHoldToReference(GaitParam& gaitParam) const;
+  void applyWalkingComHeightHoldToGenCog(GaitParam& gaitParam, double dt) const;
+  void updateWalkingPreparationReadiness(GaitParam& gaitParam, double dt) const;
   void proc(GaitParam& gaitParam, double dt, bool isABCRunning, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight);
 
   size_t variableJointNum() const { return this->projectionJointIds_.size(); }
@@ -58,8 +61,17 @@ private:
   std::vector<cnoid::Vector3> shrinkShiftedPoints_;
   std::vector<cnoid::Vector3> shrinkShiftedDirs_;
 
-  bool isOperationAllowed(const GaitParam& gaitParam, bool isABCRunning) const;
+  bool isVelocityCommandAllowed(const GaitParam& gaitParam, bool isABCRunning) const;
+  bool isPostureProjectionAllowed(const GaitParam& gaitParam, bool isABCRunning) const;
+  bool isStaticComZmpIntegrationAllowed(const GaitParam& gaitParam, bool isABCRunning) const;
+  bool isWalkingComHeightHoldAllowed(const GaitParam& gaitParam) const;
+  bool isWalkingPreparationActive(const GaitParam& gaitParam) const;
+  bool isWalkingPreparationReturningTargetActive(const GaitParam& gaitParam) const;
   cnoid::Vector3 applyAccelerationLimit(const cnoid::Vector3& current, const cnoid::Vector3& desired, const cnoid::Vector3& limit, double dt) const;
+  cnoid::Matrix3 interpolateRotation(const cnoid::Matrix3& from, const cnoid::Matrix3& to, double alpha) const;
+  void setWalkingPreparationPhase(GaitParam& gaitParam, GaitParam::WbmsWalkingPreparationPhase phase) const;
+  void failWalkingPreparation(GaitParam& gaitParam, GaitParam::WbmsWalkingPreparationFailureCode code) const;
+  bool latchWalkingPreparationReturnStart(GaitParam& gaitParam) const;
   void addAncestorJointIds(const cnoid::LinkPtr& link, const cnoid::BodyPtr& robot, std::vector<bool>& jointUsed);
   void syncProjectionRobot(const GaitParam& gaitParam);
   bool updateSupportHull(const GaitParam& gaitParam);

@@ -716,6 +716,7 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
   // FootOrigin座標系を用いてrefRobotRawをgenerate frameに投影しrefRobotとする
   refToGenFrameConverter.convertFrame(gaitParam, dt,
                                       gaitParam.refRobot, gaitParam.refEEPose, gaitParam.refEEWrench, gaitParam.refdz, gaitParam.footMidCoords);
+  wbmsPostureControl.applyWalkingComHeightHoldToReference(gaitParam);
 
   // FootOrigin座標系を用いてactRobotRawをgenerate frameに投影しactRobotとする
   actToGenFrameConverter.convertFrame(gaitParam, dt,
@@ -747,6 +748,9 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
                                    gaitParam.refZmpTraj, gaitParam.genCoords, gaitParam.swingState);
   legCoordsGenerator.calcCOMCoords(gaitParam, dt,
                                    gaitParam.genCog, gaitParam.genCogVel, gaitParam.genCogAcc);
+  gaitParam.wbmsNominalGenCogBeforeWbmsIntegration = gaitParam.genCog;
+  gaitParam.wbmsNominalGenCogBeforeWbmsIntegrationValid = gaitParam.genCog.allFinite();
+  wbmsPostureControl.applyWalkingComHeightHoldToGenCog(gaitParam, dt);
   for(int i=0;i<gaitParam.eeName.size();i++){
     if(i<NUM_LEGS) gaitParam.abcEETargetPose[i] = gaitParam.genCoords[i].value();
     else gaitParam.abcEETargetPose[i] = gaitParam.icEETargetPose[i];
@@ -768,6 +772,7 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
   fullbodyIKSolver.solveFullbodyIK(dt, gaitParam,// input
                                    gaitParam.genRobot); // output
   updateWbmsFinalIKDiagnostics(gaitParam, dt);
+  wbmsPostureControl.updateWalkingPreparationReadiness(gaitParam, dt);
 
   return true;
 }
@@ -1153,19 +1158,19 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMaxFootRotationError;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKRealizedComVelocity[i]);
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKRealizedChestAngularVelocity[i]);
-      ports.m_wbmsDebug_.data[index++] = gaitParam.isWbmsWalkingStartDelay ? 1.0 : 0.0;
-      ports.m_wbmsDebug_.data[index++] = gaitParam.isWbmsWalkingStartDelay ? finiteOrZero(std::max(0.0, gaitParam.wbmsWalkingStabilityStartTime - gaitParam.wbmsWalkingStartDelayRemainTime)) : 0.0;
-      ports.m_wbmsDebug_.data[index++] = 0.0; // return alphaはM4.2.2本体用予約値
-      ports.m_wbmsDebug_.data[index++] = 0.0; // handoff alphaはM4.2.2本体用予約値
-      ports.m_wbmsDebug_.data[index++] = 0.0; // held COM heightはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = static_cast<double>(gaitParam.wbmsWalkingPreparationPhase);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationElapsedTime);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationReturnAlpha);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationHandoffAlpha);
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsWalkingComHeightHoldValid ? finiteOrZero(gaitParam.heldRobotComHeightInFootMid) : 0.0;
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(currentRobotComHeightInFootMid);
-      ports.m_wbmsDebug_.data[index++] = finiteOrZero(chestOrientationError);
-      ports.m_wbmsDebug_.data[index++] = 0.0; // COM XY errorはM4.2.2本体用予約値
-      ports.m_wbmsDebug_.data[index++] = 0.0; // COM Z hold errorはM4.2.2本体用予約値
-      ports.m_wbmsDebug_.data[index++] = finiteOrZero(rootOrientationError);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationChestError);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationComXYError);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationComZError);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationRootError);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKMaxJointDelta);
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPendingCommandReleaseEvent ? 1.0 : 0.0;
-      ports.m_wbmsDebug_.data[index++] = 0.0; // timeout/failure codeはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = static_cast<double>(gaitParam.wbmsWalkingPreparationFailureCode);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingStabilityStartTime);
       ports.m_wbmsDebugOut_.write();
     }
@@ -1215,6 +1220,9 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
     }
     this->wbmsWalkingCommandDelay_.proc(this->gaitParam_, this->dt_, this->cmdVelGenerator_, this->footStepGenerator_);
     AutoStabilizer::execAutoStabilizer(this->mode_, this->gaitParam_, this->dt_, this->footStepGenerator_, this->legCoordsGenerator_, this->refToGenFrameConverter_, this->actToGenFrameConverter_, this->impedanceController_, this->stabilizer_,this->externalForceHandler_, this->fullbodyIKSolver_, this->wbmsPostureControl_, this->legManualController_, this->cmdVelGenerator_);
+    if(this->gaitParam_.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_FAILED){
+      this->wbmsWalkingCommandDelay_.clearPendingCommand();
+    }
   }
 
   AutoStabilizer::writeOutPortData(this->ports_, this->mode_, this->idleToAbcTransitionInterpolator_, this->dt_, this->gaitParam_);
@@ -1230,6 +1238,7 @@ RTC::ReturnCode_t AutoStabilizer::onActivated(RTC::UniqueId ec_id){
   this->idleToAbcTransitionInterpolator_.reset(0.0);
   this->wbmsPostureControl_.reset();
   this->wbmsPostureControl_.clearStaleCommand(this->gaitParam_, true);
+  this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
   this->gaitParam_.debugData.resetWbmsFinalIKDiagnostics();
   return RTC::RTC_OK;
 }
@@ -1238,6 +1247,7 @@ RTC::ReturnCode_t AutoStabilizer::onDeactivated(RTC::UniqueId ec_id){
   std::cerr << "[" << m_profile.instance_name << "] "<< "onDeactivated(" << ec_id << ")" << std::endl;
   this->wbmsPostureControl_.reset();
   this->wbmsPostureControl_.clearStaleCommand(this->gaitParam_, true);
+  this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
   this->gaitParam_.debugData.resetWbmsFinalIKDiagnostics();
   return RTC::RTC_OK;
 }
@@ -1494,6 +1504,7 @@ bool AutoStabilizer::stopWholeBodyMasterSlave(void){
     }
     this->refToGenFrameConverter_.solveFKMode.setGoal(1.0, 5.0); // 5秒で遷移
     this->gaitParam_.wbmsMode.setGoal(0.0, 5.0);
+    this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
     this->wbmsPostureControl_.clearStaleCommand(this->gaitParam_, true);
     std::cerr << "[" << this->m_profile.instance_name << "] Stop WholeBodyMasterSlave" << std::endl;
     return true;
@@ -1796,6 +1807,16 @@ bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilize
   this->gaitParam_.wbmsInterpolateDuration = std::max(i_param.wbms_interpolate_duration, 0.0);
   this->gaitParam_.wbmsWalkingStabilityStartTime = std::max(i_param.wbms_walking_stability_start_time, 0.0);
   this->gaitParam_.wbmsWalkingStabilityStopTime = std::max(i_param.wbms_walking_stability_stop_time, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationTimeout = std::max(i_param.wbms_walking_preparation_timeout, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationReturnTime = std::max(i_param.wbms_walking_preparation_return_time, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationHandoffTime = std::max(i_param.wbms_walking_preparation_handoff_time, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationSettleTime = std::max(i_param.wbms_walking_preparation_settle_time, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationVelocityEps = std::max(i_param.wbms_walking_preparation_velocity_eps, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationChestErrorEps = std::max(i_param.wbms_walking_preparation_chest_error_eps, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationComXYErrorEps = std::max(i_param.wbms_walking_preparation_com_xy_error_eps, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationComZErrorEps = std::max(i_param.wbms_walking_preparation_com_z_error_eps, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationRootErrorEps = std::max(i_param.wbms_walking_preparation_root_error_eps, 0.0);
+  this->gaitParam_.wbmsWalkingPreparationMaxJointDeltaEps = std::max(i_param.wbms_walking_preparation_max_joint_delta_eps, 0.0);
   if(std::isfinite(i_param.wbms_velocity_command_timeout)){
     this->gaitParam_.wbmsVelocityCommandTimeout = std::max(i_param.wbms_velocity_command_timeout, 0.0);
     if(!this->gaitParam_.wbmsVelocityCommandValid && this->gaitParam_.wbmsVelocityCommandAge <= this->gaitParam_.wbmsVelocityCommandTimeout){
@@ -2064,6 +2085,16 @@ bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerServi
   i_param.wbms_interpolate_duration = this->gaitParam_.wbmsInterpolateDuration;
   i_param.wbms_walking_stability_start_time = this->gaitParam_.wbmsWalkingStabilityStartTime;
   i_param.wbms_walking_stability_stop_time = this->gaitParam_.wbmsWalkingStabilityStopTime;
+  i_param.wbms_walking_preparation_timeout = this->gaitParam_.wbmsWalkingPreparationTimeout;
+  i_param.wbms_walking_preparation_return_time = this->gaitParam_.wbmsWalkingPreparationReturnTime;
+  i_param.wbms_walking_preparation_handoff_time = this->gaitParam_.wbmsWalkingPreparationHandoffTime;
+  i_param.wbms_walking_preparation_settle_time = this->gaitParam_.wbmsWalkingPreparationSettleTime;
+  i_param.wbms_walking_preparation_velocity_eps = this->gaitParam_.wbmsWalkingPreparationVelocityEps;
+  i_param.wbms_walking_preparation_chest_error_eps = this->gaitParam_.wbmsWalkingPreparationChestErrorEps;
+  i_param.wbms_walking_preparation_com_xy_error_eps = this->gaitParam_.wbmsWalkingPreparationComXYErrorEps;
+  i_param.wbms_walking_preparation_com_z_error_eps = this->gaitParam_.wbmsWalkingPreparationComZErrorEps;
+  i_param.wbms_walking_preparation_root_error_eps = this->gaitParam_.wbmsWalkingPreparationRootErrorEps;
+  i_param.wbms_walking_preparation_max_joint_delta_eps = this->gaitParam_.wbmsWalkingPreparationMaxJointDeltaEps;
   i_param.wbms_velocity_command_timeout = this->gaitParam_.wbmsVelocityCommandTimeout;
   i_param.wbms_com_xy_support_margin = this->gaitParam_.wbmsComXYSupportMargin;
   i_param.wbms_torso_angular_velocity_limit.length(3);

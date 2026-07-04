@@ -146,6 +146,8 @@ public:
   cnoid::Vector3 genCog; // generate frame. abcで計算された目標COM
   cnoid::Vector3 genCogVel;  // generate frame.  abcで計算された目標COM速度
   cnoid::Vector3 genCogAcc;  // generate frame.  abcで計算された目標COM加速度
+  cnoid::Vector3 wbmsNominalGenCogBeforeWbmsIntegration = cnoid::Vector3::Zero(); // generate frame. WBMS統合前にLegCoordsGeneratorが生成した通常歩行用COM
+  bool wbmsNominalGenCogBeforeWbmsIntegrationValid = false;
   std::vector<cnoid::Isometry3> abcEETargetPose; // 要素数と順序はeeNameと同じ.generate frame. abcで計算された目標位置姿勢
 
   // Stabilizer
@@ -165,6 +167,16 @@ public:
   double wbmsInterpolateDuration = 0.3; // 操縦指令の補間時間
   double wbmsWalkingStabilityStartTime = 2.0; // [s]. WBMS中に歩行開始するとき、歩行開始前にroot姿勢を復帰させる時間
   double wbmsWalkingStabilityStopTime = 1.0; // [s]. WBMS中に静止へ戻ったとき、root姿勢を弱める補間時間
+  double wbmsWalkingPreparationTimeout = 6.0; // [s]. 歩行準備遷移のtimeout
+  double wbmsWalkingPreparationReturnTime = 1.0; // [s]. CHEST/COM XYを歩行可能基準へ戻す時間
+  double wbmsWalkingPreparationHandoffTime = 0.5; // [s]. WBMS姿勢拘束を通常歩行側へ渡す時間
+  double wbmsWalkingPreparationSettleTime = 0.1; // [s]. READY条件の連続成立時間
+  double wbmsWalkingPreparationVelocityEps = 1e-3; // [m/s or rad/s]. applied command収束判定
+  double wbmsWalkingPreparationChestErrorEps = 0.03; // [rad]
+  double wbmsWalkingPreparationComXYErrorEps = 0.01; // [m]
+  double wbmsWalkingPreparationComZErrorEps = 0.01; // [m]
+  double wbmsWalkingPreparationRootErrorEps = 0.08; // [rad]
+  double wbmsWalkingPreparationMaxJointDeltaEps = 0.08; // [rad or m]
   bool isWbmsWalkingStartDelay = false; // WBMS中の歩行開始前に姿勢復帰待ちをしている
   double wbmsWalkingStartDelayRemainTime = 0.0; // [s]. WBMS中の歩行開始前姿勢復帰待ちの残り時間
   double wbmsVelocityCommandTimeout = 0.2; // [s]. refTorsoVelInを最後に受信してから速度指令を無効にするまでの時間
@@ -201,6 +213,46 @@ public:
   bool wbmsPostureReferenceValid = false;
   double wbmsWalkingStabilityModeValue = 0.0; // 0〜1。歩行中および歩行開始遅延中に1へ近づく
   double wbmsOperationModeValue = 0.0; // wbmsMode * (1 - walkingStabilityMode)
+
+  enum WbmsWalkingPreparationPhase {
+    WBMS_WALKING_PREPARATION_INACTIVE = 0,
+    WBMS_WALKING_PREPARATION_REQUESTED = 1,
+    WBMS_WALKING_PREPARATION_DECELERATING = 2,
+    WBMS_WALKING_PREPARATION_RETURNING = 3,
+    WBMS_WALKING_PREPARATION_HANDOFF = 4,
+    WBMS_WALKING_PREPARATION_READY = 5,
+    WBMS_WALKING_PREPARATION_WALKING_HOLD = 6,
+    WBMS_WALKING_PREPARATION_FAILED = 7
+  };
+
+  enum WbmsWalkingPreparationFailureCode {
+    WBMS_WALKING_PREPARATION_FAILURE_NONE = 0,
+    WBMS_WALKING_PREPARATION_FAILURE_SNAPSHOT = 1,
+    WBMS_WALKING_PREPARATION_FAILURE_TIMEOUT = 2,
+    WBMS_WALKING_PREPARATION_FAILURE_NONFINITE = 3,
+    WBMS_WALKING_PREPARATION_FAILURE_UNSAFE = 4,
+    WBMS_WALKING_PREPARATION_FAILURE_CANCELLED = 5
+  };
+
+  WbmsWalkingPreparationPhase wbmsWalkingPreparationPhase = WBMS_WALKING_PREPARATION_INACTIVE;
+  WbmsWalkingPreparationFailureCode wbmsWalkingPreparationFailureCode = WBMS_WALKING_PREPARATION_FAILURE_NONE;
+  bool wbmsWalkingPreparationReleaseRequested = false; // READY成立後、次周期冒頭releaseするためのフラグ
+  bool wbmsWalkingPreparationSnapshotValid = false;
+  bool wbmsWalkingComHeightHoldValid = false;
+  double wbmsWalkingPreparationElapsedTime = 0.0; // [s]
+  double wbmsWalkingPreparationPhaseElapsedTime = 0.0; // [s]
+  double wbmsWalkingPreparationSettleElapsedTime = 0.0; // [s]
+  double wbmsWalkingPreparationReturnAlpha = 0.0;
+  double wbmsWalkingPreparationHandoffAlpha = 0.0;
+  double heldRobotComHeightInFootMid = 0.0; // [m]. 歩行指令受付後snapshotしたfootMid基準robot COM高さ
+  cnoid::Matrix3 wbmsWalkingPreparationStartChestRInFootMid = cnoid::Matrix3::Identity();
+  cnoid::Vector3 wbmsWalkingPreparationStartRobotComInFootMid = cnoid::Vector3::Zero();
+  cnoid::Vector3 wbmsWalkingPreparationNominalRobotComInFootMid = cnoid::Vector3::Zero();
+  cnoid::Matrix3 wbmsWalkingPreparationStartRootR = cnoid::Matrix3::Identity();
+  double wbmsWalkingPreparationChestError = 0.0;
+  double wbmsWalkingPreparationComXYError = 0.0;
+  double wbmsWalkingPreparationComZError = 0.0;
+  double wbmsWalkingPreparationRootError = 0.0;
 
   enum WbmsProjectionStatus {
     WBMS_PROJECTION_NOT_RUN = 0,
@@ -297,8 +349,35 @@ public:
     clearWbmsPostureCommand(true);
     clearWbmsPostureReference();
     wbmsPostureBaselineValid = false;
+    wbmsNominalGenCogBeforeWbmsIntegration.setZero();
+    wbmsNominalGenCogBeforeWbmsIntegrationValid = false;
     wbmsWalkingStabilityModeValue = 0.0;
     wbmsOperationModeValue = 0.0;
+    clearWbmsWalkingPreparation();
+  }
+
+  void clearWbmsWalkingPreparation(){
+    isWbmsWalkingStartDelay = false;
+    wbmsWalkingStartDelayRemainTime = 0.0;
+    wbmsWalkingPreparationPhase = WBMS_WALKING_PREPARATION_INACTIVE;
+    wbmsWalkingPreparationFailureCode = WBMS_WALKING_PREPARATION_FAILURE_NONE;
+    wbmsWalkingPreparationReleaseRequested = false;
+    wbmsWalkingPreparationSnapshotValid = false;
+    wbmsWalkingComHeightHoldValid = false;
+    wbmsWalkingPreparationElapsedTime = 0.0;
+    wbmsWalkingPreparationPhaseElapsedTime = 0.0;
+    wbmsWalkingPreparationSettleElapsedTime = 0.0;
+    wbmsWalkingPreparationReturnAlpha = 0.0;
+    wbmsWalkingPreparationHandoffAlpha = 0.0;
+    heldRobotComHeightInFootMid = 0.0;
+    wbmsWalkingPreparationStartChestRInFootMid.setIdentity();
+    wbmsWalkingPreparationStartRobotComInFootMid.setZero();
+    wbmsWalkingPreparationNominalRobotComInFootMid.setZero();
+    wbmsWalkingPreparationStartRootR.setIdentity();
+    wbmsWalkingPreparationChestError = 0.0;
+    wbmsWalkingPreparationComXYError = 0.0;
+    wbmsWalkingPreparationComZError = 0.0;
+    wbmsWalkingPreparationRootError = 0.0;
   }
 
   bool isStatic() const{ // 現在static状態かどうか
@@ -360,8 +439,6 @@ public:
     steppableHeight.clear();
     relLandingHeight = -1e15;
     relLandingNormal = cnoid::Vector3::UnitZ();
-    isWbmsWalkingStartDelay = false;
-    wbmsWalkingStartDelayRemainTime = 0.0;
     resetWbmsPostureControl();
     debugData.resetWbmsFinalIKDiagnostics();
   }

@@ -678,6 +678,300 @@ rg -n "B_link\\(\\) = torsoGenLink|wbmsProjectedChestR|wbmsComPositionWeight|wbm
 git diff --stat
 ```
 
+## M4.2.2 Work Package B 歩行準備遷移本体 実装記録
+
+### 実装範囲
+
+M4.2.2 Work Package Bとして、固定タイマだけでpending walking commandをreleaseしていた `WbmsWalkingCommandDelay` を、明示的な歩行準備phase state machineへ拡張した。
+
+phaseは次を使用する。
+
+| phase | 意味 |
+|---:|---|
+| 0 | INACTIVE |
+| 1 | REQUESTED |
+| 2 | DECELERATING |
+| 3 | RETURNING |
+| 4 | HANDOFF |
+| 5 | READY |
+| 6 | WALKING_HOLD |
+| 7 | FAILED |
+
+`goPos()`、`goVelocity()`、`setFootSteps()` 受付時はpending commandを `WbmsWalkingCommandDelay` 内へ保存し、体幹/COM raw commandだけをclearする。applied commandは即時ゼロにせず、既存の加速度limitでDECELERATING中にゼロへ戻す。腕EE commandと `wbmsMode` はclearしない。
+
+REQUESTEDの次制御周期で、`footMidCoords` 基準の現在CHEST姿勢、現在robot COM、保持COM高さ、WBMS統合前nominal COM X/Y、root姿勢をsnapshotする。保持COM高さは、validな `wbmsProjectedRobotCom` を優先し、使えない場合は `genRobot->centerOfMass()` を使う。どちらもfiniteでなければFAILEDに遷移し、pending commandは破棄する。
+
+### parameter意味
+
+M4.2.2では外部調整が必要な準備遷移parameterだけIDLへ追加した。
+
+| parameter | 意味 |
+|---|---|
+| `wbms_walking_preparation_timeout` | REQUESTEDからREADY/releaseまでの上限時間。超過時はFAILED |
+| `wbms_walking_preparation_return_time` | RETURNINGでCHESTとCOM X/Yを歩行可能基準へ戻す時間 |
+| `wbms_walking_preparation_handoff_time` | HANDOFFでWBMS姿勢拘束を通常歩行側へ渡す時間 |
+| `wbms_walking_preparation_settle_time` | READY条件の連続成立時間 |
+| `wbms_walking_preparation_velocity_eps` | applied torso/COM command収束判定 |
+| `wbms_walking_preparation_chest_error_eps` | CHEST基準姿勢誤差のREADY閾値 |
+| `wbms_walking_preparation_com_xy_error_eps` | COM X/Y nominal誤差のREADY閾値 |
+| `wbms_walking_preparation_com_z_error_eps` | COM Z保持誤差のREADY閾値 |
+| `wbms_walking_preparation_root_error_eps` | root姿勢誤差のREADY閾値 |
+| `wbms_walking_preparation_max_joint_delta_eps` | 一周期最大関節変化のREADY閾値 |
+
+`wbms_walking_stability_start_time` と `wbms_walking_stability_stop_time` は、従来どおり歩行安定化weightの補間時間として維持した。5秒へ延長するだけのrejected trialは採用していない。
+
+### COM X/YとZの分離
+
+RETURNINGでは、CHESTはsnapshot姿勢から `wbmsStartChestRInFootMid` へ補間し、COM X/Yはsnapshot robot COMからWBMS統合前nominal static walking COMへ補間する。COM Zは `heldRobotComHeightInFootMid` で固定し、`wbmsStartComInFootMid.z` へ戻さない。
+
+COM高さ保持はprojector validや `wbmsOperationModeValue` へ依存させず、独立経路で扱う。`RefToGenFrameConverter::convertFrame()` 後に `refdz`、`l.z`、`omega` を保持高さへ再整合し、`LegCoordsGenerator::calcCOMCoords()` 後に `genCog.z`、`genCogVel.z`、`genCogAcc.z` だけを速度/加速度limit付きで補正する。X/Yは通常歩行バランス系へ任せる。
+
+### READYとrelease
+
+READY条件は、applied command速度、CHEST error、COM XY error、COM Z hold error、root error、candidate safe、max joint delta、handoff完了、settle timeを確認する。READYになった周期ではpending commandを投入せず、`wbmsWalkingPreparationReleaseRequested` だけを立てる。次の `onExecute()` 冒頭の `WbmsWalkingCommandDelay::proc()` でpending commandをreleaseし、WALKING_HOLDへ遷移する。
+
+### clear/cancel
+
+`goStop()`、`stopWholeBodyMasterSlave()`、`stopAutoBalancer()`、`MODE_SYNC_TO_ABC` 初期化、`onActivated()`、`onDeactivated()` でphase、pending、height hold、stale commandをclearする。timeout/FAILEDでは歩行を強行せず、pending commandを破棄し、failure codeをdebugへ残す。
+
+### 腕操作維持
+
+歩行準備・歩行中に `wbmsMode` は停止しない。`RefToGenFrameConverter` の上半身EE差分変換と、`FullbodyIKSolver` の `B_link() = torsoGenLink`、`B_localpos() = torsoRefLink->T().inverse() * gaitParam.abcEETargetPose[i]` によるCHEST相対拘束を維持する。
+
+### build・静的確認
+
+IDLを変更したため、初回buildは `catkin build auto_stabilizer --no-deps --force-cmake` を使用した。
+
+| 確認 | 結果 | 備考 |
+|---|---|---|
+| `catkin build auto_stabilizer --no-deps --force-cmake` | PASS | OpenRTM helper由来のYAML warningのみ |
+| `git diff --check` | PASS | whitespace指摘なし |
+| rejected trialの実コード混入なし | PASS | `isProjectionReferenceAllowed` と5秒既定値変更は実コード/IDLに存在しない |
+| debug lengthと代入数 | PASS | `wbmsDebugOut` length 60、代入数60 |
+| index 0-45不変 | PASS | 既存順序は維持し、46-59をM4.2.2値へ接続 |
+| READYとreleaseが別周期 | PASS | READYは `WbmsPostureControl::proc()`、releaseは次周期冒頭の `WbmsWalkingCommandDelay::proc()` |
+| `wbmsStartComInFootMid.z`へ戻さない | PASS | RETURNING/height holdは `heldRobotComHeightInFootMid` を使用 |
+| `refZmpTraj`時間構造維持 | PASS | 既存segment時間を維持し、空/時間和0だけ正時間fallback |
+| state clear経路 | PASS | goStop、WBMS停止、ABC停止、sync init、activate/deactivateでclear |
+| optional M4.2.3未実装 | PASS | 歩行中COM Z速度操作は追加していない |
+
+シミュレータ確認は未実施である。
+
+### review指摘と処置
+
+| 順序 | 指摘要約 | 分類 | 処置 |
+|---|---|---|---|
+| 1 | 準備遷移開始条件が旧 `wbmsWalkingStabilityStartTime` に依存し、0秒設定でM4.2.2安全ゲートを迂回する | 修正対象 | `WbmsWalkingCommandDelay::shouldDelay()` から旧timer条件を削除し、static WBMS activeなら準備遷移へ入るよう修正 |
+| 2 | READY判定が最終IK前に実行され、現在周期のfinal IK後joint delta/root/CHEST/COMを確認せずrelease予約する | 修正対象 | READY評価を `WbmsPostureControl::updateWalkingPreparationReadiness()` へ移し、`solveFullbodyIK()` と `updateWbmsFinalIKDiagnostics()` の後に呼ぶよう修正 |
+
+上記修正により、READY成立は現在周期のfinal IK後diagnosticsを確認してから行い、pending command releaseは従来どおり次周期冒頭に分離される。
+
+### Work Package B 最終整理
+
+#### 1. 実装範囲
+
+Work Package Bでは、WBMS静止操作中の歩行開始を固定timer releaseから明示的な歩行準備phase state machineへ置き換えた。
+
+- `WbmsWalkingCommandDelay` がpending `goPos` / `goVelocity` / `setFootSteps` を保持し、READY後の次周期冒頭でreleaseする。
+- 歩行準備開始時にraw torso/COM commandをclearし、applied commandは既存加速度limitでゼロへ減速する。
+- REQUESTEDでCHEST姿勢、robot COM、保持COM高さ、WBMS統合前nominal COM、root姿勢をsnapshotする。
+- DECELERATING、RETURNING、HANDOFF、READY、WALKING_HOLD、FAILEDを明示的に扱う。
+- COM高さ保持を `RefToGenFrameConverter::convertFrame()` 後と `LegCoordsGenerator::calcCOMCoords()` 後の独立経路へ接続した。
+- READY判定はfinal IKとfinal IK diagnostics更新後に行い、releaseは次周期の `WbmsWalkingCommandDelay::proc()` で行う。
+- timeout、FAILED、goStop、WBMS停止、ABC停止、sync初期化、activate/deactivateでpending command、phase、height hold、stale commandを安全側にclearする。
+- 歩行準備中・歩行中も `wbmsMode` と腕EE commandを維持し、歩行中はtorso角速度 commandとCOM X/Y commandを無効化する。
+
+#### 2. 対象外
+
+- optional M4.2.3。
+- 歩行中COM Z速度操作。
+- 歩行中体幹角度操作。
+- task scaling。
+- dependency solver変更。
+- 全関節のWBMS開始時姿勢への復帰。
+- validation閾値緩和。
+- clang-format。
+- 新規テストコード。
+- simulator上の安定性、操作感、歩行開始時の実挙動合否判定。
+
+#### 3. 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h` | 歩行準備phase enum、failure code、parameter、snapshot/readiness/height hold/debug state、clear helperを追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsWalkingCommandDelay.h/.cpp` | pending command保持、phase開始、snapshot、timeout、READY次周期release、pending clearを実装 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.h/.cpp` | 許可条件分離、DECELERATING/RETURNING/HANDOFF処理、COM高さ保持、READY判定、FAILED処理、RETURNING開始点ラッチを実装 |
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp` | COM高さ保持の呼び順、pre-WBMS nominal COM保存、READY判定呼び出し、FAILED時pending clear、debug index接続、IDL parameter set/getを追加 |
+| `auto_stabilizer/idl/AutoStabilizerService.idl` | 歩行準備timeout、return/handoff/settle時間、READY閾値parameterを追加 |
+| `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md` | Work Package Bの実装、review対応、acceptance、引き継ぎを記録 |
+
+#### 4. phase/state/debug index
+
+phase番号は `GaitParam::WbmsWalkingPreparationPhase` の値をそのまま `wbmsDebugOut[46]` へ出す。
+
+| phase | 意味 |
+|---:|---|
+| 0 | INACTIVE |
+| 1 | REQUESTED |
+| 2 | DECELERATING |
+| 3 | RETURNING |
+| 4 | HANDOFF |
+| 5 | READY |
+| 6 | WALKING_HOLD |
+| 7 | FAILED |
+
+`wbmsDebugOut[0-45]` は既存定義を維持する。Work Package Bで接続したindexは次の通り。
+
+| index | 意味 |
+|---:|---|
+| 46 | walking preparation phase |
+| 47 | preparation elapsed time |
+| 48 | return alpha |
+| 49 | handoff alpha |
+| 50 | held robot COM height in footMid |
+| 51 | current robot COM height in footMid |
+| 52 | CHEST error |
+| 53 | COM XY error |
+| 54 | COM Z hold error |
+| 55 | root error |
+| 56 | max joint delta |
+| 57 | pending command release event |
+| 58 | preparation failure code |
+| 59 | runtime `wbmsWalkingStabilityStartTime` |
+
+failure codeは `NONE=0`、`SNAPSHOT=1`、`TIMEOUT=2`、`NONFINITE=3`、`UNSAFE=4`、`CANCELLED=5` である。
+
+#### 5. held COM heightの定義
+
+`heldRobotComHeightInFootMid` は、歩行指令受付後、REQUESTEDを処理する最初の制御周期でsnapshotしたrobot COMの `footMidCoords` 基準Zである。
+
+取得元の優先順位は次の通り。
+
+1. `wbmsPostureReferenceValid` かつfiniteな `wbmsProjectedRobotCom`。
+2. finiteな `genRobot->centerOfMass()`。
+3. どちらも使えない場合はsnapshot失敗としてFAILED。
+
+この値は `wbmsStartComInFootMid.z` とは別物であり、WBMS開始時高さへ戻さない。寿命は歩行準備開始からWALKING_HOLD後のstatic復帰、cancel、FAILED、各clear経路までである。
+
+#### 6. COM X/YとZの扱い
+
+- COM X/Yは通常歩行側のnominal targetへ戻す。nominalは `LegCoordsGenerator::calcCOMCoords()` 直後、WBMS統合前の `genCog + sbpOffset` を保存して使う。
+- COM Zは `heldRobotComHeightInFootMid` で保持する。RETURNING targetでも、DECELERATING中の投影targetでも、`wbmsStartComInFootMid.z` へ戻さない。
+- `refdz`、`l.z`、`omega` は `RefToGenFrameConverter::convertFrame()` 直後に保持高さから再整合する。
+- `genCog.z`、`genCogVel.z`、`genCogAcc.z` は `LegCoordsGenerator::calcCOMCoords()` 後に速度/加速度limit付きで補正する。
+- static WBMSおよび歩行準備中のprojector/static COM-ZMP統合は維持するが、歩行中はstatic torso/COM XY projectorを無効化し、COM Z保持だけを独立して継続する。
+- `refZmpTraj` は既存segmentの時間構造を変えず、必要な場合だけstart/goalを平行移動する。空または総時間0の異常時だけ正時間fallbackを使う。
+
+更新順は `convertFrame()`、COM高さから `refdz/l.z/omega` 再整合、`calcCOMCoords()`、pre-WBMS nominal保存、`genCog.z/genCogVel.z/genCogAcc.z` 補正、WBMS projection/static統合、Stabilizer、final IK、final diagnostics、READY判定である。
+
+#### 7. 腕操作維持
+
+歩行準備中・歩行中も腕EE commandと `wbmsMode` はclearしない。
+
+腕操作維持のコード根拠は、上半身EEのtarget生成を継続する `refEEPose` / `abcEETargetPose` 経路と、`FullbodyIKSolver` の上半身EE拘束で `B_link() = torsoGenLink`、`B_localpos() = torsoRefLink->T().inverse() * gaitParam.abcEETargetPose[i]` を使うCHEST相対拘束である。足、安全、バランスを優先し、腕は投影variable外では従来referenceを使う。
+
+#### 8. 重要判断
+
+- 準備遷移開始条件は旧 `wbmsWalkingStabilityStartTime` ではなく、static WBMS activeに基づける。
+- pending commandは `WbmsWalkingCommandDelay` 内に保持し、GaitParamには共有phase、readiness、snapshot、debugに必要な状態だけを置く。
+- READY成立周期とpending release周期を分離する。
+- READY判定はfinal IK後diagnosticsで行う。
+- timeoutはreleaseより前に判定し、timeout超過後はreleaseしない。
+- 歩行準備中の再コマンドはpending commandだけを更新し、snapshot、held height、phase、elapsed timeを初期化しない。
+- HANDOFF alpha更新後に `wbmsOperationModeValue` を計算し、その周期のfinal IKへ実際に渡るWBMS重みとREADY判定を一致させる。
+- DECELERATING完了時に現在の投影CHEST姿勢/robot COMをRETURNING開始点へラッチし、受付時snapshotへtargetが巻き戻らないようにする。
+- 姿勢制御側FAILEDでも、同じ `onExecute()` 内でdelay側pending commandだけを破棄し、FAILED診断statusは残す。
+- 500 Hz経路に追加IK solve、clone/new、毎周期ancestor searchを追加しない。
+
+#### 9. 計画との差異
+
+- `wbms_walking_preparation_timeout` と `wbms_walking_preparation_settle_time` だけでなく、return/handoff時間とREADY閾値もIDLへ追加した。理由は調整単位をruntime parameterとして露出した方が、シミュレータ確認時に閾値緩和なしで挙動確認しやすいためである。
+- `WbmsWalkingCommandDelay::proc()` は `execAutoStabilizer()` より前に呼ばれるため、READY判定は `WbmsPostureControl` 側へ分け、releaseだけを次周期のdelay側で処理する構成にした。
+- FAILED時のpending破棄は、GaitParamのFAILED診断statusを残すため `clear()` ではなく `clearPendingCommand()` を追加して行う。
+- review対応により、DECELERATINGからRETURNINGへの復帰開始点は歩行指令受付時snapshotではなくDECELERATING完了時の現在投影状態へ更新する。保持COM高さそのものは変更しない。
+
+#### 10. build・静的確認
+
+| 確認 | 結果 | 備考 |
+|---|---|---|
+| `catkin build auto_stabilizer --no-deps --force-cmake` | PASS | IDL変更あり。OpenRTM helper由来のYAML warningのみ |
+| `git diff --check` | PASS | whitespace指摘なし |
+| rejected trial識別子残存確認 | PASS | `isProjectionReferenceAllowed` は残していない |
+| 5秒既定値変更残存確認 | PASS | rejected trial由来の既定値変更は残していない。既存WBMS mode遷移の5秒指定は別物 |
+| index 0-45不変 | PASS | 既存debug順序を維持 |
+| debug lengthと代入数 | PASS | `wbmsDebugOut` length 60、代入数60 |
+| READY/release周期分離 | PASS | READYはfinal IK後、releaseは次周期冒頭 |
+| state clear経路 | PASS | goStop、WBMS停止、ABC停止、sync init、activate/deactivate、FAILEDで処理 |
+| COM Zが `wbmsStartComInFootMid.z` へ戻らない | PASS | `heldRobotComHeightInFootMid` を使用 |
+| `refZmpTraj`総時間 | PASS | 既存時間構造を維持し、異常時のみ正時間fallback |
+| 腕CHEST相対拘束 | PASS | `B_link() = torsoGenLink` とCHEST相対 `B_localpos()` を確認 |
+
+#### 11. review指摘と処置
+
+| 順序 | 指摘要約 | 分類 | 処置 |
+|---|---|---|---|
+| 1 | 旧timer 0秒設定で準備遷移を迂回できる | 修正対象 | `shouldDelay()` をstatic WBMS active基準へ変更 |
+| 2 | READY判定がfinal IK前の古いdiagnosticsを見る | 修正対象 | READY評価をfinal IK後へ移動 |
+| 3 | READY後、timeout超過周期でもpending releaseできる | 修正対象 | release前にtimeoutを判定 |
+| 4 | nominal COM XY snapshotがWBMS統合済み `genCog` を使う | 修正対象 | `calcCOMCoords()` 直後のpre-WBMS nominalを保存して使用 |
+| 5 | 準備中に残留COM Z速度が投影targetへ混ざる | 修正対象 | 準備中の投影target Z速度を0にし、held heightへ固定 |
+| 6 | 準備中の再コマンドでsnapshot/timeout/phaseを初期化する | 修正対象 | pendingだけ更新し、phase/snapshot/elapsedを維持 |
+| 7 | handoff alpha更新前の重みでfinal IKし、更新後alphaでREADY判定できる | 修正対象 | alpha更新後に `wbmsOperationModeValue` を計算 |
+| 8 | DECELERATING後にRETURNING targetが受付時snapshotへ巻き戻る | 修正対象 | DECELERATING完了時の現在投影状態をRETURNING開始点へラッチ |
+| 9 | 姿勢制御側FAILEDでdelay側pendingが残る | 修正対象 | FAILED検出時に `clearPendingCommand()` を呼びhidden goalを破棄 |
+| 10 | 重点項目で追加修正必須の不具合なし | 対応不要 | 追加コード変更なし |
+
+#### 12. acceptanceごとの結果
+
+| acceptance | 結果 | 備考 |
+|---|---|---|
+| phase state machineが明示的 | PASS | 8 phaseをGaitParamに定義 |
+| pending commandをdelay内に保持 | PASS | GaitParamへpending内容を置かない |
+| 受付時にraw torso/COMをclearしappliedをlimit減速 | PASS | 腕EE commandと `wbmsMode` は維持 |
+| snapshot項目を取得 | PASS | CHEST、robot COM、held height、nominal COM、rootを取得 |
+| held COM height優先順位 | PASS | projected COM、genRobot COM、失敗時FAILED |
+| COM ZをWBMS開始時高さへ戻さない | PASS | held heightを使用 |
+| DECELERATINGでprojector/static統合維持 | PASS | walking stability modeはRETURNING以降 |
+| RETURNINGでCHEST/COM XYを滑らかに戻す | PASS | simulatorでの滑らかさは未確認 |
+| HANDOFFでtarget保持とweight消去を分離 | PASS | alpha更新後weightを使用 |
+| COM高さ保持経路 | PASS | `refdz/l.z/omega/genCog.z` を接続 |
+| READY条件 | PASS | final IK後diagnosticsで判定 |
+| READY周期とrelease周期分離 | PASS | 次周期冒頭release |
+| WALKING_HOLDでstatic torso/COM XY projector無効 | PASS | COM Z保持は継続 |
+| 歩行中torso角度/COM X/Y command無効 | PASS | optional M4.2.3は未実装 |
+| timeout/FAILEDで歩行を強行しない | PASS | pendingを破棄 |
+| state clear経路 | PASS | 指定経路にclearを追加 |
+| 腕操作維持 | PASS | CHEST相対EE拘束を維持 |
+| 許可条件の責務分離 | PASS | velocity、projection、static integration、height holdを分離 |
+| rejected trialの統合/除去 | PASS | 識別子と既定値変更を残していない |
+| 必要parameterだけIDL追加 | PASS | timeout、return/handoff、settle、READY閾値 |
+| 500 Hz対策 | PASS | 追加IK solveなし。buffer/constraintは既存初期化方針 |
+| M4.2 safe candidate採用条件維持 | PASS | 採用条件は緩和していない |
+| M4.2.1 ZMP修正維持 | PASS | 時間構造を維持 |
+| build成功 | PASS | `catkin build ... --force-cmake` 成功 |
+| 実ロボット相当の歩行開始安全性 | シミュレータ未確認 | ログと挙動確認が必要 |
+| COM高さ保持の実挙動 | シミュレータ未確認 | Z/refdz/l/omegaの連続性確認が必要 |
+| 腕同時操作中の歩行準備 | シミュレータ未確認 | CHEST相対拘束と足/安全優先の確認が必要 |
+| 500 Hz実時間性能 | シミュレータ未確認 | debug時間と周期落ち確認が必要 |
+
+#### 13. 未解決事項
+
+- シミュレータで歩行準備遷移を通したCOM高さ、CHEST姿勢、COM XY、root error、joint delta、release eventの時系列確認が未実施。
+- `wbmsDebugOut` のlogger/viewer設定は運用側で追加が必要。
+- projector invalidが継続する既存シミュレータ問題は、M4.1 status/metricsで切り分ける必要がある。
+- final IKのCHEST姿勢weight、COM weight、各READY閾値は保守的初期値であり、シミュレータ確認後に調整が必要。
+- self collision入力数が周期中に増えた場合の `resize()` / constraint生成はM2時点の許容範囲として残る。
+- `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/docs/WBMSTorsoArmIKDesignPlan.md`、`auto_stabilizer/docs/WBMSTorsoArmIKExperimentLog.md`、`auto_stabilizer/docs/WBMSWalkingControlSummary.md`、`auto_stabilizer/log/` は未追跡として存在する。不要に削除しない。
+
+#### 14. 次のWork Packageまたはsimulatorへの引き継ぎ
+
+- simulatorで `goVelocity`、`goPos`、`setFootSteps` それぞれについてREQUESTEDからWALKING_HOLDまでのphase遷移を確認する。
+- WBMS中にCOM Zをずらしてから歩行開始し、`heldRobotComHeightInFootMid`、`refdz`、`l.z`、`omega`、`genCog.z` が連続であることを確認する。
+- COM/torso速度指令が残った状態で歩行開始し、DECELERATINGからRETURNINGへ入る瞬間にtarget巻き戻りがないことを確認する。
+- timeout、NONFINITE、unsafe候補時にpending commandが破棄され、歩行が強行されないことを確認する。
+- 腕EE操作を継続したまま歩行準備・歩行開始し、CHEST相対拘束が維持され、足・安全・バランスが優先されることを確認する。
+- optional M4.2.3を行う場合は、歩行中COM Z速度操作だけを独立Work Packageとして扱い、COM X/Yと体幹角度操作は引き続き無効のままにする。
+
 結果はM3対象ファイルと進捗文書のみの変更である。
 
 ### `/review`で報告された重要な指摘と対応
@@ -1488,6 +1782,13 @@ Work Package A実装後に以下を確認した。
 
 ## 未解決事項
 
+- M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
+- M4.2.2 review対応として、歩行準備snapshotのnominal COM X/Yは `LegCoordsGenerator::calcCOMCoords()` 直後、WBMS統合前の `genCog + sbpOffset` から取得するよう修正した。保存値が無効な場合はsnapshot failureとし、WBMS統合済み `genCog` へfallbackしない。
+- M4.2.2 review対応として、歩行準備中の投影targetでは残留 `wbmsAppliedComVelocityCommand.z` を混ぜず、snapshot済みの `heldRobotComHeightInFootMid` へ固定するよう修正した。
+- M4.2.2 review対応として、歩行準備中の再コマンドではpending commandだけを更新し、phase、snapshot、保持COM高さ、timeout elapsedを初期化しないよう修正した。
+- M4.2.2 review対応として、HANDOFF alpha更新後に `wbmsOperationModeValue` を計算し、その周期の投影・final IKへ実際に渡るWBMS重みとREADY判定が一致するよう修正した。
+- M4.2.2 review対応として、DECELERATING完了時に現在の投影CHEST姿勢/robot COMをRETURNING開始点へラッチし、復帰targetが歩行指令受付時snapshotへ巻き戻らないよう修正した。
+- M4.2.2 review対応として、姿勢制御側でFAILEDになった場合も同じ `onExecute()` 内で `WbmsWalkingCommandDelay` のpending commandだけを破棄し、FAILED診断statusを残したままhidden goalを消すよう修正した。
 - `wbmsDebugOut` は新規OutPortであり、既存viewer互換は壊さない判断だが、利用側のlogger設定追加は別途必要。
 - `wbmsDebugOut[29]` はOutPort書き込み時間を含めるため、同一周期ではなく前回出力更新周期の確定値を公開する。
 - 時間計測は各周期の値を出すのみで、平均、最大、p99の集計は未実装。必要であればlogger側または後続実装で集計する。

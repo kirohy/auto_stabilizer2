@@ -83,6 +83,26 @@ module auto_stabilizer
       double wbms_walking_stability_start_time;
       /// WBMS中に歩行から静止へ戻ったとき、root姿勢を弱める補間時間[s]. 下限0.0[s]
       double wbms_walking_stability_stop_time;
+      /// WBMS歩行準備遷移のtimeout[s]. 下限0.0[s]
+      double wbms_walking_preparation_timeout;
+      /// WBMS歩行準備でCHEST/COM XYを歩行可能基準へ戻す時間[s]. 下限0.0[s]
+      double wbms_walking_preparation_return_time;
+      /// WBMS歩行準備でWBMS姿勢拘束を通常歩行側へ渡す時間[s]. 下限0.0[s]
+      double wbms_walking_preparation_handoff_time;
+      /// WBMS歩行準備READY条件の連続成立時間[s]. 下限0.0[s]
+      double wbms_walking_preparation_settle_time;
+      /// WBMS歩行準備READYの速度収束閾値[m/s or rad/s]. 下限0.0
+      double wbms_walking_preparation_velocity_eps;
+      /// WBMS歩行準備READYのCHEST姿勢誤差閾値[rad]. 下限0.0
+      double wbms_walking_preparation_chest_error_eps;
+      /// WBMS歩行準備READYのCOM XY誤差閾値[m]. 下限0.0
+      double wbms_walking_preparation_com_xy_error_eps;
+      /// WBMS歩行準備READYのCOM Z保持誤差閾値[m]. 下限0.0
+      double wbms_walking_preparation_com_z_error_eps;
+      /// WBMS歩行準備READYのroot姿勢誤差閾値[rad]. 下限0.0
+      double wbms_walking_preparation_root_error_eps;
+      /// WBMS歩行準備READYの一周期最大関節変化閾値[rad or m]. 下限0.0
+      double wbms_walking_preparation_max_joint_delta_eps;
       /// CHEST角速度指令のlimit[rad/s]. 要素はroll,pitch,yaw. 下限0.0
       sequence<double, 3> wbms_torso_angular_velocity_limit;
       /// WBMS開始時CHEST姿勢からの実現姿勢差分下限[rad]. 要素はroll,pitch,yaw
