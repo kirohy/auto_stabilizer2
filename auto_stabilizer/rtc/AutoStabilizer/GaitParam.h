@@ -243,6 +243,21 @@ public:
     double wbmsProjectorTime = 0.0; // [s]. WbmsPostureControl::procの計算時間
     double wbmsFinalIKTime = 0.0; // [s]. FullbodyIKSolver::solveFullbodyIKの計算時間
     double onExecuteTime = 0.0; // [s]. AutoStabilizer::onExecuteの計算時間
+    cnoid::Vector3 wbmsFinalIKRealizedComVelocity = cnoid::Vector3::Zero(); // [m/s]. final IK後robot COMの実現速度
+    cnoid::Vector3 wbmsFinalIKRealizedChestAngularVelocity = cnoid::Vector3::Zero(); // [rad/s]. final IK後CHEST姿勢の実現角速度
+    cnoid::Vector3 wbmsFinalIKPreviousRobotComInFootMid = cnoid::Vector3::Zero();
+    cnoid::Matrix3 wbmsFinalIKPreviousChestRInFootMid = cnoid::Matrix3::Identity();
+    std::vector<double> wbmsFinalIKPreviousJointQ;
+    bool wbmsFinalIKPreviousValid = false;
+    double wbmsFinalIKMaxJointDelta = 0.0; // [rad or m]. final IK後関節角の一周期最大変化量
+    bool wbmsWalkingPendingCommandReleaseEvent = false; // 現周期でlegacy delayのpending commandをreleaseした
+
+    void resetWbmsFinalIKDiagnostics(){
+      wbmsFinalIKRealizedComVelocity.setZero();
+      wbmsFinalIKRealizedChestAngularVelocity.setZero();
+      wbmsFinalIKMaxJointDelta = 0.0;
+      wbmsFinalIKPreviousValid = false;
+    }
   };
   DebugData debugData; // デバッグ用のOutPortから出力するためのデータ. AutoStabilizer内の制御処理では使われることは無い. そのため、モード遷移や初期化等の処理にはあまり注意を払わなくて良い
 
@@ -309,6 +324,8 @@ public:
     actRobotTqc->calcForwardKinematics(); actRobotTqc->calcCenterOfMass();
     genRobot = robot->clone();
     genRobot->calcForwardKinematics(); genRobot->calcCenterOfMass();
+    debugData.wbmsFinalIKPreviousJointQ.resize(robot->numJoints(), 0.0);
+    debugData.resetWbmsFinalIKDiagnostics();
   }
 
   void push_backEE(const std::string& name_, const std::string& parentLink_, const cnoid::Isometry3& localT_){
@@ -346,6 +363,7 @@ public:
     isWbmsWalkingStartDelay = false;
     wbmsWalkingStartDelayRemainTime = 0.0;
     resetWbmsPostureControl();
+    debugData.resetWbmsFinalIKDiagnostics();
   }
 
   // 毎周期呼ばれる. 内部の補間器をdtだけ進める

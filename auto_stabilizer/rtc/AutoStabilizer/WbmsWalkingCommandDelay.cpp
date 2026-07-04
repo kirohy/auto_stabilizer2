@@ -43,6 +43,7 @@ void WbmsWalkingCommandDelay::clear(GaitParam& gaitParam){
 }
 
 void WbmsWalkingCommandDelay::proc(GaitParam& gaitParam, double dt, CmdVelGenerator& cmdVelGenerator, FootStepGenerator& footStepGenerator){
+  gaitParam.debugData.wbmsWalkingPendingCommandReleaseEvent = false;
   if(!gaitParam.isWbmsWalkingStartDelay) return;
 
   bool wbmsActive = (gaitParam.wbmsMode.value() > 0.0 || gaitParam.wbmsMode.getGoal() > 0.0);
@@ -55,6 +56,7 @@ void WbmsWalkingCommandDelay::proc(GaitParam& gaitParam, double dt, CmdVelGenera
   cnoid::Vector3 goPos = this->goPos_;
   std::vector<FootStepGenerator::StepNode> footsteps = this->footsteps_;
   this->clear(gaitParam);
+  gaitParam.debugData.wbmsWalkingPendingCommandReleaseEvent = (command != Command::NONE);
 
   if(command == Command::GO_VELOCITY){
     cmdVelGenerator.refCmdVel = velocity;

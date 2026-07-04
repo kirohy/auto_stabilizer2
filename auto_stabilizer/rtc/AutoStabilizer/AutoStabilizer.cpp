@@ -10,6 +10,14 @@
 #include <limits>
 
 namespace {
+  bool isFiniteVector3(const cnoid::Vector3& value){
+    return std::isfinite(value[0]) && std::isfinite(value[1]) && std::isfinite(value[2]);
+  }
+
+  double finiteOrZero(double value){
+    return std::isfinite(value) ? value : 0.0;
+  }
+
   template<class Seq>
   bool readFiniteVector3(const Seq& seq, cnoid::Vector3& value){
     if(seq.length() != 3) return false;
@@ -43,6 +51,62 @@ namespace {
       upper[i] = std::max(lowerTmp[i], upperTmp[i]);
     }
     return true;
+  }
+
+  cnoid::Vector3 calcAngularVelocityFromRotDiff(const cnoid::Matrix3& currentR, const cnoid::Matrix3& previousR, double dt){
+    if(dt <= 0.0) return cnoid::Vector3::Zero();
+    cnoid::AngleAxis angleAxis(currentR * previousR.transpose());
+    if(!std::isfinite(angleAxis.angle()) || std::abs(angleAxis.angle()) < 1e-12) return cnoid::Vector3::Zero();
+    cnoid::Vector3 axis = angleAxis.axis();
+    if(!isFiniteVector3(axis)) return cnoid::Vector3::Zero();
+    return axis * angleAxis.angle() / dt;
+  }
+
+  void updateWbmsFinalIKDiagnostics(GaitParam& gaitParam, double dt){
+    gaitParam.debugData.wbmsFinalIKRealizedComVelocity.setZero();
+    gaitParam.debugData.wbmsFinalIKRealizedChestAngularVelocity.setZero();
+    gaitParam.debugData.wbmsFinalIKMaxJointDelta = 0.0;
+    if(!gaitParam.genRobot || dt <= 0.0){
+      gaitParam.debugData.wbmsFinalIKPreviousValid = false;
+      return;
+    }
+
+    gaitParam.genRobot->calcForwardKinematics();
+    gaitParam.genRobot->calcCenterOfMass();
+
+    cnoid::LinkPtr chestLink = gaitParam.genRobot->link(gaitParam.chestLinkName);
+    const cnoid::Isometry3 footMid = gaitParam.footMidCoords.value();
+    cnoid::Vector3 currentRobotComInFootMid = footMid.inverse() * gaitParam.genRobot->centerOfMass();
+    cnoid::Matrix3 currentChestR = cnoid::Matrix3::Identity();
+    if(chestLink) currentChestR = chestLink->R();
+    cnoid::Matrix3 currentChestRInFootMid = footMid.linear().transpose() * currentChestR;
+    bool currentValid = isFiniteVector3(currentRobotComInFootMid) && chestLink;
+    if(gaitParam.debugData.wbmsFinalIKPreviousJointQ.size() != gaitParam.genRobot->numJoints()){
+      gaitParam.debugData.wbmsFinalIKPreviousJointQ.resize(gaitParam.genRobot->numJoints(), 0.0);
+      gaitParam.debugData.wbmsFinalIKPreviousValid = false;
+    }
+
+    if(currentValid && gaitParam.debugData.wbmsFinalIKPreviousValid){
+      gaitParam.debugData.wbmsFinalIKRealizedComVelocity =
+        (currentRobotComInFootMid - gaitParam.debugData.wbmsFinalIKPreviousRobotComInFootMid) / dt;
+      gaitParam.debugData.wbmsFinalIKRealizedChestAngularVelocity =
+        calcAngularVelocityFromRotDiff(currentChestRInFootMid, gaitParam.debugData.wbmsFinalIKPreviousChestRInFootMid, dt);
+      for(size_t i=0;i<gaitParam.debugData.wbmsFinalIKPreviousJointQ.size();i++){
+        double jointDelta = std::abs(gaitParam.genRobot->joint(i)->q() - gaitParam.debugData.wbmsFinalIKPreviousJointQ[i]);
+        if(std::isfinite(jointDelta)) gaitParam.debugData.wbmsFinalIKMaxJointDelta = std::max(gaitParam.debugData.wbmsFinalIKMaxJointDelta, jointDelta);
+      }
+    }
+
+    if(currentValid){
+      gaitParam.debugData.wbmsFinalIKPreviousRobotComInFootMid = currentRobotComInFootMid;
+      gaitParam.debugData.wbmsFinalIKPreviousChestRInFootMid = currentChestRInFootMid;
+      for(size_t i=0;i<gaitParam.debugData.wbmsFinalIKPreviousJointQ.size();i++){
+        gaitParam.debugData.wbmsFinalIKPreviousJointQ[i] = gaitParam.genRobot->joint(i)->q();
+      }
+      gaitParam.debugData.wbmsFinalIKPreviousValid = true;
+    }else{
+      gaitParam.debugData.wbmsFinalIKPreviousValid = false;
+    }
   }
 }
 
@@ -703,6 +767,7 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
   // FullbodyIKSolver
   fullbodyIKSolver.solveFullbodyIK(dt, gaitParam,// input
                                    gaitParam.genRobot); // output
+  updateWbmsFinalIKDiagnostics(gaitParam, dt);
 
   return true;
 }
@@ -1041,14 +1106,26 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
     {
       cnoid::Vector3 wbmsComOffset = cnoid::Vector3::Zero();
       cnoid::Vector3 wbmsChestRpyOffset = cnoid::Vector3::Zero();
+      double currentRobotComHeightInFootMid = 0.0;
+      double chestOrientationError = 0.0;
+      double rootOrientationError = 0.0;
       if(gaitParam.wbmsPostureBaselineValid){
         const cnoid::Isometry3 footMid = gaitParam.footMidCoords.value();
         wbmsComOffset = footMid.inverse() * gaitParam.wbmsProjectedRobotCom - gaitParam.wbmsStartComInFootMid;
         cnoid::Matrix3 projectedChestRInFootMid = footMid.linear().transpose() * gaitParam.wbmsProjectedChestR;
         wbmsChestRpyOffset = cnoid::rpyFromRot(projectedChestRInFootMid * gaitParam.wbmsStartChestRInFootMid.transpose());
+        cnoid::LinkPtr chestLink = gaitParam.genRobot->link(gaitParam.chestLinkName);
+        if(chestLink){
+          cnoid::Matrix3 chestRInFootMid = footMid.linear().transpose() * chestLink->R();
+          chestOrientationError = cnoid::AngleAxis(chestRInFootMid * gaitParam.wbmsStartChestRInFootMid.transpose()).angle();
+        }
+      }
+      if(gaitParam.genRobot){
+        currentRobotComHeightInFootMid = (gaitParam.footMidCoords.value().inverse() * gaitParam.genRobot->centerOfMass())[2];
+        rootOrientationError = cnoid::AngleAxis(gaitParam.genRobot->rootLink()->R() * gaitParam.stTargetRootPose.linear().transpose()).angle();
       }
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(40);
+      ports.m_wbmsDebug_.data.length(60);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1074,6 +1151,22 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMinJointLimitMargin;
       ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMaxFootPositionError;
       ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionMaxFootRotationError;
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKRealizedComVelocity[i]);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKRealizedChestAngularVelocity[i]);
+      ports.m_wbmsDebug_.data[index++] = gaitParam.isWbmsWalkingStartDelay ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.isWbmsWalkingStartDelay ? finiteOrZero(std::max(0.0, gaitParam.wbmsWalkingStabilityStartTime - gaitParam.wbmsWalkingStartDelayRemainTime)) : 0.0;
+      ports.m_wbmsDebug_.data[index++] = 0.0; // return alphaはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = 0.0; // handoff alphaはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = 0.0; // held COM heightはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(currentRobotComHeightInFootMid);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(chestOrientationError);
+      ports.m_wbmsDebug_.data[index++] = 0.0; // COM XY errorはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = 0.0; // COM Z hold errorはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(rootOrientationError);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKMaxJointDelta);
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPendingCommandReleaseEvent ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = 0.0; // timeout/failure codeはM4.2.2本体用予約値
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingStabilityStartTime);
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){
@@ -1096,6 +1189,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
 
   if(!AutoStabilizer::readInPortData(this->dt_, this->gaitParam_, this->mode_, this->ports_, this->gaitParam_.refRobotRaw, this->gaitParam_.actRobotRaw, this->gaitParam_.refEEWrenchOrigin, this->gaitParam_.refEEPoseRaw, this->gaitParam_.selfCollision, this->gaitParam_.steppableRegion, this->gaitParam_.steppableHeight, this->gaitParam_.relLandingHeight, this->gaitParam_.relLandingNormal)) {
     this->wbmsPostureControl_.updateVelocityCommand(this->gaitParam_, this->dt_, this->mode_.isABCRunning());
+    this->gaitParam_.debugData.resetWbmsFinalIKDiagnostics();
     return RTC::RTC_OK;  // qRef が届かなければ出力更新は行わないが、速度指令のtimeoutは進める
   }
 
@@ -1117,6 +1211,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
       this->wbmsPostureControl_.reset();
       this->wbmsPostureControl_.clearStaleCommand(this->gaitParam_, true);
       this->wbmsWalkingCommandDelay_.clear(this->gaitParam_);
+      this->gaitParam_.debugData.resetWbmsFinalIKDiagnostics();
     }
     this->wbmsWalkingCommandDelay_.proc(this->gaitParam_, this->dt_, this->cmdVelGenerator_, this->footStepGenerator_);
     AutoStabilizer::execAutoStabilizer(this->mode_, this->gaitParam_, this->dt_, this->footStepGenerator_, this->legCoordsGenerator_, this->refToGenFrameConverter_, this->actToGenFrameConverter_, this->impedanceController_, this->stabilizer_,this->externalForceHandler_, this->fullbodyIKSolver_, this->wbmsPostureControl_, this->legManualController_, this->cmdVelGenerator_);
@@ -1135,6 +1230,7 @@ RTC::ReturnCode_t AutoStabilizer::onActivated(RTC::UniqueId ec_id){
   this->idleToAbcTransitionInterpolator_.reset(0.0);
   this->wbmsPostureControl_.reset();
   this->wbmsPostureControl_.clearStaleCommand(this->gaitParam_, true);
+  this->gaitParam_.debugData.resetWbmsFinalIKDiagnostics();
   return RTC::RTC_OK;
 }
 RTC::ReturnCode_t AutoStabilizer::onDeactivated(RTC::UniqueId ec_id){
@@ -1142,6 +1238,7 @@ RTC::ReturnCode_t AutoStabilizer::onDeactivated(RTC::UniqueId ec_id){
   std::cerr << "[" << m_profile.instance_name << "] "<< "onDeactivated(" << ec_id << ")" << std::endl;
   this->wbmsPostureControl_.reset();
   this->wbmsPostureControl_.clearStaleCommand(this->gaitParam_, true);
+  this->gaitParam_.debugData.resetWbmsFinalIKDiagnostics();
   return RTC::RTC_OK;
 }
 RTC::ReturnCode_t AutoStabilizer::onFinalize(){ return RTC::RTC_OK; }

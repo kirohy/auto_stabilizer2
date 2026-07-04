@@ -1307,6 +1307,168 @@ M4.2.1に対する `/review` は未実施。
   - `onExecute()` の `wbmsWalkingCommandDelay_.proc()` と `execAutoStabilizer()` の呼び順。
   - `wbmsDebugOut` index 24-26、30-39。
 
+## M4.2.2 Work Package A 遷移診断記録
+
+### 実装範囲
+
+Work Package Aでは、制御挙動を変更せず、歩行準備遷移を診断するためのdebug出力だけを追加した。
+
+- `wbmsDebugOut` を40要素から60要素へ拡張した。
+- 既存index 0-39の順序と意味を維持した。
+- index 40-45へ、projector出力ではなくfinal IK後の実現COM速度とCHEST角速度を追加した。
+- index 46以降へ、現行delay状態、経過時間、予約値、現在COM高さ、姿勢誤差、最大関節差分、pending command release event、failure予約値、実行時 `wbmsWalkingStabilityStartTime` を追加した。
+- qRef欠落、RTC activate/deactivate、`MODE_SYNC_TO_ABC` 初期化、`GaitParam::reset()` でfinal IK診断の前回値を無効化し、非連続サンプル間の差分を通常dtで割らないようにした。
+- 500 Hz経路でdebug用の大きな毎周期allocationを追加しないよう、前回関節角bufferは初期化時に確保し、毎周期は既存vectorの要素更新に限定した。
+
+### 対象外
+
+承認済み計画のWork Package Aに従い、以下は実装していない。
+
+- M4.2.2必須遷移本体のphase state machine。
+- COM高さsnapshot、保持、RETURNING、HANDOFF。
+- readiness判定、timeoutによる歩行抑止、READY次周期release。
+- 歩行開始タイミング、制御weight、target、projector許可条件の変更。
+- rejected trialである `isProjectionReferenceAllowed()` 追加と `wbmsWalkingStabilityStartTime` 既定値延長の採用。
+- optional M4.2.3。
+- dependency solver変更、task scaling、validation閾値変更。
+- 新規テストコード追加。
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp` | final IK後診断の計算、debug index 40-59の出力、非連続サンプル時の診断reset呼び出しを追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h` | final IK後診断値、前回値、最大関節差分、pending release event、reset helperを追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsWalkingCommandDelay.cpp` | pending command release eventをdebug用に1周期だけ立てる処理を追加 |
+| `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md` | 本記録を追記 |
+
+### phase/state/debug index
+
+#### 既存index
+
+`wbmsDebugOut[0-39]` は既存M3/M4.1定義を維持する。順序変更、意味変更、削除は行っていない。
+
+#### Work Package Aで確定したindex
+
+| index | 意味 | 単位・値 |
+|---|---|---|
+| 40 | final IK後robot COM realized velocity X | foot-mid座標、m/s |
+| 41 | final IK後robot COM realized velocity Y | foot-mid座標、m/s |
+| 42 | final IK後robot COM realized velocity Z | foot-mid座標、m/s |
+| 43 | final IK後CHEST realized angular velocity roll軸相当 | foot-mid軸、rad/s |
+| 44 | final IK後CHEST realized angular velocity pitch軸相当 | foot-mid軸、rad/s |
+| 45 | final IK後CHEST realized angular velocity yaw軸相当 | foot-mid軸、rad/s |
+| 46 | 現行phase相当のdelay状態 | `isWbmsWalkingStartDelay ? 1 : 0` |
+| 47 | delay経過時間 | delay中は `startTime - remainTime`、非delay時0、s |
+| 48 | return alpha予約値 | 0 |
+| 49 | handoff alpha予約値 | 0 |
+| 50 | held COM height予約値 | 0 |
+| 51 | current robot COM height | foot-mid座標Z、m |
+| 52 | CHEST基準姿勢error | WBMS開始時baselineからの角度誤差、rad |
+| 53 | COM XY error予約値 | 0 |
+| 54 | COM Z hold error予約値 | 0 |
+| 55 | root姿勢error | `genRobot` rootと `stTargetRootPose` の角度誤差、rad |
+| 56 | max joint delta per cycle | final IK後、前回診断サンプルとの差分最大値 |
+| 57 | pending command release event | 現周期でlegacy delay pending commandをreleaseしたら1 |
+| 58 | timeout/failure code予約値 | 0 |
+| 59 | runtime `wbmsWalkingStabilityStartTime` | s |
+
+### held COM heightの定義
+
+Work Package AではCOM高さ保持本体を実装しないため、`held COM height` は予約値として `0.0` を出力する。
+
+後続Work Package Bで意味を持つ場合は、歩行準備phaseでsnapshotしたrobot COMのfoot-mid座標Zを `heldRobotComHeightInFootMid` 相当として扱う想定である。ただし本記録時点ではsnapshot stateは未実装であり、`0.0` は「保持高さ0m」ではなく「未接続のfinite neutral値」である。
+
+### COM X/YとZの扱い
+
+- index 40-42のfinal IK後COM realized velocityは、final IK後の `genRobot->centerOfMass()` をfoot-mid座標へ変換し、前回診断サンプルとの差分を実経過サンプルとしてdtで割る。
+- index 51のcurrent robot COM heightは、final IK後のrobot COMをfoot-mid座標へ変換したZである。
+- index 53のCOM XY errorは、Work Package AではXY readinessやreturn/handoffを実装しないため予約値 `0.0` とする。
+- index 54のCOM Z hold errorは、COM高さ保持が未実装のため予約値 `0.0` とする。
+- COM XYとZの制御target、許可条件、統合経路は変更していない。
+
+### 腕操作維持
+
+Work Package Aでは腕操作経路を変更していない。投影IK variable外の腕関節は従来referenceを使い、上半身EEのCHEST相対拘束を維持する既存方針をそのまま残している。
+
+歩行準備中に体幹/COM操縦をどう抜くか、腕操作をどう維持するかの本体制御はWork Package B以降の対象であり、本Packageではdebug上の観測点追加に限定した。
+
+### 重要判断
+
+- 40-45はprojectorの `wbmsRealized*` ではなく、final IK後の `genRobot` から計算する。
+- 40-45の座標系は、既存raw/applied/projector realized velocityと比較できるようfoot-mid座標/軸に揃える。
+- 診断が呼ばれない周期を挟んだ場合は前回値を無効化し、古い姿勢との差分を通常dtで割らない。
+- M4.2.2本体前で意味を持たないdebug値は、NaNではなくfiniteなneutral値として `0.0` を出す。
+- `wbmsWalkingStabilityStartTime` の既定値は2.0秒のまま維持する。
+- `isProjectionReferenceAllowed()` 追加による歩行開始遅延中projector許可は採用しない。
+- untrackedのrejected trial patchは誤適用を避けるため、repository外の `/tmp/auto_stabilizer2_rejected_trials/M4-2-2.patch` へ退避した。
+
+### 計画との差異
+
+- Work Package Aは計画通り診断追加だけを実装した。
+- 計画でWork Package Bへ割り当てられたphase state machine、COM高さ保持、readiness、timeout/failure code本体は実装していない。
+- index 40-45は計画上はM4.3予約だったが、Work Package Aの明示範囲として先に実装した。
+- index 46は正式phase enumではなく、現行delay状態の診断値として `0/1` を出す。正式phase番号はWork Package Bで確定する。
+- index 48-50、53-54、58は、後続実装用の予約値としてfinite neutral値を出す。
+
+### build・静的確認
+
+Work Package A実装後に以下を確認した。
+
+| 確認 | 結果 | 備考 |
+|---|---|---|
+| `catkin build auto_stabilizer --no-deps` | PASS | ビルド成功 |
+| `git diff --check` | PASS | whitespace指摘なし |
+| `wbmsDebugOut` lengthと代入数 | PASS | length 60、代入数60 |
+| index 0-39不変 | PASS | 既存代入順の差分なし |
+| 40-45の取得元 | PASS | projector出力ではなくfinal IK後の `genRobot` / `chestLink` |
+| 40-45の座標系 | PASS | foot-mid座標/軸へ変換後に出力 |
+| rejected trialの実コード混入 | PASS | 許可条件と既定待ち時間は既存挙動に復帰 |
+
+### review指摘と処置
+
+| 順序 | 指摘要約 | 分類 | 処置 |
+|---|---|---|---|
+| 1 | 歩行開始遅延中のprojector許可変更と既定待ち時間延長が混入している | 修正対象 | `solveProjection()` の許可条件を既存 `isOperationAllowed()` に戻し、`wbmsWalkingStabilityStartTime` 既定値を2.0秒へ戻した |
+| 2 | final IK診断が非連続サンプル間を通常dtで差分して速度スパイクを出す | 修正対象 | 診断前回値reset helperを追加し、qRef欠落、reset、activate/deactivate、`MODE_SYNC_TO_ABC` で無効化した |
+| 3 | final IK後実現速度が既存debugと座標系不一致 | 修正対象 | COM速度とCHEST角速度をfoot-mid座標/軸へ変換して出力するよう修正した |
+| 4 | rejected trial patchが未追跡で残り、誤コミット/誤適用リスクがある | 修正対象 | repository外の `/tmp/auto_stabilizer2_rejected_trials/M4-2-2.patch` へ退避した |
+| 5 | 重点項目で修正必須不具合なし | 対応不要 | 追加修正なし。index、length、40-45、build成功は確認済み |
+
+### acceptanceごとの結果
+
+| acceptance | 結果 | 備考 |
+|---|---|---|
+| build成功 | PASS | `catkin build auto_stabilizer --no-deps` 成功 |
+| index 0-39不変 | PASS | 既存debug順序と意味を維持 |
+| 40-45がfinal IK後実現量 | PASS | final IK後の `genRobot` とCHEST姿勢から計算 |
+| 40-45がprojector値と混同されない | PASS | `wbmsRealized*` ではなく別debug stateへ保存 |
+| transition debugがfinite | PASS | 未接続値は `0.0`、runtime値はfinite化 |
+| 制御挙動に意図的変更なし | PASS | weight、target、許可条件、歩行開始タイミングは変更なし |
+| 後続M4.2.2本体が混入していない | PASS | phase本体、COM高さ保持、readiness、timeout抑止は未実装 |
+| optional M4.2.3が混入していない | PASS | optional機能は未実装 |
+| 500 Hz周期に不要な大きなallocationを追加しない | PASS | 前回関節角bufferは初期化時確保 |
+| simulator上でindex 40-59が期待通り記録される | シミュレータ未確認 | logger/viewer設定と実機相当ログ確認が必要 |
+| 歩行遷移時の跳ねが解消する | シミュレータ未確認 | Work Package Aは診断のみであり、挙動改善は対象外 |
+
+### 未解決事項
+
+- Work Package Bのphase state machine、COM高さsnapshot/保持、RETURNING/HANDOFF、readiness、timeout/failure codeは未実装。
+- index 48-50、53-54、58は予約値のままである。
+- index 46は正式phase enumではなく現行delay状態である。
+- simulator上で `wbmsDebugOut` 60要素がlogger/viewerに記録されるか未確認。
+- 体幹を傾けた状態からの `goPos` / `goVelocity` で跳ねる問題は未解決であり、Work Package Aでは改善対象にしていない。
+- rejected trial patchはrepository外へ退避済みだが、必要なら `/tmp/auto_stabilizer2_rejected_trials/M4-2-2.patch` から内容確認できる。
+
+### 次のWork Packageまたはsimulatorへの引き継ぎ
+
+- simulatorで `wbmsDebugOut[40-59]` を記録し、歩行開始遷移の不連続点を確認する。
+- Work Package Bに進む前に、index 46を正式phase enumへ置き換えるmappingを確定する。
+- held COM heightは、後続で歩行準備phaseのsnapshot値としてfoot-mid座標Zを保持する。
+- COM XY errorとCOM Z hold errorは、後続のreadiness/height hold実装時に意味を接続する。
+- timeout/failure codeは、後続のphase timeoutとfailure分類実装時に接続する。
+- 腕操作維持は、既存CHEST相対拘束を壊さずに、体幹/COM遷移制御と分離して確認する。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
