@@ -30,6 +30,37 @@ M4.2でsafe candidateを採用できるようになり、M4.2.1でstatic WBMS中
 
 `isProjectionReferenceAllowed()`追加と`wbmsWalkingStabilityStartTime`延長だけでは、上記を満たさないため、最終解とはしない。
 
+### 2.1 実装前調査で確定した現行呼び順
+
+M4.2.2実装前に確認した現行コードの重要な呼び順は次の通りである。後続実装ではこの順序を前提に、必要な挿入点を明示して変更する。
+
+1. service APIの`goPos()`、`goVelocity()`、`setFootStepsWithParam()`で入力検証を行う。
+2. static WBMSかつ遅延条件成立時は`WbmsWalkingCommandDelay::store*()`へpending commandを保存する。
+3. `WbmsWalkingCommandDelay::startDelay()`が`isWbmsWalkingStartDelay=true`、`wbmsWalkingStartDelayRemainTime=wbmsWalkingStabilityStartTime`を設定し、体幹／COM速度指令をclearする。
+4. `onExecute()`では`readInPortData()`、mode/gaitParam更新の後、ABC中なら`WbmsWalkingCommandDelay::proc()`を`execAutoStabilizer()`より前に呼ぶ。
+5. `execAutoStabilizer()`では`RefToGenFrameConverter::convertFrame()`が毎周期`refdz`をrefRobotRawのfootMid基準COM高さから再計算する。
+6. その後、`ExternalForceHandler`、`LegCoordsGenerator::calcLegCoords()`、`LegCoordsGenerator::calcCOMCoords()`が通常の`refZmpTraj`、`genCoords`、nominal `genCog/genCogVel/genCogAcc`を作る。
+7. `WbmsPostureControl::proc()`はStabilizer前に呼ばれ、`wbmsWalkingStabilityModeValue`と`wbmsOperationModeValue`を更新し、投影とstatic COM/ZMP統合を行う。
+8. `Stabilizer::execStabilizer()`は`stTargetRootPose`を`refRobot->rootLink()`と`stOffsetRootRpy`から生成する。
+9. `FullbodyIKSolver::solveFullbodyIK()`は足、COM、CHEST、root、reference q、腕EE拘束を同じ最終IKで扱う。
+
+現行の不連続は、pending commandのreleaseが固定時間だけで決まり、release周期の冒頭でfootstep列が変わり、その同じ周期でnominal ZMP/COMとIK weightが切り替わることで発生する。`refdz`はframe変換で毎周期上書きされるため、COM高さ保持を`applyStaticComZmpIntegration()`の内部だけに実装しても、歩行中の高さ保持としては不十分である。
+
+### 2.2 rejected trialを採用しない理由
+
+作業ツリーや`M4-2-2.patch`に、次のtrial差分が存在する場合がある。
+
+- `isProjectionReferenceAllowed()`を追加し、`solveProjection()`だけ遅延中に許可する。
+- `wbmsWalkingStabilityStartTime`既定値を`2.0`から`5.0`へ延長する。
+
+これは最終解として採用しない。理由は次の通りである。
+
+- `applyStaticComZmpIntegration()`と`updateVelocityCommand()`は依然として`isOperationAllowed()`依存であり、delay中のCOM/ZMP統合、速度減速、明示的RETURNINGを扱えない。
+- 固定時間延長はCHEST誤差、COM XY/Z誤差、safe candidate、root誤差、settleを確認しない。
+- COM Z保持対象が「歩行指令受付時のfootMid基準COM高さ」になっておらず、歩行開始後に保持する独立経路もない。
+- READY成立周期とpending command投入周期が分離されない。
+- M4.2.1のZMP軌道時間構造維持やM4.2のsafe candidate採用条件を壊さないための責務分離が不足している。
+
 ---
 
 ## 3. 要件
@@ -88,6 +119,8 @@ heldRobotComHeightInFootMid
 2. `genRobot->centerOfMass()`
 3. いずれも利用不能なら準備開始失敗
 
+snapshotはservice API呼び出し直後ではなく、次の`onExecute()`冒頭で`WbmsWalkingCommandDelay::proc()`が`REQUESTED`を処理する時点で行う。service API内では`footMidCoords`、`genRobot`、`wbmsProjectedRobotCom`が同一制御周期の確定値とは限らないためである。
+
 この値は`wbmsStartComInFootMid.z`とは別物である。歩行準備中にWBMS開始時高さへ補間してはならない。
 
 ### 4.2 通常歩行用COM X/Y
@@ -97,10 +130,14 @@ heldRobotComHeightInFootMid
 - X/Y: nominal static walking targetへ滑らかに戻す。
 - Z: `heldRobotComHeightInFootMid`を維持する。
 
+実装ではrobot COMと`genCog`を混同しないこと。`FullbodyIKSolver`のCOM targetは`genCog + sbpOffset`であるため、footMid基準で作ったrobot COM targetをgenerate frameへ戻した後、`targetGenCog = targetRobotComWorld - sbpOffset`として`genCog`へ反映する。
+
 ### 4.3 体幹基準姿勢
 
 体幹の復帰先は既存の`wbmsStartChestRInFootMid`とする。  
 root姿勢や全関節角をWBMS開始時値へ直接戻す方式は採用しない。
+
+上半身EE拘束は`wbmsMode`が有効である間、`FullbodyIKSolver`で`B_link() = torsoGenLink`、`B_localpos() = torsoRefLink->T().inverse() * abcEETargetPose[i]`としてCHEST相対になる。したがって歩行開始時に`wbmsMode`を停止してはならない。
 
 ---
 
@@ -190,6 +227,8 @@ RETURNINGのtargetを保持した状態で、制御権限を滑らかに通常�
 
 READYになった周期ではpending commandを投入しない。次の`onExecute()`冒頭で投入する。
 
+実装上は、READY成立周期では`releaseRequested`相当の1周期遅延フラグだけを立てる。`WbmsWalkingCommandDelay::proc()`は`execAutoStabilizer()`より前に呼ばれるため、次周期冒頭でこのフラグを見てpending commandを投入すれば、READY判定とfootstep列変更を別周期に分離できる。
+
 ### 5.7 WALKING_HOLD
 
 footstep列投入後。
@@ -211,6 +250,8 @@ footstep列投入後。
 
 FAILEDでは歩行指令を強行しない。診断statusを残し、static状態を維持する。
 
+`goStop()`、`stopWholeBodyMasterSlave()`、`stopAutoBalancer()`、`MODE_SYNC_TO_ABC`初期化、`onActivated()`、`onDeactivated()`では、pending command、phase、release要求、保持COM高さをclearする。現行`stopWholeBodyMasterSlave()`はpending delayをclearしないため、M4.2.2で追加が必要である。
+
 ---
 
 ## 6. 制御許可条件の分離
@@ -225,6 +266,13 @@ isPostureProjectionAllowed()
 isStaticComZmpIntegrationAllowed()
 isWalkingComHeightHoldAllowed()
 ```
+
+各許可条件は次の責務だけを持つ。単一の`isOperationAllowed()`を流用して、速度指令、projector、COM/ZMP統合、歩行中高さ保持をまとめて停止してはならない。
+
+- `isVelocityCommandAllowed()`: static WBMS中のみ外部の体幹／COM速度指令を受理する。準備中と歩行中はraw指令をゼロ扱いし、applied commandは加速度limitでゼロへ戻す。
+- `isPostureProjectionAllowed()`: static WBMSと歩行準備中のtask-space RETURNINGに使う。歩行中の体幹姿勢操作とCOM XY操作には使わない。
+- `isStaticComZmpIntegrationAllowed()`: static WBMSと歩行準備中だけ、投影COMを`genCog/refZmpTraj`へ接続する。
+- `isWalkingComHeightHoldAllowed()`: 歩行準備中、READY後、歩行中にCOM Z保持だけを独立して許可する。projector valid flagや`wbmsOperationModeValue`だけに依存させない。
 
 推奨表:
 
@@ -265,6 +313,20 @@ XYは通常歩行生成・ZMP制御へ任せる。
 - M4.2.1の`refZmpTraj`時間構造を維持する。
 - 歩行中のZMP X/YへWBMS offsetを強制しない。
 
+### 7.3 実装順序
+
+COM高さ保持の更新順は次を標準とする。
+
+1. `RefToGenFrameConverter::convertFrame()`は従来通り`refdz`と`footMidCoords`を更新する。
+2. M4.2.2の高さ保持が有効なら、直後に`heldRobotComHeightInFootMid`から`refdz`、`l.z`、`omega`を再整合する。
+3. `ExternalForceHandler`と`LegCoordsGenerator::calcCOMCoords()`は、再整合済みの`refdz/l/omega`を使う。
+4. `LegCoordsGenerator::calcCOMCoords()`がnominal `genCog`を生成した後、COM Z保持が有効なら`genCog.z`、`genCogVel.z`、`genCogAcc.z`を速度・加速度limit付きで補正する。
+5. `WbmsPostureControl::applyStaticComZmpIntegration()`はstatic WBMSまたは歩行準備中だけXYを含むWBMS投影統合を行い、歩行中はZ保持経路へ責務を渡す。
+
+`refdz = max(heldRobotComHeightInFootMid, 0.1)`、`l.z = refdz`を同一周期で更新する。`omega`は`effectiveGravity = oldOmega * oldOmega * max(oldRefdz, 0.1)`を用いて`omega = sqrt(effectiveGravity / max(refdz, 0.1))`とし、既存の有効重力方針を維持する。
+
+`refZmpTraj`を補正する場合は、M4.2.1と同じく既存segmentの時間を変えず、start/goalだけを必要最小限に平行移動する。歩行中のCOM Z保持ではZMP X/YへWBMS offsetを加えない。
+
 ---
 
 ## 8. 腕操作
@@ -288,6 +350,8 @@ XYは通常歩行生成・ZMP制御へ任せる。
 ### Work Package A: 遷移診断
 
 目的: 挙動を変えず、遷移不連続を測定可能にする。
+
+変更対象は原則として`GaitParam.h`、`AutoStabilizer.cpp`、必要最小限の`FullbodyIKSolver.cpp`とする。制御挙動、weight、許可条件、pending release時刻は変更しない。
 
 実装候補:
 
@@ -322,6 +386,8 @@ XYは通常歩行生成・ZMP制御へ任せる。
 
 目的: 本書3.1をすべて実装する。
 
+実装対象は`GaitParam.h`、`WbmsWalkingCommandDelay.h/.cpp`、`WbmsPostureControl.h/.cpp`、`AutoStabilizer.cpp`を中心とする。`FullbodyIKSolver.cpp`は腕CHEST相対拘束の維持確認と、必要なweight接続に限定する。dependency solver、task scaling、新規テストコードは追加しない。
+
 含むもの:
 
 - phase state machine
@@ -338,6 +404,16 @@ XYは通常歩行生成・ZMP制御へ任せる。
 - reset/cancel処理
 - IDL parameterが必要なら追加
 - debug更新
+
+関数単位の実装手順:
+
+1. `WbmsWalkingCommandDelay::store*()`はpending保存だけを行い、phaseを`REQUESTED`へ設定する。
+2. `WbmsWalkingCommandDelay::proc()`は`REQUESTED`のsnapshot、phase遷移、timeout、READY次周期release、clearを担当する。
+3. `WbmsPostureControl::updateVelocityCommand()`は新しい`isVelocityCommandAllowed()`を使い、準備中と歩行中はdesired commandをゼロにする。
+4. `WbmsPostureControl::solveProjection()`は新しい`isPostureProjectionAllowed()`を使い、RETURNING/HANDOFF中のCHEST/COM task-space targetを扱う。
+5. `WbmsPostureControl::applyStaticComZmpIntegration()`は新しい`isStaticComZmpIntegrationAllowed()`を使い、歩行中の高さ保持とは分離する。
+6. `AutoStabilizer::execAutoStabilizer()`内では、`convertFrame()`直後と`calcCOMCoords()`直後にCOM高さ保持処理を挿入する。
+7. `goStop()`、`stopWholeBodyMasterSlave()`、`stopAutoBalancer()`、sync初期化、activation/deactivationでphaseとpendingをclearする。
 
 含まないもの:
 
@@ -403,6 +479,8 @@ M4.2.2がPASSするまで開始しない。
 - `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md`
 
 変更前に実際の呼び順と責務を確認し、不要なファイルは変更しない。
+
+IDL変更は必須ではない。Work Package AではIDL変更しない。Work Package Bでは`wbms_walking_preparation_timeout`と`wbms_walking_preparation_settle_time`が外部調整に必要な場合だけ追加する。IDLを変更した場合、初回buildは`catkin build auto_stabilizer --no-deps --force-cmake`とする。
 
 ---
 
@@ -473,6 +551,15 @@ M4.2.2がPASSするまで開始しない。
 - build成功
 - reviewの重大指摘解消
 
+静的確認項目:
+
+- `isOperationAllowed()`が速度指令、projector、COM/ZMP統合、歩行中高さ保持の全責務をまとめて担っていない。
+- `isProjectionReferenceAllowed()`追加と`wbmsWalkingStabilityStartTime`延長だけのtrial解になっていない。
+- 歩行開始経路で`wbmsMode.setGoal(0.0, ...)`を呼ばない。
+- 上半身EEのCHEST相対拘束が`wbmsActive`中に維持される。
+- `refZmpTraj`の既存segment時間を理由なく変更しない。
+- 500 Hz経路でclone、追加FK/COM計算の乱用、vectorの無制限蓄積を入れない。
+
 ### 12.3 Optional M4.2.3
 
 - M4.2.2の挙動を退行させない
@@ -524,3 +611,30 @@ Add WBMS walking preparation transition plan
 - `clang-format`を実行しない
 - 新規テストコードを追加しない
 - 無関係なユーザー変更を削除・巻き戻ししない
+
+---
+
+## 15. 実装前の注意事項と既知の矛盾
+
+### 15.1 正式仕様として扱う文書
+
+実装時は本書に加え、次の文書を正式仕様として読むこと。
+
+1. `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlImplementationPlan.md`
+2. `auto_stabilizer/docs/WBMSProjectionAcceptanceFixImplementationPlan.md`
+3. `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md`
+4. `auto_stabilizer/docs/WBMSWalkingControlSummary.md`
+
+ただし、歩行開始遷移、歩行中の腕操作、COM高さ保持について矛盾がある場合は本書を優先する。
+
+### 15.2 working tree上のtrial差分
+
+実装開始時のworking treeに、`isProjectionReferenceAllowed()`追加や`wbmsWalkingStabilityStartTime`既定値延長のtrial差分、または同内容の`M4-2-2.patch`が残っている可能性がある。これは調査用のrejected trialであり、そのまま採用しない。実装時は、ユーザー変更を勝手に削除せず、必要なら別patchとして退避したうえで、本書のphase state machineに置き換える。
+
+### 15.3 現時点で実装不能ではないが注意が必要な点
+
+- `RefToGenFrameConverter`が毎周期`refdz`を上書きするため、COM高さ保持は`convertFrame()`後の再整合を含めないと成立しない。
+- `WbmsWalkingCommandDelay::proc()`は`execAutoStabilizer()`より前に呼ばれるため、同周期でREADY判定して同周期releaseする設計は不可能である。READYは後段で確定し、releaseは次周期冒頭に行う。
+- `FullbodyIKSolver`の腕CHEST相対拘束は`wbmsMode`またはそのgoalが有効であることに依存する。歩行開始時にWBMSを停止すると腕操作維持要件と矛盾する。
+- `stopWholeBodyMasterSlave()`は現行ではpending walking delayをclearしない。M4.2.2では古いpending commandやheld heightを残さないためclear経路に含める。
+- `WBMSWalkingControlSummary.md`が未追跡ファイルであっても、タスク指示で正式仕様として指定された場合は読むこと。未追跡であることだけを理由に無視しない。
