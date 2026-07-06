@@ -1792,6 +1792,212 @@ Work Package A実装後に以下を確認した。
 - timeout/failure codeは、後続のphase timeoutとfailure分類実装時に接続する。
 - 腕操作維持は、既存CHEST相対拘束を壊さずに、体幹/COM遷移制御と分離して確認する。
 
+## M4.2.2設計修正 Commit 1 service APIと歩行API gate 実装記録
+
+### 1. 実装範囲
+
+M4.2.2設計修正のCommit 1として、歩行準備を歩行APIから分離するためのservice APIと、WBMS中未READYの歩行API gateを実装した。
+
+- `AutoStabilizerService.idl` に `WbmsWalkingPreparationPhase`、`WbmsWalkingPreparationState`、`startWbmsWalkingPreparation()`、`cancelWbmsWalkingPreparation()`、`getWbmsWalkingPreparationState()` を追加した。
+- C++ service実装とEusLisp wrapperを追加した。
+- `goVelocity`、`goPos`、`setFootSteps`、`setFootStepsWithParam` の入口で、WBMS activeかつwalking preparation READYでない場合にrejectするgateを追加した。
+- 未READY reject時はfootstep生成、goVelocity mode開始、pending保存を行わず、`false` を返す。
+- READY後に歩行APIが明示的に呼ばれた場合だけ既存歩行APIを実行する。READY成立だけでは歩行を自動開始しない。
+- M4.2.2B以前のpending command自動release設計は無効化し、歩行指令を保存しない設計へ変更した。
+- READY/WALKING_HOLD後はpreparation timeoutを進めず、operator判断または上位側ポーリング中にREADYがFAILEDへ退行しないようにした。
+- 既存 `wbmsDebugOut[0-45]` の意味は変更せず、Commit 1用のphase/ready/failed/reject/accept/service eventを既存拡張領域へ追加した。
+
+### 2. 対象外
+
+Commit 1では次を実装していない。
+
+- 固定秒returnの廃止後に使う速度・加速度limit型pre-walk姿勢生成本体。
+- COM X/Yをnominal位置へ戻すRETURNING制御。
+- COM Z保持を `refdz`、`l.z`、`omega`、`genCog.z` へ完全接続する本体。
+- READY判定の完全実装と各READY閾値調整。
+- 歩行中COM Z速度操作。
+- task scaling、dependency solver変更、validation閾値変更。
+- 新規テストコード。
+- シミュレータ上の跳ね上がり解消確認。
+
+### 3. 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/idl/AutoStabilizerService.idl` | WBMS walking preparation用enum、state struct、service 3件を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizerService_impl.h/.cpp` | service methodをC++ servantへ追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.h/.cpp` | service本体、歩行API gate、READY後accept処理、state取得、debug出力を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h` | walking preparation phase/failure/debug event/clear状態を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsWalkingCommandDelay.h/.cpp` | pending保存・自動releaseを削除し、preparation開始/cancel/clear/timeout管理へ責務を縮小 |
+| `auto_stabilizer/euslisp/auto-stabilizer-interface.l` | 追加service wrapperを追加し、state取得はresponseの `:state` を返すようにした |
+| `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md` | 本記録を追記 |
+
+### 4. 追加service / API gate / state machine
+
+追加serviceは次の3件である。
+
+```idl
+boolean startWbmsWalkingPreparation();
+boolean cancelWbmsWalkingPreparation();
+boolean getWbmsWalkingPreparationState(out WbmsWalkingPreparationState state);
+```
+
+`startWbmsWalkingPreparation()` はWBMS active、AutoBalancer running、staticを確認し、歩行準備状態だけを開始する。歩行開始、footstep生成、goVelocity mode開始、pending保存は行わない。`cancelWbmsWalkingPreparation()` はpreparation状態をcancelし、pending歩行指令は保持しない。腕EE commandと `wbmsMode` はclearしない。
+
+Commit 1時点のstate machineは、歩行API gateに必要な最小状態として `INACTIVE`、`REQUESTED`、`DECELERATING`、`RETURNING`、`HANDOFF`、`READY`、`WALKING_HOLD`、`FAILED` を持つ。`REQUESTED` ではsnapshotを試行し、成功時に `DECELERATING` へ進む。速度・加速度limit型のRETURNING/HANDOFF本体はCommit 2対象のため、Commit 1単体では安全側にREADYへ自動到達しない経路を残す。
+
+歩行API gateは `goVelocity`、`goPos`、`setFootStepsWithParam` の実処理前に置き、`setFootSteps` は従来どおり `setFootStepsWithParam` へ委譲するため同じgateを通る。
+
+### 5. `goVelocity(0,0,0)` の既存仕様維持
+
+`goVelocity(0.0, 0.0, 0.0)` の既存意味は変更していない。
+
+- WBMS外ではgateが発動せず、従来どおり `cmdVelGenerator_.refCmdVel` 更新と `footStepGenerator_.isGoVelocityMode = true` を行う。
+- WBMS中でもwalking preparation READYまたはWALKING_HOLD後は、従来どおり歩行API実体へ進む。
+- WBMS中かつ未READYの場合だけ、歩行API全体の安全gateとしてrejectする。
+
+したがって、READY後の `goVelocity(0,0,0)` による既存のその場足踏み開始は禁止していない。
+
+### 6. WBMS未READY時の歩行API reject仕様
+
+WBMS activeかつwalking preparation READYでない場合、対象歩行APIは次の挙動にする。
+
+- `false` を返す。
+- footstep生成を行わない。
+- `footStepGenerator.isGoVelocityMode` をtrueにしない。
+- pending commandへ保存しない。
+- READYになった後に自動実行しない。
+- reject理由をログへ出す。
+- debug eventとしてwalking API rejectedを1周期だけ出す。
+
+このgateにより、WBMS姿勢から歩行可能姿勢へ戻る操作は `goVelocity` ではなく `startWbmsWalkingPreparation()` で開始する。
+
+### 7. 固定秒returnの廃止または無効化
+
+Commit 1では、旧 `WbmsWalkingCommandDelay` の「歩行APIをpending保存し、固定遅延後に自動releaseする」経路を削除または無効化した。
+
+- `storeGoVelocity`、`storeGoPos`、`storeFootSteps`、`releasePendingCommand`、`shouldDelay` の旧pending設計は残していない。
+- `hasPendingCommand()` は常にfalseを返す。
+- READY成立だけでは歩行APIを自動releaseしない。
+- READY/WALKING_HOLD後はpreparation timeout加算を止め、READY待機中にFAILEDへ退行しない。
+
+固定秒で姿勢を戻す制御本体を速度・加速度limit型へ置き換える作業はCommit 2対象であり、Commit 1では自動歩行開始経路を止めるところまでを実装した。
+
+### 8. 速度・加速度limit型pre-walk姿勢生成
+
+Commit 1では速度・加速度limit型pre-walk姿勢生成本体は未実装である。
+
+Commit 2で、CHEST roll/pitch/yaw、COM X/Y、root姿勢を、固定秒ではなく速度limitと加速度limitに従って歩行可能姿勢へ戻す。Commit 1ではその前提として、歩行APIと歩行準備serviceを分離し、未READY中の歩行APIをrejectする入口を確定した。
+
+### 9. held COM heightの定義
+
+Commit 1で扱う `heldRobotComHeightInFootMid` は、`startWbmsWalkingPreparation()` 後に `REQUESTED` を処理する制御周期でsnapshotするrobot COMのfoot-mid座標Zである。
+
+取得元は、validな `wbmsProjectedRobotCom` を優先し、使えない場合は `genRobot->centerOfMass()` を使う。どちらもfiniteでない場合はsnapshot failureとしてFAILEDへ遷移する。
+
+この値はWBMS開始時COM高さではなく、歩行準備開始時のfootMid基準robot COM高さである。Commit 1ではstate取得とdebug用の有限値として保持する。COM Z制御本体への完全接続はCommit 2対象である。
+
+### 10. COM X/YとCOM Zの扱い
+
+Commit 1ではCOM X/Y復帰とCOM Z保持の制御本体は実装していない。
+
+- COM X/YはCommit 2で通常歩行開始に適したnominal位置へ戻す。
+- COM ZはWBMS開始時高さへ戻さず、歩行準備開始時のheld COM heightを保持する方針を維持する。
+- Commit 1ではsnapshot値、state値、debug値を準備し、歩行API gateと自動pending release排除を優先した。
+- optionalな歩行中COM Z速度操作は実装していない。
+
+### 11. 腕操作維持
+
+Commit 1では腕EE commandと `wbmsMode` をclearしない。
+
+`startWbmsWalkingPreparation()`、`cancelWbmsWalkingPreparation()`、未READY reject、READY後acceptのいずれでも、腕EE commandを消去せず、WBMS modeも停止しない。上半身EEのCHEST相対拘束は既存の `FullbodyIKSolver` 経路を維持する。腕同時操作時の実挙動はシミュレータ未確認である。
+
+### 12. 重要判断
+
+- `goVelocity(0,0,0)` の既存仕様を変更せず、WBMS未READY中だけ歩行API全体をrejectする。
+- 歩行準備開始は歩行API流用ではなく専用serviceにする。
+- 未READY中の歩行APIはpending保存しない。
+- READYになっただけで自動歩行開始しない。
+- READY後に `startWbmsWalkingPreparation()` が再度呼ばれてもdelay flagを再設定しない。
+- READY/WALKING_HOLD後はpreparation timeoutを進めない。
+- out引数service実装は生成済みCORBA C++ mappingに従う。`WbmsWalkingPreparationState_out` はfixed-size structの参照型として生成されるため、service側で `new` しない。
+- 500 Hz経路にclone/newや追加IK solveを増やさない。
+
+### 13. 計画との差異
+
+- 計画では `WbmsWalkingCommandDelay` を `WbmsWalkingPreparationController` へ置き換える案があったが、Commit 1では差分を小さくするため既存ファイル名を維持し、責務だけpending delayからpreparation状態管理へ変更した。
+- `WbmsWalkingPreparationState` のfailure codeはIDL候補どおり `long failure_code` として保持し、内部enum値を数値で返す。
+- Commit 1ではREADY完全判定とpre-walk姿勢生成本体を入れず、安全側にREADYへ自動到達しない暫定状態を許容した。
+- review対応により、READY/WALKING_HOLD後にtimeoutを進めない分岐をCommit 1へ含めた。これはREADY後に明示的な歩行APIを待つ設計を成立させるためである。
+
+### 14. build・静的確認
+
+| 確認 | 結果 | 備考 |
+|---|---|---|
+| `catkin build auto_stabilizer --no-deps --force-cmake` | PASS | IDL変更あり。OpenRTM helper由来のYAML warningのみ |
+| `git diff --check` | PASS | whitespace指摘なし |
+| service/state識別子検索 | PASS | IDL、C++ service、EusLisp wrapper、state/debug参照を確認 |
+| 歩行API入口検索 | PASS | `goVelocity`、`goPos`、`setFootSteps`、`setFootStepsWithParam` の入口を確認 |
+| pending旧経路検索 | PASS | `storeGoVelocity`、`storeGoPos`、`storeFootSteps`、`releasePendingCommand`、`shouldDelay` は残存なし |
+| 生成C++ mapping確認 | PASS | `WbmsWalkingPreparationState_out` は参照型として生成されている |
+| `git diff --stat` | PASS | Commit 1対象9ファイルの差分を確認 |
+
+### 15. review指摘と処置
+
+| 順序 | 指摘要約 | 分類 | 処置 |
+|---|---|---|---|
+| 1 | `getWbmsWalkingPreparationState` のout引数を `new` してから渡すべき | 対応不要 | 生成済みC++ mappingでは `WbmsWalkingPreparationState_out` が参照型であり、現行実装が正しい。`--force-cmake` build成功で確認 |
+| 2 | READY中に再度 `startWbmsWalkingPreparation()` を呼ぶとdelay flagが残る | 修正対象 | READY/WALKING_HOLD中のstartはno-opにし、delay flagを再設定しない |
+| 3 | EusLisp wrapperがservice response全体を返している | 修正対象 | `:raw-get-wbms-walking-preparation-state` を追加し、responseの `:state` を返すよう修正 |
+| 4 | READY後もtimeoutが進み、明示歩行API待ち中にFAILEDへ落ちる | 修正対象 | READY/WALKING_HOLDではelapsed/timeout更新へ進まず、remain timeを0にしてreturnする |
+| 5 | out引数を `new` すべきという再指摘 | 対応不要 | fixed-size structの生成mappingを再確認し、build成功を根拠に変更しない |
+
+review全文や生ログは貼らず、処置だけを記録する。
+
+### 16. acceptanceごとの結果
+
+| acceptance | 結果 | 備考 |
+|---|---|---|
+| IDL serviceが追加されている | PASS | enum、state struct、service 3件を追加 |
+| C++ service実装がある | PASS | servantとcomponent側を追加 |
+| EusLisp wrapperがある | PASS | state取得は `:state` を返す |
+| WBMS外の歩行API挙動維持 | PASS | gate条件はWBMS active時のみ |
+| WBMS中未READYで歩行API reject | PASS | 実処理前に `false` を返す |
+| 未READY rejectでfootstep生成しない | PASS | gateを生成処理前に配置 |
+| 未READY rejectでgoVelocity mode開始しない | PASS | `isGoVelocityMode=true` より前にreturn |
+| 未READY rejectでpending保存しない | PASS | pending保存経路を削除 |
+| READY後の歩行API挙動維持 | PASS | READY/WALKING_HOLDはgateを通過 |
+| READY後の `goVelocity(0,0,0)` を禁止しない | PASS | 既存goVelocity本体へ進む |
+| READY成立だけで自動歩行開始しない | PASS | pending release経路なし |
+| `startWbmsWalkingPreparation()` が歩行指令を保存しない | PASS | preparation状態だけを開始 |
+| 腕EE commandと `wbmsMode` をclearしない | PASS | service/gateでclearしない |
+| debug index 0-45を壊さない | PASS | 既存indexは維持 |
+| Commit 2相当の姿勢生成本体が混入しない | PASS | 速度・加速度limit型RETURNING本体は未実装 |
+| build成功 | PASS | `catkin build ... --force-cmake` 成功 |
+| 実RTC service呼び出し | シミュレータ未確認 | runtimeでのservice応答確認が必要 |
+| WBMS未READY rejectの実ログ確認 | シミュレータ未確認 | simulatorまたはRTC実行で確認が必要 |
+| READY後の `goVelocity(0,0,0)` 足踏み開始 | シミュレータ未確認 | READYを作るCommit 2後に確認する |
+| 跳ね上がり挙動改善 | シミュレータ未確認 | Commit 1はgate中心で、姿勢生成本体は未実装 |
+
+### 17. 未解決事項
+
+- Commit 1単体では速度・加速度limit型pre-walk姿勢生成が未実装であり、READYへ安定到達する本体はCommit 2で実装する。
+- COM X/Y復帰、COM Z保持の完全接続、root姿勢復帰、READY判定はCommit 2へ残る。
+- `heldRobotComHeightInFootMid` はsnapshot/state/debug用に用意したが、`refdz`、`l.z`、`omega`、`genCog.z` との完全整合はCommit 2で確認する。
+- WBMS未READY reject、READY後accept、EusLisp wrapperの実service応答はシミュレータまたはRTC runtimeで未確認。
+- out引数に関するreview再指摘は、生成C++ mappingとbuild成功を根拠に対応不要と判断したが、別ORB/別IDL mappingを使う環境がある場合は再確認が必要。
+- `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/docs/WBMSTorsoArmIKDesignPlan.md`、`auto_stabilizer/docs/WBMSTorsoArmIKExperimentLog.md`、`auto_stabilizer/docs/WBMSWalkingControlSummary.md`、`auto_stabilizer/docs/WBMSWalkingPreparationDesignRevisionPlan.md`、`auto_stabilizer/log/` は未追跡として存在する。不要に削除しない。
+
+### 18. 次のcommitまたはsimulatorへの引き継ぎ
+
+- Commit 2で速度・加速度limit型pre-walk姿勢生成を実装する。
+- Commit 2でCHEST roll/pitch/yaw、COM X/Y、root姿勢の復帰target、limit、READY条件を接続する。
+- Commit 2でCOM Z保持を `refdz`、`l.z`、`omega`、`genCog.z`、`genCogVel.z`、`genCogAcc.z` と整合させる。
+- simulatorで `startWbmsWalkingPreparation()`、未READY `goVelocity(0,0,0)` reject、READY後 `goVelocity(0,0,0)` acceptの順序を確認する。
+- simulatorでREADY後に数秒待機してもFAILEDへ退行しないことを確認する。
+- 腕EE操作を継続したまま歩行準備を開始し、腕commandとCHEST相対拘束が維持されることを確認する。
+- Commit 3でシミュレータ検証記録とparameter調整を行う。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
