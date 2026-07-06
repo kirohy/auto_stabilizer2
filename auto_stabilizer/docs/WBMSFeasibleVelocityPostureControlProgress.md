@@ -2630,6 +2630,145 @@ READY条件:
 - HANDOFF/READY中もroot targetと `stTargetRootPose` の同期を継続するか、root側が十分settleしてからREADY判定する。
 - `wbmsDebugOut` の未使用末尾2列を整理する。
 
+## M4.2.2 11.4 READY判定と歩行開始直後blend残留対策
+
+11.3後ログから、RETURNING中の急激な姿勢復帰と腕振動は大きく改善した一方で、READY判定と歩行API accepted直後に次の問題が残っていた。
+
+- `061814` では `rootError=0.068002rad`、`wbmsWalkingStabilityModeValue=0.902` でREADYになり、accepted直後に `wbmsOperationModeValue=0.098` が残った。
+- `061816` では `rootError=0.000111rad`、`wbmsWalkingStabilityModeValue=1.000`、accepted直後 `wbmsOperationModeValue=0.000` で滑らかに足踏み開始した。
+- `061817` では姿勢誤差が十分小さいが、return target速度条件だけが残ってREADYに到達しなかった。
+
+今回の実装:
+
+- `WALKING_HOLD` 中も `wbmsOperationModeValue=0.0` を強制し、歩行API accepted後にWBMS操作blendを復活させないようにした。
+- READY条件から `wbmsWalkingPreparationReturnComVelocity`、`wbmsWalkingPreparationReturnTorsoAngularVelocity`、`wbmsWalkingPreparationReturnRootAngularVelocity` の厳格な速度ゼロ条件を外した。
+- READY条件へ `wbmsWalkingStabilityModeValue >= 0.99` を追加した。
+- `wbmsWalkingPreparationRootErrorEps` の既定値を `0.08rad` から `0.01rad` に変更した。
+- RETURNINGからHANDOFFへ遷移する時、およびHANDOFF中にREADY条件が成立している時、root return targetを現在の `stTargetRootPose.linear()` へ同期し、root return速度をゼロにするようにした。
+- `wbmsDebugOut` に `readyWalkingStability` booleanを追加し、`data.length` を実際の書き込み列数である125へ変更した。
+
+意図した効果:
+
+- `061814` 型の、READY時stability不足とoperation blend残留による歩行開始直後の急動作を防ぐ。
+- `061817` 型の、誤差は収束しているのにreturn target速度だけでtimeoutするケースをREADYへ進める。
+- READY直後またはWALKING_HOLD移行直後のroot target切替を小さくする。
+
+未確認:
+
+- シミュレータでの再現性。`wbms_walking_preparation_timeout=10.0`、初期前傾条件で3本以上ログを取り、READY到達、accepted直後 `wbmsOperationModeValue=0.0`、final IK後速度、`el_q` 一周期最大差分を確認する必要がある。
+
+ビルド結果:
+
+```sh
+catkin build auto_stabilizer --no-deps
+```
+
+成功。warningsなし。
+
+## M4.2.2 11.4修正後 simulatorログ解析記録 2026-07-06 18:48/18:51/18:53
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061848*
+auto_stabilizer/log/test_start_walking202607061851*
+auto_stabilizer/log/test_start_walking202607061853*
+```
+
+試験条件:
+
+- `wbms_walking_preparation_timeout = 10.0`。
+- 事前に体幹を前傾させた姿勢から開始。
+- ログ開始から約1秒後に `startWbmsWalkingPreparation()` を呼ぶ。
+- 5秒後から `goVelocity(0.0, 0.0, 0.0)` を0.1秒周期、最大10秒retryする。
+- 3本とも同じ起動方法、同じparameter設定。
+- 腕姿勢指令なし。
+
+総合判定はPASS相当である。ただし、ログ1/2にはoptional改善候補が残る。
+
+| ログ | 判定 | 概要 |
+|---|---|---|
+| `061848` | PASS相当、optional課題あり | READY後に `goVelocity` accepted。operation blend残留なし。root pitchは -0.303rad付近で足踏み開始し、その後直立側へ戻る |
+| `061851` | PASS相当、optional課題あり | READY後に `goVelocity` accepted。operation blend残留なし。root pitchは -0.367rad付近で足踏み開始し、その後直立側へ戻る |
+| `061853` | PASS | READY後に `goVelocity` accepted。root pitchは -0.052rad付近で足踏み開始し、ほぼ直立に近い |
+
+### 主要イベント時刻
+
+| ログ | RETURNING開始[s] | HANDOFF[s] | READY[s] | `goVelocity` accepted[s] | timeout残り[s] |
+|---|---:|---:|---:|---:|---:|
+| `061848` | 1.006 | 7.228 | 7.350 | 7.416 | 4.690 |
+| `061851` | 1.007 | 9.546 | 9.670 | 9.740 | 2.706 |
+| `061853` | 1.005 | 11.022 | 11.152 | 11.245 | 1.650 |
+
+`timeout残り` は内部 `wbmsWalkingPreparationTimeout - wbmsWalkingPreparationElapsedTime` であり、3本ともtimeout境界ではない。
+
+### READY/accept時の主要値
+
+| ログ | READY時root error[rad] | accept時root pitch[rad] | accept時`stTargetRootPose` pitch[rad] | accept時stability | accept時operation |
+|---|---:|---:|---:|---:|---:|
+| `061848` | 0.000292 | -0.303 | -0.303 | 0.990750 | 0.0 |
+| `061851` | 0.000354 | -0.367 | -0.367 | 0.990061 | 0.0 |
+| `061853` | 0.000020 | -0.052 | -0.052 | 0.990098 | 0.0 |
+
+11.4で意図した以下は満たした。
+
+- `goVelocity` accepted直後に `wbmsOperationModeValue=0.0`。
+- READY時に `wbmsWalkingStabilityModeValue >= 0.99`。
+- READY時root errorは既定 `wbmsWalkingPreparationRootErrorEps=0.01rad` 以下。
+- return target速度だけがREADYを阻害してtimeoutする挙動は再現しない。
+- READY前footstep抑制、READY前walking API reject、READY後walking API acceptは退行していない。
+
+### accept直後のfinal IK診断
+
+| ログ | final IK COM速度最大[m/s] | final IK CHEST角速度最大[rad/s] | `el_q`一周期最大差分[rad] |
+|---|---:|---:|---:|
+| `061848` | 0.520 | 2.103 | 0.0137 |
+| `061851` | 0.310 | 3.558 | 0.0159 |
+| `061853` | 0.103 | 2.019 | 0.0041 |
+
+一周期最大関節差分は既存閾値 `wbmsWalkingPreparationMaxJointDeltaEps=0.08rad` より十分小さい。`el_q` と `ast_q` はaccept直後windowで一致しており、AutoStabilizer出力段階での不連続な大差分は確認されない。
+
+関節差分の傾向:
+
+- RETURNING中の主な大差分は脚pitch系とtorso pitch系に出る。
+- accept後1秒では、ログ1/2で脚・torsoが通常歩行側のroot targetへ追従しながら動く。
+- 腕指令なし条件で、11.3以前に問題となった0.1rad級腕振動は確認されない。腕関節のaccept後1秒span最大はログ1で0.0008rad、ログ2で0.0027rad、ログ3で0.0005rad程度である。
+
+### rootが直立に戻りきらない挙動の原因
+
+ログ1/2では、歩行開始時にroot linkが直立付近へ戻りきらず、足踏みしながら直立へ戻るように見える。
+
+原因は、rootが `stTargetRootPose` に追従できていないことではない。accept時のroot pitchと `stTargetRootPose` pitchはほぼ一致しており、root errorも十分小さい。
+
+実際の原因は、READY条件が「root姿勢が `stTargetRootPose` に一致したか」を見ており、「root linkがworld/footMid基準で直立したか」は見ていないことである。`stTargetRootPose` はStabilizer由来であり、ログ1/2では `stTargetRootPose` 自体が -0.30rad〜-0.37rad程度前傾側に残ったままREADY条件を満たしている。
+
+accept後は `wbmsOperationModeValue=0.0` のまま、通常歩行側のroot targetに従ってroot pitchが0.1rad/s級で直立側へ戻る。
+
+| ログ | accept時root pitch[rad] | accept+1.0s root pitch[rad] | 変化量[rad/s概算] |
+|---|---:|---:|---:|
+| `061848` | -0.303 | -0.205 | 0.098 |
+| `061851` | -0.367 | -0.247 | 0.120 |
+| `061853` | -0.052 | -0.046 | 0.007 |
+
+### optionalに追加可能な仕様
+
+「歩行開始前にroot linkを直立付近まで戻す」ことは、現時点では必須仕様ではない。11.4の必須目的である、READY到達、READY後API accept、operation blend残留防止、READY前footstep抑制、腕大振動抑制は今回ログで概ね満たしている。
+
+ただし、操作感・見た目・運用上の要件として「足踏み開始前にroot linkを絶対姿勢として直立付近にする」ことを求める場合は、optional仕様として追加できる。
+
+optional仕様案:
+
+- READY条件へ absolute root upright 条件を追加する。
+- 判定対象は既存 `wbmsWalkingPreparationRootErrorEps` ではなく、world/footMid基準のroot roll/pitch絶対値、または `stTargetRootPose` roll/pitch絶対値とする。
+- 新規parameter例として `wbms_walking_preparation_root_upright_error_eps` を追加する案がある。
+- 初期候補値は `0.05rad` 程度。ただし実ログと操作感で調整し、現時点では確定しない。
+- このoptional仕様を採用するとREADY到達が遅くなる可能性があるため、`wbms_walking_preparation_timeout` とroot姿勢復帰速度の再評価が必要である。
+
+現時点の方針:
+
+- 破綻対策としての追加修正は不要。
+- optional仕様を採用するかどうかは、「足踏み開始前にroot絶対姿勢がどの程度直立している必要があるか」という運用要件として別途判断する。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。

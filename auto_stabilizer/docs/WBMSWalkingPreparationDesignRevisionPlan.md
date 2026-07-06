@@ -624,3 +624,116 @@ acceptance criteria:
 - 腕EE拘束の対策をweight ramp、maxError制限、target再ラッチのどれから試すか。
 - 実機向け安全閾値を、シミュレータ初期値からどこまで保守的に設定するか。
 - root return target速度をREADY条件から外す場合、代替としてどのroot error閾値とfinal IK後速度閾値を採用するか。
+
+### 11.4 READY判定と歩行開始直後のWBMS blend残留対策
+
+11.3後ログで残った問題:
+
+- READY時に `wbmsWalkingStabilityModeValue` が1未満のまま歩行APIがacceptedされると、`WALKING_HOLD` 移行後に `wbmsOperationModeValue` が再び非ゼロになり、足踏み開始直後のCOM weight/reference blendが急変する。
+- `rootError=0.068rad` でもREADYになっており、歩行開始直後のroot姿勢拘束target切替に対して条件が緩い。
+- 一方で、姿勢誤差が十分小さくても `returnRootVelNorm` / `returnTorsoVelNorm` が `1e-3` 以下に落ちず、READYへ到達しないケースがある。
+- `wbmsDebugOut` は `data.length(126)` に対して意味を持つ列が124列で、末尾2列が未使用になっている。
+
+採用する修正方針:
+
+- `READY` / `WALKING_HOLD` 中は `wbmsOperationModeValue=0.0` を強制する。歩行API accepted後にWBMS操作blendを復活させない。
+- READY条件からreturn target速度の厳格条件を外す。`stTargetRootPose` はStabilizer由来で動き続けるため、target速度ゼロ収束をREADY必須条件にするとtimeoutしやすい。
+- 代わりに、姿勢誤差、COM誤差、final IK後joint delta、projection candidate safe、dynamics finiteに加え、`wbmsWalkingStabilityModeValue >= 0.99` をREADY条件へ入れる。
+- `wbmsWalkingPreparationRootErrorEps` の既定値を `0.08rad` から `0.01rad` へ厳しくする。外部parameterで調整可能な既存項目なので、IDL追加は行わない。
+- RETURNINGからHANDOFFへ移る時、およびHANDOFF中にREADY条件が成立している時、root return targetを現在の `stTargetRootPose.linear()` へ同期し、READY直後または歩行API accepted直後のroot target切替を小さくする。
+- `wbmsDebugOut` に `readyWalkingStability` booleanを追加し、実際に書く列数と `data.length` を一致させる。
+
+今回追加しないもの:
+
+- root return専用の速度・加速度limit parameter。
+- RETURNING中安全監視専用の新規閾値parameter。
+- 腕EE拘束のweight ramp / target再ラッチ。11.3後ログでは腕指令なし条件の0.1rad級腕振動が再現していないため、まず歩行開始直後のblend残留とREADY条件を解消する。
+
+acceptance criteria:
+
+- READY後の歩行API accepted直後に `wbmsOperationModeValue=0.0` である。
+- READY時に `wbmsWalkingStabilityModeValue >= 0.99` である。
+- READY時の `rootError` が `wbmsWalkingPreparationRootErrorEps` 以下であり、既定値では `0.01rad` 以下である。
+- 姿勢誤差が十分小さいにもかかわらずreturn target速度だけが `1e-3` を超えるケースで、timeoutせずREADYへ進める。
+- 歩行API accepted直後の `finalIKChestAngVelNorm`、`finalIKComVelNorm`、`el_q` 一周期最大差分が安全閾値以下である。
+- READY前footstep抑制、READY前walking API reject、READY後 `goVelocity(0.0, 0.0, 0.0)` acceptは退行しない。
+
+進捗:
+
+- 実装済み。
+- `WbmsPostureControl::updateWalkingPreparationReadiness()` のREADY条件からreturn target速度条件を外し、`wbmsWalkingStabilityModeValue >= 0.99` を追加した。
+- `GaitParam::wbmsWalkingPreparationRootErrorEps` の既定値を `0.01rad` に変更した。
+- HANDOFF遷移時とHANDOFF中READY条件成立時に、root return targetを `stTargetRootPose.linear()` へ同期し、root return速度をゼロへ落とすようにした。
+- `WALKING_HOLD` 中も `wbmsOperationModeValue=0.0` を強制するようにした。
+- `wbmsDebugOut` に `readyWalkingStability` を追加し、`data.length` を実書き込み列数の125へ変更した。
+
+シミュレータ確認待ち:
+
+- `wbms_walking_preparation_timeout=10.0`、初期前傾条件で3回以上再試験し、READY到達と歩行開始直後の急動作が再現性を持って改善すること。
+- 既定 `wbms_walking_preparation_root_error_eps=0.01` でtimeoutが増える場合、実ログに基づき `0.02` などへ調整する。ただし `0.068rad` 級でREADYにする状態へ戻さない。
+
+11.4修正後ログ解析結果:
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061848*
+auto_stabilizer/log/test_start_walking202607061851*
+auto_stabilizer/log/test_start_walking202607061853*
+```
+
+試験条件:
+
+- `wbms_walking_preparation_timeout=10.0`。
+- 事前に体幹を前傾させた姿勢から開始。
+- ログ開始から約1秒後に `startWbmsWalkingPreparation()` を呼ぶ。
+- 5秒後から `goVelocity(0.0, 0.0, 0.0)` を0.1秒周期、最大10秒retryする。
+- 3本とも同じ起動方法、同じparameter設定。
+- 腕姿勢指令なし。
+
+総合判断:
+
+- 3本すべてでREADYへ到達し、`goVelocity(0.0, 0.0, 0.0)` がacceptedされた。
+- accepted直後の `wbmsOperationModeValue` は3本すべて0.0であり、11.4の主目的であるWBMS操作blend残留対策は有効だった。
+- READY前footstep抑制、READY前walking API reject、READY後walking API acceptは維持された。
+- 腕指令なし条件で、11.3以前に問題となった0.1rad級腕振動は確認されなかった。
+- 一方で、ログ1/2ではroot linkが直立付近に戻りきる前に足踏みを開始し、その後足踏みしながら直立側へ戻る挙動が残った。
+
+主要値:
+
+| ログ | READY時刻[s] | accept時root pitch[rad] | accept時`stTargetRootPose` pitch[rad] | accept時root error[rad] | accept時stability | accept時operation |
+|---|---:|---:|---:|---:|---:|---:|
+| `061848` | 7.350 | -0.303 | -0.303 | 0.000292 | 0.990750 | 0.0 |
+| `061851` | 9.670 | -0.367 | -0.367 | 0.000354 | 0.990061 | 0.0 |
+| `061853` | 11.152 | -0.052 | -0.052 | 0.000020 | 0.990098 | 0.0 |
+
+解釈:
+
+- ログ1/2の「直立前に足踏み開始」は、rootが `stTargetRootPose` に追従できていないためではない。
+- accepted時のroot errorは十分小さく、root linkは `stTargetRootPose` にほぼ一致している。
+- 原因は、READY判定が「root姿勢が `stTargetRootPose` に一致したか」を見ており、「root linkが世界/footMid基準で直立したか」は見ていないことである。
+- `stTargetRootPose` はStabilizer由来であり、11.4のroot return target同期後も、ログ1/2では `stTargetRootPose` 自体が -0.30rad〜-0.37rad程度前傾側に残っていた。
+- accepted後は `wbmsOperationModeValue=0.0` のまま、通常歩行側のroot targetに従って0.1rad/s級で直立側へ戻っている。
+
+accept後の最大値:
+
+| ログ | final IK COM速度最大[m/s] | final IK CHEST角速度最大[rad/s] | `el_q`一周期最大差分[rad] |
+|---|---:|---:|---:|
+| `061848` | 0.520 | 2.103 | 0.0137 |
+| `061851` | 0.310 | 3.558 | 0.0159 |
+| `061853` | 0.103 | 2.019 | 0.0041 |
+
+上記の一周期最大関節差分は既存閾値 `wbmsWalkingPreparationMaxJointDeltaEps=0.08rad` より十分小さい。したがって、現時点では破綻ではなく、歩行開始時の通常root target遷移が視覚的に残っている状態と判断する。
+
+optionalに追加可能な仕様:
+
+- 「歩行開始前にroot linkを直立付近まで戻す」ことを操作感・見た目の要件として追加する場合、READY条件へ absolute root upright 条件を追加する余地がある。
+- これは現状の11.4必須仕様ではない。安全上の破綻回避、WBMS操作blend残留防止、READY到達性の観点では、今回ログは概ねPASS相当である。
+- optional仕様として追加する場合は、既存 `wbmsWalkingPreparationRootErrorEps` とは別に、`root vs stTargetRootPose` ではなく world/footMid基準root roll/pitch絶対値を見る閾値を定義する必要がある。
+- 例として `abs(root pitch)` または `abs(stTargetRootPose pitch)` を `0.05rad` 程度以下にする案が考えられるが、これは実ログと操作感で調整すべきであり、現時点では確定仕様にしない。
+- このoptional仕様を入れる場合は、READY到達までの待ち時間が伸びる可能性があるため、`wbms_walking_preparation_timeout` やroot姿勢復帰速度との整合も再評価する。
+
+11.4時点の残課題:
+
+- 必須修正として残る破綻要因は、今回ログからは確認されていない。
+- optional仕様を採用するかどうかは、「足踏み開始前にroot linkが絶対姿勢としてどの程度直立している必要があるか」という運用要件として別途判断する。
