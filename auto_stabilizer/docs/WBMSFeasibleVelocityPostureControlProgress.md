@@ -1998,6 +1998,253 @@ review全文や生ログは貼らず、処置だけを記録する。
 - 腕EE操作を継続したまま歩行準備を開始し、腕commandとCHEST相対拘束が維持されることを確認する。
 - Commit 3でシミュレータ検証記録とparameter調整を行う。
 
+## M4.2.2設計修正 Commit 2 速度・加速度制限型pre-walk姿勢生成 実装記録
+
+### 1. 実装範囲
+
+M4.2.2設計修正のCommit 2として、Commit 1で追加した `startWbmsWalkingPreparation()` 起点の歩行準備状態機械に、固定秒returnではない速度・加速度limit型のpre-walk姿勢生成を接続した。
+
+主な実装範囲は次の通りである。
+
+- CHEST roll/pitch/yawを、歩行可能基準姿勢 `wbmsStartChestRInFootMid` へ速度limitと角加速度limitで戻す。
+- COM X/Yを、snapshot時に保存したnominal walking robot COM X/Yへ速度limitと加速度limitで戻す。
+- COM ZはWBMS開始時高さへ戻さず、歩行準備開始時のfootMid基準robot COM高さ `heldRobotComHeightInFootMid` を保持する。
+- DECELERATING、RETURNING、SETTLE、READY、FAILEDの状態遷移を、固定return時間ではなく速度、誤差、安全候補、力学値、settle連続成立で進める。
+- READY後に投影安全候補が崩れた場合は `FAILED/UNSAFE` へ落とし、古いREADY状態で歩行APIを受け付けない。
+- READY判定に、pre-walk return target velocity、projector candidate safe、final IK最大関節変化、`genCog`、`refdz`、`l`、`omega`、`refZmpTraj` 総時間を含める。
+- `wbms_walking_preparation_*_velocity_limit` / `*_acceleration_limit` をIDL parameterとして追加し、set/getへ接続する。
+- debug出力は既存index 0-45を維持し、末尾に追加診断値を増やした。
+
+### 2. 対象外
+
+以下はCommit 2の対象外として実装していない。
+
+- 歩行中COM Z速度操作。
+- task scaling。
+- dependency solver変更。
+- 新規テストコード。
+- simulatorでのparameter tuning。
+- `WbmsWalkingCommandDelay` のファイル名変更。
+- 腕EE commandの新しい制御経路追加。
+- READY成立時の自動歩行開始。
+- READY前の歩行API pending保存。
+
+### 3. 変更ファイル
+
+| ファイル | 変更内容 |
+|---|---|
+| `auto_stabilizer/idl/AutoStabilizerService.idl` | pre-walk専用のCHEST角速度/角加速度limit、COM速度/加速度limit parameterを追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h` | pre-walk専用limit、RETURN target CHEST/COM、RETURN target velocity状態を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsWalkingCommandDelay.cpp` | snapshot時にRETURN targetとRETURN target velocityを初期化 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.h` | 速度・加速度limit型target更新helperを追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | RETURN target生成、READY条件、COM高さ保持、READY中unsafe降格、固定秒return無効化を実装 |
+| `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp` | parameter set/get、debug出力追加を実装 |
+
+### 4. 追加service / API gate / state machine
+
+service APIと歩行API gateはCommit 1で追加済みであり、Commit 2ではその上に状態機械本体を接続した。状態の対応は次の通りである。
+
+| 仕様上のphase | 内部phase | 実装内容 |
+|---|---|---|
+| IDLE | `INACTIVE` | 歩行準備なし |
+| SNAPSHOT | `REQUESTED` | 最初の制御周期でCHEST、COM、nominal COM、held COM heightをsnapshot |
+| DECELERATE_COMMAND | `DECELERATING` | raw commandを使わず、applied torso/COM velocityを加速度limitでゼロへ落とす |
+| RETURN_TO_WALKABLE_POSTURE | `RETURNING` | CHESTとCOM targetを速度・加速度limitで歩行可能姿勢へ戻す |
+| SETTLE | `HANDOFF` | READY条件の連続成立時間を確認する。固定handoff秒では進めない |
+| READY | `READY` | 歩行APIを許可する。ただし投影失敗時はFAILEDへ落とす |
+| WALKING | `WALKING_HOLD` | READY後に歩行APIが成功した状態。held COM heightを維持する |
+| FAILED | `FAILED` | timeout、snapshot失敗、非finite、unsafeなど |
+| CANCELLED | `FAILED` + `FAILURE_CANCELLED` | cancel serviceで診断上cancelledとして返す |
+
+### 5. `goVelocity(0,0,0)` の既存仕様維持
+
+Commit 2では歩行API本体の既存挙動は変更していない。
+
+- WBMS外では `goVelocity(0,0,0)` は従来どおり既存goVelocity処理へ進む。
+- WBMS中でもREADY後は既存goVelocity処理へ進み、`isGoVelocityMode=true` へ到達し得る。
+- WBMS中未READYだけ、歩行API gateで `false` を返す。
+
+これにより、`goVelocity(0,0,0)` を「その場足踏み開始」として使う既存仕様は、WBMS外およびREADY後で維持される。
+
+### 6. WBMS未READY時に歩行APIをrejectする仕様
+
+Commit 1のgateを維持し、Commit 2でREADY条件を実装した。
+
+- `goPos`
+- `goVelocity`
+- `setFootSteps`
+- `setFootStepsWithParam`
+
+上記はいずれも、WBMS activeかつ歩行準備READYでない場合、footstep生成、goVelocity mode開始、pending保存より前にrejectする。Commit 2ではREADY後に投影がunsafeになった場合もFAILEDへ落とすため、古いREADY状態のまま歩行APIを受け付け続ける経路を残していない。
+
+### 7. 固定秒returnの廃止または無効化
+
+`wbms_walking_preparation_return_time` と `wbms_walking_preparation_handoff_time` はIDL互換のためset/getに残しているが、pre-walk姿勢生成の主制御には使っていない。
+
+Commit 2後のRETURN進行は次で決まる。
+
+- target CHEST error。
+- target COM XY error。
+- return target velocity。
+- applied velocity。
+- projector candidate safe。
+- final IK後の最大関節変化。
+- COM/ZMP/倒立振子関連値のfinite/positive条件。
+- settle timeの連続成立。
+
+傾きやCOM差分が小さい場合は短時間でREADY条件へ近づき、大きい場合は速度・加速度limitに従って長くかかる。
+
+### 8. 速度・加速度limit型pre-walk姿勢生成
+
+RETURNINGでは、`wbmsWalkingPreparationTargetChestRInFootMid` と `wbmsWalkingPreparationTargetRobotComInFootMid` を毎周期更新する。
+
+CHEST:
+
+- target CHEST姿勢と歩行可能基準姿勢のRPY誤差を計算する。
+- 誤差と加速度limitから停止可能な角速度 `sqrt(2*a*abs(error))` を軸ごとに計算する。
+- 角速度limitでclampする。
+- 角加速度limitで前周期target velocityからの変化を制限する。
+- 制限後の角速度を積分してtarget CHEST姿勢を更新する。
+
+COM:
+
+- target robot COMとnominal walking robot COMの差分をfootMid基準で計算する。
+- X/Yはnominal walking COMへ戻す。
+- Zは `heldRobotComHeightInFootMid` に固定する。
+- 残距離と加速度limitから停止可能な速度を計算し、速度limitと加速度limitを通した速度を積分する。
+
+review指摘を受け、終端で `nextVelocity = step / dt` のように速度状態を直接上書きする処理は入れていない。終端でも速度状態は加速度limitを通して更新される。
+
+### 9. held COM heightの定義
+
+`heldRobotComHeightInFootMid` は、`startWbmsWalkingPreparation()` 後に `REQUESTED` を処理する最初の制御周期でsnapshotする。
+
+定義:
+
+```text
+heldRobotComHeightInFootMid
+  = (footMidCoords.inverse() * currentRobotCom).z
+```
+
+`currentRobotCom` の優先順位:
+
+1. finiteかつvalidな `wbmsProjectedRobotCom`
+2. `genRobot->centerOfMass()`
+3. どちらも使えない場合はsnapshot failureとしてFAILED
+
+この値はWBMS開始時COM高さではなく、歩行準備開始時のfootMid基準robot COM高さである。歩行準備中、READY後、歩行開始後のheight holdの基準として使う。
+
+### 10. COM X/YとCOM Zの扱い
+
+COM X/Y:
+
+- `wbmsNominalGenCogBeforeWbmsIntegration + sbpOffset` をfootMid基準へ変換したnominal walking robot COM X/Yへ戻す。
+- 支持多角形の縮小hullでtarget X/Yをclipし、ZMP安全性を壊さない方向へ制限する。
+
+COM Z:
+
+- `wbmsStartComInFootMid.z` へ戻さない。
+- `heldRobotComHeightInFootMid` を保持する。
+- `applyWalkingComHeightHoldToReference()` で `refdz`、`l.z`、`omega` を同一周期で更新する。
+- `applyWalkingComHeightHoldToGenCog()` で `genCog.z`、`genCogVel.z`、`genCogAcc.z` を速度・加速度limit付きで更新する。
+
+このため、COM X/Y復帰とCOM Z保持は明示的に分離している。
+
+### 11. 腕操作維持
+
+Commit 2でも腕EE commandと `wbmsMode` はclearしない。
+
+- 歩行準備開始で腕EE commandを消さない。
+- cancelで腕EE commandを消さない。
+- 未READY rejectで腕EE commandを消さない。
+- READY後/WALKING_HOLDでも腕操作経路を維持する。
+- 上半身EEは既存 `FullbodyIKSolver` のCHEST相対拘束経路を維持する。
+
+足、関節安全、自己干渉、ZMP、root姿勢、バランスは腕より優先する既存IK優先度を変更していない。
+
+### 12. 重要判断
+
+- `wbms_walking_preparation_return_time` は互換parameterとして残し、主制御では使わない。
+- `WBMS_WALKING_PREPARATION_HANDOFF` はIDL上のSETTLE相当として残し、固定handoff時間ではなくREADY条件の連続成立確認に使う。
+- READY中にprojectionがunsafeになった場合はREADYを維持せずFAILEDへ落とす。
+- target終端で速度を直接ゼロへ上書きせず、停止距離に基づく目標速度を作って加速度limitで減速する。
+- `WALKING_HOLD` は歩行API成功後の状態であり、READY中unsafe降格とは別に扱う。
+- 500 Hz経路では固定サイズのVector/Matrix状態だけを追加し、clone/newや追加solveを増やさない。
+
+### 13. 計画との差異
+
+- 計画書では `WbmsWalkingCommandDelay` を `WbmsWalkingPreparationController` へ置き換える案があるが、Commit 2でも既存ファイル名を維持した。差分を小さくし、Commit 1で変更したservice/gateとの連続性を優先した。
+- `HANDOFF` という内部名は残しているが、意味は固定秒handoffではなくSETTLE phaseである。
+- pre-walk専用limit parameterをIDLへ追加した。通常WBMS操作limitを流用すると歩行準備だけの安全速度調整がしにくいためである。
+- RETURN targetの終端処理は、review対応により単純なovershoot clampではなく停止距離ベースの減速に変更した。
+
+### 14. build・静的確認
+
+| 確認 | 結果 | 備考 |
+|---|---|---|
+| `catkin build auto_stabilizer --no-deps --force-cmake` | PASS | IDL変更あり。OpenRTM helper由来のYAML warningのみ |
+| `git diff --check` | PASS | whitespace指摘なし |
+| `rg -n "WbmsWalkingPreparation|startWbmsWalkingPreparation|heldRobotComHeight|walking_preparation" auto_stabilizer` | PASS | service、IDL、state、COM height、parameter接続を確認 |
+| `rg -n "goVelocity|goPos|setFootSteps|setFootStepsWithParam" auto_stabilizer/rtc/AutoStabilizer` | PASS | 歩行API入口とgate位置を確認 |
+| `git diff --stat` | PASS | Commit 2対象6ファイルの差分を確認 |
+
+### 15. review指摘と処置
+
+| 順序 | 指摘要約 | 分類 | 処置 |
+|---|---|---|---|
+| 1 | READY中のprojection失敗でもREADYを維持し、直後の歩行APIが受理され得る | 修正対象 | `solveProjection()` 失敗時のFAILED対象に `READY` を追加し、`FAILURE_UNSAFE` へ落とす |
+| 2 | RETURN終端で `nextVelocity = step / dt` により加速度limitを破る | 修正対象 | 終端の速度直接上書きを削除し、停止距離 `sqrt(2*a*abs(error))` に基づく目標速度を加速度limitで更新 |
+| 3 | 最終reviewで重点項目に明確な不具合なし | 対応不要 | 追加修正なし。前2件の修正後の差分で、READY前reject、自動release抑止、COM Z保持、ZMP軌道時間、IDL set/get整合性に破綻なし |
+
+review全文や生ログは貼らず、判断と処置のみ記録する。
+
+### 16. acceptanceごとの結果
+
+| acceptance | 結果 | 備考 |
+|---|---|---|
+| build成功 | PASS | `catkin build auto_stabilizer --no-deps --force-cmake` 成功 |
+| fixed return-timeではなく速度・加速度limitで戻る | PASS | return/handoff時間を主制御に使わず、target velocityをlimitで更新 |
+| 傾きが小さいほど早くREADY、大きいほど時間がかかる | コード上PASS / シミュレータ未確認 | 誤差ベースのtarget velocityで実装。実時間挙動は未確認 |
+| READYは状態条件とsettleで決まる | PASS | 速度、誤差、safe candidate、joint delta、力学値、settle timeで判定 |
+| COM ZはstartWbmsWalkingPreparation時高さを保持 | PASS | `heldRobotComHeightInFootMid` を基準にtarget/refdz/genCogへ接続 |
+| COM X/Yはnominal walking COMへ戻る | PASS | snapshotしたnominal robot COM X/YをRETURN目標に使用 |
+| `genCog.z`、`refdz`、`l.z`、`omega`が整合 | コード上PASS / シミュレータ未確認 | 同一周期でheight holdへ接続。ログでの連続性確認は未実施 |
+| `refZmpTraj`総時間が正 | PASS | READY条件でtotal time > 0を確認。既存segment時間は保持 |
+| READY前に歩行APIが実行されない | PASS | gateはfootstep生成/goVelocity mode開始前 |
+| READY後に既存歩行APIが使える | コード上PASS / シミュレータ未確認 | gateはREADY/WALKING_HOLDで通過。runtime確認は未実施 |
+| 腕操作維持 | コード上PASS / シミュレータ未確認 | command clearなし、CHEST相対拘束経路維持。実挙動は未確認 |
+| hidden goalなし | PASS | pending保存なし。RETURN targetは状態機械内の現在targetのみ |
+| 既存debug互換維持 | PASS | 既存index 0-45は維持し、末尾を96要素へ拡張 |
+| 500 Hz経路で追加solve/clone/newなし | PASS | 固定サイズ状態と3軸計算のみ追加 |
+| `goVelocity(0,0,0)` 既存仕様維持 | PASS | WBMS外/READY後の既存goVelocity本体は維持 |
+| WBMS外の歩行API挙動維持 | PASS | gateはWBMS active時のみ |
+| READY後の自動歩行開始なし | PASS | pending releaseなし |
+| 歩行中COM Z速度操作を実装しない | PASS | optional機能は未実装 |
+| simulatorで跳ね上がり改善 | シミュレータ未確認 | Commit 2後の実機/シミュレータ確認が必要 |
+| READY後unsafe時に歩行APIが受理されない | コード上PASS / シミュレータ未確認 | READY中projection失敗でFAILEDへ落とす |
+| RETURN終端で加速度limitを破らない | コード上PASS / シミュレータ未確認 | 速度直接上書きを削除。実ログでの速度連続性は未確認 |
+
+### 17. 未解決事項
+
+- simulatorで、RETURN target velocityが終端まで滑らかに収束することは未確認。
+- simulatorで、READY後に `goVelocity(0,0,0)` が従来どおり足踏み開始することは未確認。
+- simulatorで、READY後にprojection unsafeへ崩れた場合にFAILEDへ落ち、歩行APIがrejectされることは未確認。
+- simulatorで、`genCog.z`、`refdz`、`l.z`、`omega`、`refZmpTraj` 総時間の連続性は未確認。
+- 腕操作を継続しながら歩行準備、READY、歩行開始へ進めた場合の実挙動は未確認。
+- pre-walk専用limit parameterの初期値は保守的なコード初期値であり、robot別の調整は未実施。
+- `wbms_walking_preparation_return_time` と `handoff_time` は互換目的で残るが、主制御には使わないため、外部設定側の説明更新が必要になる可能性がある。
+- `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/docs/WBMSTorsoArmIKDesignPlan.md`、`auto_stabilizer/docs/WBMSTorsoArmIKExperimentLog.md`、`auto_stabilizer/docs/WBMSWalkingControlSummary.md`、`auto_stabilizer/log/` は未追跡として存在する。不要に削除しない。
+
+### 18. 次のcommitまたはsimulatorへの引き継ぎ
+
+- simulatorで `startWbmsWalkingPreparation()` から READY までのphase、return target velocity、CHEST error、COM XY/Z error、root error、safe candidate、final IK max joint deltaを確認する。
+- 小さい姿勢差と大きい姿勢差でREADY到達時間が変わることを確認する。
+- COM Zをずらしてから歩行準備を開始し、`heldRobotComHeightInFootMid`、`genCog.z`、`refdz`、`l.z`、`omega` が連続であることを確認する。
+- READY前 `goVelocity(0,0,0)` reject、READY後 `goVelocity(0,0,0)` accept、READYだけでは自動歩行開始しないことを確認する。
+- READY後にprojection unsafeを意図的に作れる条件で、READY維持ではなくFAILEDへ落ちることを確認する。
+- 腕EE操作を継続したまま、歩行準備、READY、歩行開始を行い、腕commandとCHEST相対拘束が維持されることを確認する。
+- 必要に応じてpre-walk専用limit parameterをrobot/simulatorに合わせて調整する。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
