@@ -408,6 +408,15 @@ public:
     return this->footstepNodesList.size() == 1 && this->footstepNodesList[0].remainTime == 0.0;
   }
 
+  bool shouldKeepFootStepsStaticForWbmsWalkingPreparation() const{
+    return
+      this->wbmsWalkingPreparationPhase == WBMS_WALKING_PREPARATION_REQUESTED ||
+      this->wbmsWalkingPreparationPhase == WBMS_WALKING_PREPARATION_DECELERATING ||
+      this->wbmsWalkingPreparationPhase == WBMS_WALKING_PREPARATION_RETURNING ||
+      this->wbmsWalkingPreparationPhase == WBMS_WALKING_PREPARATION_HANDOFF ||
+      this->wbmsWalkingPreparationPhase == WBMS_WALKING_PREPARATION_READY;
+  }
+
 public:
   void init(const cnoid::BodyPtr& robot){
     maxTorque.resize(robot->numJoints(), std::numeric_limits<double>::max());

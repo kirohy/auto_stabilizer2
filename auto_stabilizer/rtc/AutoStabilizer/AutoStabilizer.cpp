@@ -739,11 +739,13 @@ bool AutoStabilizer::execAutoStabilizer(const AutoStabilizer::ControlMode& mode,
                              gaitParam.cmdVel);
 
   // AutoBalancer
-  footStepGenerator.procFootStepNodesList(gaitParam, dt, mode.isSTRunning(),
-                                          gaitParam.footstepNodesList, gaitParam.srcCoords, gaitParam.dstCoordsOrg, gaitParam.remainTimeOrg, gaitParam.swingState, gaitParam.elapsedTime, gaitParam.prevSupportPhase, gaitParam.relLandingHeight);
-  footStepGenerator.calcFootSteps(gaitParam, dt, mode.isSTRunning(),
-                                  gaitParam.debugData, //for log
-                                  gaitParam.footstepNodesList);
+  if(!gaitParam.shouldKeepFootStepsStaticForWbmsWalkingPreparation()){
+    footStepGenerator.procFootStepNodesList(gaitParam, dt, mode.isSTRunning(),
+                                            gaitParam.footstepNodesList, gaitParam.srcCoords, gaitParam.dstCoordsOrg, gaitParam.remainTimeOrg, gaitParam.swingState, gaitParam.elapsedTime, gaitParam.prevSupportPhase, gaitParam.relLandingHeight);
+    footStepGenerator.calcFootSteps(gaitParam, dt, mode.isSTRunning(),
+                                    gaitParam.debugData, //for log
+                                    gaitParam.footstepNodesList);
+  }
   legCoordsGenerator.calcLegCoords(gaitParam, dt, mode.isSTRunning(),
                                    gaitParam.refZmpTraj, gaitParam.genCoords, gaitParam.swingState);
   legCoordsGenerator.calcCOMCoords(gaitParam, dt,
