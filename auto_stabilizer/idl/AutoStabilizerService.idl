@@ -137,6 +137,14 @@ module auto_stabilizer
       double wbms_walking_preparation_root_error_eps;
       /// WBMS歩行準備READYの一周期最大関節変化閾値[rad or m]. 下限0.0
       double wbms_walking_preparation_max_joint_delta_eps;
+      /// WBMS歩行準備RETURN用CHEST角速度limit[rad/s]. 要素はroll,pitch,yaw. 下限0.0
+      sequence<double, 3> wbms_walking_preparation_torso_angular_velocity_limit;
+      /// WBMS歩行準備RETURN用CHEST角加速度limit[rad/s^2]. 要素はroll,pitch,yaw. 下限0.0
+      sequence<double, 3> wbms_walking_preparation_torso_angular_acceleration_limit;
+      /// WBMS歩行準備RETURN用COM速度limit[m/s]. 要素はx,y,z. 下限0.0
+      sequence<double, 3> wbms_walking_preparation_com_velocity_limit;
+      /// WBMS歩行準備RETURN用COM加速度limit[m/s^2]. 要素はx,y,z. 下限0.0
+      sequence<double, 3> wbms_walking_preparation_com_acceleration_limit;
       /// CHEST角速度指令のlimit[rad/s]. 要素はroll,pitch,yaw. 下限0.0
       sequence<double, 3> wbms_torso_angular_velocity_limit;
       /// WBMS開始時CHEST姿勢からの実現姿勢差分下限[rad]. 要素はroll,pitch,yaw

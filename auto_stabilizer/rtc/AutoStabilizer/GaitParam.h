@@ -177,6 +177,10 @@ public:
   double wbmsWalkingPreparationComZErrorEps = 0.01; // [m]
   double wbmsWalkingPreparationRootErrorEps = 0.08; // [rad]
   double wbmsWalkingPreparationMaxJointDeltaEps = 0.08; // [rad or m]
+  cnoid::Vector3 wbmsWalkingPreparationTorsoAngularVelocityLimit = cnoid::Vector3(0.10, 0.10, 0.20); // [rad/s]. 歩行準備RETURN用CHEST角速度limit
+  cnoid::Vector3 wbmsWalkingPreparationTorsoAngularAccelerationLimit = cnoid::Vector3(0.30, 0.30, 0.60); // [rad/s^2]. 歩行準備RETURN用CHEST角加速度limit
+  cnoid::Vector3 wbmsWalkingPreparationComVelocityLimit = cnoid::Vector3(0.03, 0.03, 0.03); // [m/s]. 歩行準備RETURN用COM速度limit
+  cnoid::Vector3 wbmsWalkingPreparationComAccelerationLimit = cnoid::Vector3(0.10, 0.10, 0.10); // [m/s^2]. 歩行準備RETURN用COM加速度limit
   bool isWbmsWalkingStartDelay = false; // WBMS中の歩行開始前に姿勢復帰待ちをしている
   double wbmsWalkingStartDelayRemainTime = 0.0; // [s]. WBMS中の歩行開始前姿勢復帰待ちの残り時間
   double wbmsVelocityCommandTimeout = 0.2; // [s]. refTorsoVelInを最後に受信してから速度指令を無効にするまでの時間
@@ -249,6 +253,10 @@ public:
   cnoid::Vector3 wbmsWalkingPreparationStartRobotComInFootMid = cnoid::Vector3::Zero();
   cnoid::Vector3 wbmsWalkingPreparationNominalRobotComInFootMid = cnoid::Vector3::Zero();
   cnoid::Matrix3 wbmsWalkingPreparationStartRootR = cnoid::Matrix3::Identity();
+  cnoid::Matrix3 wbmsWalkingPreparationTargetChestRInFootMid = cnoid::Matrix3::Identity();
+  cnoid::Vector3 wbmsWalkingPreparationTargetRobotComInFootMid = cnoid::Vector3::Zero();
+  cnoid::Vector3 wbmsWalkingPreparationReturnTorsoAngularVelocity = cnoid::Vector3::Zero();
+  cnoid::Vector3 wbmsWalkingPreparationReturnComVelocity = cnoid::Vector3::Zero();
   double wbmsWalkingPreparationChestError = 0.0;
   double wbmsWalkingPreparationComXYError = 0.0;
   double wbmsWalkingPreparationComZError = 0.0;
@@ -386,6 +394,10 @@ public:
     wbmsWalkingPreparationStartRobotComInFootMid.setZero();
     wbmsWalkingPreparationNominalRobotComInFootMid.setZero();
     wbmsWalkingPreparationStartRootR.setIdentity();
+    wbmsWalkingPreparationTargetChestRInFootMid.setIdentity();
+    wbmsWalkingPreparationTargetRobotComInFootMid.setZero();
+    wbmsWalkingPreparationReturnTorsoAngularVelocity.setZero();
+    wbmsWalkingPreparationReturnComVelocity.setZero();
     wbmsWalkingPreparationChestError = 0.0;
     wbmsWalkingPreparationComXYError = 0.0;
     wbmsWalkingPreparationComZError = 0.0;

@@ -69,13 +69,15 @@ private:
   bool isWalkingPreparationReturningTargetActive(const GaitParam& gaitParam) const;
   cnoid::Vector3 applyAccelerationLimit(const cnoid::Vector3& current, const cnoid::Vector3& desired, const cnoid::Vector3& limit, double dt) const;
   cnoid::Matrix3 interpolateRotation(const cnoid::Matrix3& from, const cnoid::Matrix3& to, double alpha) const;
+  cnoid::Vector3 calcVelocityLimitedStep(const cnoid::Vector3& error, const cnoid::Vector3& currentVelocity, const cnoid::Vector3& velocityLimit, const cnoid::Vector3& accelerationLimit, double dt, cnoid::Vector3& nextVelocity) const;
+  bool updateWalkingPreparationReturnTarget(GaitParam& gaitParam, double dt) const;
   void setWalkingPreparationPhase(GaitParam& gaitParam, GaitParam::WbmsWalkingPreparationPhase phase) const;
   void failWalkingPreparation(GaitParam& gaitParam, GaitParam::WbmsWalkingPreparationFailureCode code) const;
   bool latchWalkingPreparationReturnStart(GaitParam& gaitParam) const;
   void addAncestorJointIds(const cnoid::LinkPtr& link, const cnoid::BodyPtr& robot, std::vector<bool>& jointUsed);
   void syncProjectionRobot(const GaitParam& gaitParam);
   bool updateSupportHull(const GaitParam& gaitParam);
-  bool calcProjectionTargets(const GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid, bool& supportHullValid);
+  bool calcProjectionTargets(GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid, bool& supportHullValid);
   bool solveProjection(GaitParam& gaitParam, double dt, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight);
   ProjectionValidationResult validateProjectionCandidate(const GaitParam& gaitParam, double dt) const;
   void storeProjectionValidationResult(GaitParam& gaitParam, const ProjectionValidationResult& result) const;

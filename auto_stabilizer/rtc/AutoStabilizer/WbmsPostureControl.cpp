@@ -217,6 +217,10 @@ bool WbmsPostureControl::latchWalkingPreparationReturnStart(GaitParam& gaitParam
 
   gaitParam.wbmsWalkingPreparationStartChestRInFootMid = chestRInFootMid;
   gaitParam.wbmsWalkingPreparationStartRobotComInFootMid = robotComInFootMid;
+  gaitParam.wbmsWalkingPreparationTargetChestRInFootMid = chestRInFootMid;
+  gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid = robotComInFootMid;
+  gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.setZero();
+  gaitParam.wbmsWalkingPreparationReturnComVelocity.setZero();
   gaitParam.wbmsWalkingPreparationReturnAlpha = 0.0;
   return true;
 }
@@ -237,6 +241,72 @@ cnoid::Vector3 WbmsPostureControl::applyAccelerationLimit(const cnoid::Vector3& 
   return current + mathutil::clampMatrix<cnoid::Vector3>(diff, stepLimit);
 }
 
+cnoid::Vector3 WbmsPostureControl::calcVelocityLimitedStep(const cnoid::Vector3& error,
+                                                           const cnoid::Vector3& currentVelocity,
+                                                           const cnoid::Vector3& velocityLimit,
+                                                           const cnoid::Vector3& accelerationLimit,
+                                                           double dt,
+                                                           cnoid::Vector3& nextVelocity) const{
+  const double safeDt = std::max(dt, 1e-6);
+  cnoid::Vector3 nonNegativeVelocityLimit = velocityLimit.cwiseMax(cnoid::Vector3::Zero());
+  cnoid::Vector3 nonNegativeAccelerationLimit = accelerationLimit.cwiseMax(cnoid::Vector3::Zero());
+  cnoid::Vector3 desiredVelocity = cnoid::Vector3::Zero();
+  for(int i=0;i<3;i++){
+    if(nonNegativeAccelerationLimit[i] > 0.0){
+      const double stoppingVelocity = std::sqrt(2.0 * nonNegativeAccelerationLimit[i] * std::abs(error[i]));
+      desiredVelocity[i] = mathutil::clamp(error[i] >= 0.0 ? stoppingVelocity : -stoppingVelocity,
+                                           nonNegativeVelocityLimit[i]);
+    }else{
+      desiredVelocity[i] = mathutil::clamp(error[i] / safeDt, nonNegativeVelocityLimit[i]);
+    }
+  }
+  nextVelocity = this->applyAccelerationLimit(currentVelocity,
+                                              desiredVelocity,
+                                              nonNegativeAccelerationLimit,
+                                              safeDt);
+  return nextVelocity * safeDt;
+}
+
+bool WbmsPostureControl::updateWalkingPreparationReturnTarget(GaitParam& gaitParam, double dt) const{
+  if(!gaitParam.wbmsWalkingPreparationSnapshotValid) return false;
+  if(!gaitParam.wbmsWalkingPreparationTargetChestRInFootMid.allFinite() ||
+     !gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid.allFinite()) return false;
+
+  cnoid::Matrix3 chestErrorR =
+    gaitParam.wbmsStartChestRInFootMid * gaitParam.wbmsWalkingPreparationTargetChestRInFootMid.transpose();
+  cnoid::Vector3 chestErrorRpy = cnoid::rpyFromRot(chestErrorR);
+  cnoid::Vector3 nextTorsoVelocity = cnoid::Vector3::Zero();
+  cnoid::Vector3 torsoStep =
+    this->calcVelocityLimitedStep(chestErrorRpy,
+                                  gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity,
+                                  gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit,
+                                  gaitParam.wbmsWalkingPreparationTorsoAngularAccelerationLimit,
+                                  dt,
+                                  nextTorsoVelocity);
+  gaitParam.wbmsWalkingPreparationTargetChestRInFootMid =
+    cnoid::rotFromRpy(torsoStep) * gaitParam.wbmsWalkingPreparationTargetChestRInFootMid;
+  gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity = nextTorsoVelocity;
+
+  cnoid::Vector3 goalComInFootMid = gaitParam.wbmsWalkingPreparationNominalRobotComInFootMid;
+  goalComInFootMid[2] = gaitParam.heldRobotComHeightInFootMid;
+  cnoid::Vector3 comError = goalComInFootMid - gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid;
+  cnoid::Vector3 nextComVelocity = cnoid::Vector3::Zero();
+  cnoid::Vector3 comStep =
+    this->calcVelocityLimitedStep(comError,
+                                  gaitParam.wbmsWalkingPreparationReturnComVelocity,
+                                  gaitParam.wbmsWalkingPreparationComVelocityLimit,
+                                  gaitParam.wbmsWalkingPreparationComAccelerationLimit,
+                                  dt,
+                                  nextComVelocity);
+  gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid += comStep;
+  gaitParam.wbmsWalkingPreparationReturnComVelocity = nextComVelocity;
+
+  return gaitParam.wbmsWalkingPreparationTargetChestRInFootMid.allFinite() &&
+    gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid.allFinite() &&
+    gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.allFinite() &&
+    gaitParam.wbmsWalkingPreparationReturnComVelocity.allFinite();
+}
+
 void WbmsPostureControl::updateVelocityCommand(GaitParam& gaitParam, double dt, bool isABCRunning) const{
   gaitParam.wbmsVelocityCommandAge += dt;
 
@@ -251,13 +321,19 @@ void WbmsPostureControl::updateVelocityCommand(GaitParam& gaitParam, double dt, 
     desiredTorsoAngularVelocity = mathutil::clampMatrix<cnoid::Vector3>(gaitParam.wbmsRawTorsoAngularVelocityCommand, gaitParam.wbmsTorsoAngularVelocityLimit);
   }
 
+  cnoid::Vector3 comAccelerationLimit = gaitParam.wbmsComAccelerationLimit;
+  cnoid::Vector3 torsoAngularAccelerationLimit = gaitParam.wbmsTorsoAngularAccelerationLimit;
+  if(this->isWalkingPreparationActive(gaitParam)){
+    comAccelerationLimit = gaitParam.wbmsWalkingPreparationComAccelerationLimit;
+    torsoAngularAccelerationLimit = gaitParam.wbmsWalkingPreparationTorsoAngularAccelerationLimit;
+  }
   gaitParam.wbmsAppliedComVelocityCommand = this->applyAccelerationLimit(gaitParam.wbmsAppliedComVelocityCommand,
                                                                          desiredComVelocity,
-                                                                         gaitParam.wbmsComAccelerationLimit,
+                                                                         comAccelerationLimit,
                                                                          dt);
   gaitParam.wbmsAppliedTorsoAngularVelocityCommand = this->applyAccelerationLimit(gaitParam.wbmsAppliedTorsoAngularVelocityCommand,
                                                                                  desiredTorsoAngularVelocity,
-                                                                                 gaitParam.wbmsTorsoAngularAccelerationLimit,
+                                                                                 torsoAngularAccelerationLimit,
                                                                                  dt);
 }
 
@@ -298,7 +374,7 @@ bool WbmsPostureControl::updateSupportHull(const GaitParam& gaitParam){
   return true;
 }
 
-bool WbmsPostureControl::calcProjectionTargets(const GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid, bool& supportHullValid){
+bool WbmsPostureControl::calcProjectionTargets(GaitParam& gaitParam, double dt, cnoid::Matrix3& targetChestR, cnoid::Vector3& targetRobotCom, cnoid::Vector3& currentComInFootMid, cnoid::Matrix3& currentChestRInFootMid, bool& supportHullValid){
   supportHullValid = true;
   if(!this->wbmsPostureRobot_ || !gaitParam.wbmsPostureBaselineValid) return false;
   cnoid::LinkPtr chestLink = this->wbmsPostureRobot_->link(gaitParam.chestLinkName);
@@ -311,13 +387,8 @@ bool WbmsPostureControl::calcProjectionTargets(const GaitParam& gaitParam, doubl
   cnoid::Vector3 targetComInFootMid = currentComInFootMid;
 
   if(this->isWalkingPreparationReturningTargetActive(gaitParam)){
-    const double alpha = gaitParam.wbmsWalkingPreparationReturnAlpha;
-    cnoid::Matrix3 targetChestRInFootMid = this->interpolateRotation(gaitParam.wbmsWalkingPreparationStartChestRInFootMid,
-                                                                     gaitParam.wbmsStartChestRInFootMid,
-                                                                     alpha);
-    targetChestR = footMid.linear() * targetChestRInFootMid;
-    targetComInFootMid = gaitParam.wbmsWalkingPreparationStartRobotComInFootMid * (1.0 - alpha) +
-      gaitParam.wbmsWalkingPreparationNominalRobotComInFootMid * alpha;
+    targetChestR = footMid.linear() * gaitParam.wbmsWalkingPreparationTargetChestRInFootMid;
+    targetComInFootMid = gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid;
     targetComInFootMid[2] = gaitParam.heldRobotComHeightInFootMid;
   }else{
     cnoid::Matrix3 targetChestRInFootMidUnclamped =
@@ -458,6 +529,12 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
     gaitParam.wbmsTorsoOrientationMaxError[0] * dt,
     gaitParam.wbmsTorsoOrientationMaxError[1] * dt,
     gaitParam.wbmsTorsoOrientationMaxError[2] * dt;
+  if(this->isWalkingPreparationReturningTargetActive(gaitParam)){
+    this->chestConstraint_->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
+      gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit[0] * dt,
+      gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit[1] * dt,
+      gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit[2] * dt;
+  }
   this->chestConstraint_->precision() = 0.0;
   this->chestConstraint_->weight() << 0.0, 0.0, 0.0,
     gaitParam.wbmsTorsoOrientationWeight[0],
@@ -474,6 +551,11 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   this->comConstraint_->maxError() << gaitParam.wbmsComVelocityLimit[0] * dt,
     gaitParam.wbmsComVelocityLimit[1] * dt,
     gaitParam.wbmsComVelocityLimit[2] * dt;
+  if(this->isWalkingPreparationReturningTargetActive(gaitParam)){
+    this->comConstraint_->maxError() << gaitParam.wbmsWalkingPreparationComVelocityLimit[0] * dt,
+      gaitParam.wbmsWalkingPreparationComVelocityLimit[1] * dt,
+      gaitParam.wbmsWalkingPreparationComVelocityLimit[2] * dt;
+  }
   this->comConstraint_->precision() = 0.0;
   this->comConstraint_->weight() = gaitParam.wbmsComPositionWeight;
   this->comConstraint_->eval_R() = cnoid::Matrix3::Identity();
@@ -685,7 +767,8 @@ void WbmsPostureControl::applyStaticComZmpIntegration(GaitParam& gaitParam, doub
   cnoid::Vector3 projectedGenCog = gaitParam.wbmsProjectedRobotCom - gaitParam.sbpOffset;
   cnoid::Vector3 projectedGenCogVel = gaitParam.footMidCoords.value().linear() * gaitParam.wbmsRealizedComVelocity;
   cnoid::Vector3 projectedGenCogAccRaw = (projectedGenCogVel - nominalGenCogVel) / std::max(dt, 1e-6);
-  cnoid::Vector3 projectedGenCogAccLimit = gaitParam.wbmsComAccelerationLimit.cwiseMax(cnoid::Vector3::Constant(1e-6));
+  cnoid::Vector3 projectedGenCogAccLimit =
+    (this->isWalkingPreparationActive(gaitParam) ? gaitParam.wbmsWalkingPreparationComAccelerationLimit : gaitParam.wbmsComAccelerationLimit).cwiseMax(cnoid::Vector3::Constant(1e-6));
   cnoid::Vector3 projectedGenCogAcc = mathutil::clampMatrix(projectedGenCogAccRaw, projectedGenCogAccLimit);
 
   gaitParam.genCog = nominalGenCog * (1.0 - operationMode) + projectedGenCog * operationMode;
@@ -751,8 +834,12 @@ void WbmsPostureControl::applyWalkingComHeightHoldToGenCog(GaitParam& gaitParam,
   const double oldGenCogZ = gaitParam.genCog[2];
   const double oldGenCogVelZ = gaitParam.genCogVel[2];
   double desiredVelZ = (desiredGenCogZ - oldGenCogZ) / dt;
-  desiredVelZ = mathutil::clamp(desiredVelZ, gaitParam.wbmsComVelocityLimit[2]);
-  double maxVelStep = std::max(gaitParam.wbmsComAccelerationLimit[2], 0.0) * dt;
+  const cnoid::Vector3 velocityLimit =
+    this->isWalkingPreparationActive(gaitParam) ? gaitParam.wbmsWalkingPreparationComVelocityLimit : gaitParam.wbmsComVelocityLimit;
+  const cnoid::Vector3 accelerationLimit =
+    this->isWalkingPreparationActive(gaitParam) ? gaitParam.wbmsWalkingPreparationComAccelerationLimit : gaitParam.wbmsComAccelerationLimit;
+  desiredVelZ = mathutil::clamp(desiredVelZ, velocityLimit[2]);
+  double maxVelStep = std::max(accelerationLimit[2], 0.0) * dt;
   double newVelZ = oldGenCogVelZ + mathutil::clamp(desiredVelZ - oldGenCogVelZ, maxVelStep);
   double newGenCogZ = oldGenCogZ + newVelZ * dt;
   if((desiredGenCogZ - oldGenCogZ) * (desiredGenCogZ - newGenCogZ) < 0.0){
@@ -766,7 +853,8 @@ void WbmsPostureControl::applyWalkingComHeightHoldToGenCog(GaitParam& gaitParam,
 
 void WbmsPostureControl::updateWalkingPreparationReadiness(GaitParam& gaitParam, double dt) const{
   if(!this->isWalkingPreparationActive(gaitParam)) return;
-  if(gaitParam.wbmsWalkingPreparationPhase != GaitParam::WBMS_WALKING_PREPARATION_HANDOFF){
+  if(gaitParam.wbmsWalkingPreparationPhase != GaitParam::WBMS_WALKING_PREPARATION_RETURNING &&
+     gaitParam.wbmsWalkingPreparationPhase != GaitParam::WBMS_WALKING_PREPARATION_HANDOFF){
     return;
   }
   if(!gaitParam.genRobot || !gaitParam.wbmsWalkingPreparationSnapshotValid){
@@ -796,20 +884,47 @@ void WbmsPostureControl::updateWalkingPreparationReadiness(GaitParam& gaitParam,
   gaitParam.wbmsWalkingPreparationRootError =
     cnoid::AngleAxis(gaitParam.genRobot->rootLink()->R() * gaitParam.stTargetRootPose.linear().transpose()).angle();
 
-  bool ready = gaitParam.wbmsAppliedComVelocityCommand.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
+  double refZmpTrajTotalTime = 0.0;
+  for(size_t i=0;i<gaitParam.refZmpTraj.size();i++) refZmpTrajTotalTime += gaitParam.refZmpTraj[i].getTime();
+  bool dynamicsFinite = gaitParam.genCog.allFinite() &&
+    std::isfinite(gaitParam.refdz) && gaitParam.refdz > 0.0 &&
+    gaitParam.l.allFinite() &&
+    std::isfinite(gaitParam.omega) && gaitParam.omega > 0.0 &&
+    refZmpTrajTotalTime > 0.0;
+
+  bool readyCondition = gaitParam.wbmsAppliedComVelocityCommand.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
     gaitParam.wbmsAppliedTorsoAngularVelocityCommand.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
+    gaitParam.wbmsWalkingPreparationReturnComVelocity.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
+    gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
     gaitParam.wbmsWalkingPreparationChestError <= gaitParam.wbmsWalkingPreparationChestErrorEps &&
     gaitParam.wbmsWalkingPreparationComXYError <= gaitParam.wbmsWalkingPreparationComXYErrorEps &&
     gaitParam.wbmsWalkingPreparationComZError <= gaitParam.wbmsWalkingPreparationComZErrorEps &&
     gaitParam.wbmsWalkingPreparationRootError <= gaitParam.wbmsWalkingPreparationRootErrorEps &&
     gaitParam.wbmsProjectionCandidateSafe &&
     gaitParam.debugData.wbmsFinalIKMaxJointDelta <= gaitParam.wbmsWalkingPreparationMaxJointDeltaEps &&
-    gaitParam.wbmsWalkingPreparationHandoffAlpha >= 1.0;
-  if(ready){
+    dynamicsFinite;
+
+  if(!dynamicsFinite){
+    this->failWalkingPreparation(gaitParam, GaitParam::WBMS_WALKING_PREPARATION_FAILURE_NONFINITE);
+    return;
+  }
+
+  if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_RETURNING){
+    if(readyCondition){
+      this->setWalkingPreparationPhase(gaitParam, GaitParam::WBMS_WALKING_PREPARATION_HANDOFF);
+      gaitParam.wbmsWalkingPreparationReturnAlpha = 1.0;
+      gaitParam.wbmsWalkingPreparationHandoffAlpha = 1.0;
+    }else{
+      gaitParam.wbmsWalkingPreparationSettleElapsedTime = 0.0;
+    }
+    return;
+  }
+
+  if(readyCondition){
     gaitParam.wbmsWalkingPreparationSettleElapsedTime += dt;
     if(gaitParam.wbmsWalkingPreparationSettleElapsedTime >= gaitParam.wbmsWalkingPreparationSettleTime){
       gaitParam.wbmsWalkingPreparationPhase = GaitParam::WBMS_WALKING_PREPARATION_READY;
-      gaitParam.wbmsWalkingPreparationReleaseRequested = true;
+      gaitParam.wbmsWalkingPreparationReleaseRequested = false;
       gaitParam.wbmsWalkingPreparationPhaseElapsedTime = 0.0;
     }
   }else{
@@ -852,18 +967,22 @@ void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning
   }
 
   if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_RETURNING){
-    gaitParam.wbmsWalkingPreparationReturnAlpha =
-      mathutil::clamp(gaitParam.wbmsWalkingPreparationPhaseElapsedTime / std::max(gaitParam.wbmsWalkingPreparationReturnTime, dt), 0.0, 1.0);
-    if(gaitParam.wbmsWalkingPreparationReturnAlpha >= 1.0){
-      this->setWalkingPreparationPhase(gaitParam, GaitParam::WBMS_WALKING_PREPARATION_HANDOFF);
-      gaitParam.wbmsWalkingPreparationReturnAlpha = 1.0;
+    if(!this->updateWalkingPreparationReturnTarget(gaitParam, dt)){
+      this->failWalkingPreparation(gaitParam, GaitParam::WBMS_WALKING_PREPARATION_FAILURE_NONFINITE);
+      return;
     }
+    const double chestTargetError =
+      cnoid::AngleAxis(gaitParam.wbmsWalkingPreparationTargetChestRInFootMid * gaitParam.wbmsStartChestRInFootMid.transpose()).angle();
+    const double comTargetError =
+      (gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid.head<2>() - gaitParam.wbmsWalkingPreparationNominalRobotComInFootMid.head<2>()).norm();
+    const double progressError = std::max(chestTargetError / std::max(gaitParam.wbmsWalkingPreparationChestErrorEps, 1e-6),
+                                          comTargetError / std::max(gaitParam.wbmsWalkingPreparationComXYErrorEps, 1e-6));
+    gaitParam.wbmsWalkingPreparationReturnAlpha = mathutil::clamp(1.0 - progressError, 0.0, 1.0);
   }
 
   if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_HANDOFF){
     gaitParam.wbmsWalkingPreparationReturnAlpha = 1.0;
-    gaitParam.wbmsWalkingPreparationHandoffAlpha =
-      mathutil::clamp(gaitParam.wbmsWalkingPreparationPhaseElapsedTime / std::max(gaitParam.wbmsWalkingPreparationHandoffTime, dt), 0.0, 1.0);
+    gaitParam.wbmsWalkingPreparationHandoffAlpha = 1.0;
   }
 
   if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_DECELERATING ||
@@ -871,13 +990,18 @@ void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning
     gaitParam.wbmsOperationModeValue = gaitParam.wbmsMode.value();
   }else if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_HANDOFF ||
            gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY){
-    gaitParam.wbmsOperationModeValue = gaitParam.wbmsMode.value() * (1.0 - gaitParam.wbmsWalkingPreparationHandoffAlpha);
+    gaitParam.wbmsOperationModeValue = 0.0;
   }else{
     gaitParam.wbmsOperationModeValue = gaitParam.wbmsMode.value() * (1.0 - gaitParam.wbmsWalkingStabilityModeValue);
   }
 
-  if(this->solveProjection(gaitParam, dt, referenceDqWeight)){
+  bool projectionSolved = this->solveProjection(gaitParam, dt, referenceDqWeight);
+  if(projectionSolved){
     this->applyStaticComZmpIntegration(gaitParam, dt);
+  }else if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_RETURNING ||
+           gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_HANDOFF ||
+           gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY){
+    this->failWalkingPreparation(gaitParam, GaitParam::WBMS_WALKING_PREPARATION_FAILURE_UNSAFE);
   }
 
   if(this->isWalkingPreparationActive(gaitParam)){

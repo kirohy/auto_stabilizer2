@@ -1144,7 +1144,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
         for(size_t i=0;i<gaitParam.refZmpTraj.size();i++) refZmpTrajTotalTime += gaitParam.refZmpTraj[i].getTime();
       }
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(90);
+      ports.m_wbmsDebug_.data.length(96);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1208,6 +1208,15 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingApiAcceptedReadyEvent ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPreparationStartEvent ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPreparationCancelEvent ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(std::max(gaitParam.wbmsAppliedComVelocityCommand.norm(),
+                                                               gaitParam.wbmsAppliedTorsoAngularVelocityCommand.norm()));
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(std::max(gaitParam.wbmsWalkingPreparationReturnComVelocity.norm(),
+                                                               gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.norm()));
+      ports.m_wbmsDebug_.data[index++] = (gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY ||
+                                          gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD) ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsWalkingPreparationSnapshotValid ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationSettleElapsedTime);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingStartDelayRemainTime);
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){
@@ -1957,6 +1966,18 @@ bool AutoStabilizer::setAutoStabilizerParam(const auto_stabilizer::AutoStabilize
   this->gaitParam_.wbmsWalkingPreparationComZErrorEps = std::max(i_param.wbms_walking_preparation_com_z_error_eps, 0.0);
   this->gaitParam_.wbmsWalkingPreparationRootErrorEps = std::max(i_param.wbms_walking_preparation_root_error_eps, 0.0);
   this->gaitParam_.wbmsWalkingPreparationMaxJointDeltaEps = std::max(i_param.wbms_walking_preparation_max_joint_delta_eps, 0.0);
+  setNonNegativeVector3Param(i_param.wbms_walking_preparation_torso_angular_velocity_limit,
+                             this->gaitParam_.wbmsWalkingPreparationTorsoAngularVelocityLimit,
+                             "wbms_walking_preparation_torso_angular_velocity_limit");
+  setNonNegativeVector3Param(i_param.wbms_walking_preparation_torso_angular_acceleration_limit,
+                             this->gaitParam_.wbmsWalkingPreparationTorsoAngularAccelerationLimit,
+                             "wbms_walking_preparation_torso_angular_acceleration_limit");
+  setNonNegativeVector3Param(i_param.wbms_walking_preparation_com_velocity_limit,
+                             this->gaitParam_.wbmsWalkingPreparationComVelocityLimit,
+                             "wbms_walking_preparation_com_velocity_limit");
+  setNonNegativeVector3Param(i_param.wbms_walking_preparation_com_acceleration_limit,
+                             this->gaitParam_.wbmsWalkingPreparationComAccelerationLimit,
+                             "wbms_walking_preparation_com_acceleration_limit");
   if(std::isfinite(i_param.wbms_velocity_command_timeout)){
     this->gaitParam_.wbmsVelocityCommandTimeout = std::max(i_param.wbms_velocity_command_timeout, 0.0);
     if(!this->gaitParam_.wbmsVelocityCommandValid && this->gaitParam_.wbmsVelocityCommandAge <= this->gaitParam_.wbmsVelocityCommandTimeout){
@@ -2237,6 +2258,10 @@ bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerServi
   i_param.wbms_walking_preparation_max_joint_delta_eps = this->gaitParam_.wbmsWalkingPreparationMaxJointDeltaEps;
   i_param.wbms_velocity_command_timeout = this->gaitParam_.wbmsVelocityCommandTimeout;
   i_param.wbms_com_xy_support_margin = this->gaitParam_.wbmsComXYSupportMargin;
+  i_param.wbms_walking_preparation_torso_angular_velocity_limit.length(3);
+  i_param.wbms_walking_preparation_torso_angular_acceleration_limit.length(3);
+  i_param.wbms_walking_preparation_com_velocity_limit.length(3);
+  i_param.wbms_walking_preparation_com_acceleration_limit.length(3);
   i_param.wbms_torso_angular_velocity_limit.length(3);
   i_param.wbms_torso_angular_acceleration_limit.length(3);
   i_param.wbms_torso_rpy_lower_limit.length(3);
@@ -2249,6 +2274,10 @@ bool AutoStabilizer::getAutoStabilizerParam(auto_stabilizer::AutoStabilizerServi
   i_param.wbms_com_offset_upper_limit.length(3);
   i_param.wbms_com_position_weight.length(3);
   for(int i=0;i<3;i++){
+    i_param.wbms_walking_preparation_torso_angular_velocity_limit[i] = this->gaitParam_.wbmsWalkingPreparationTorsoAngularVelocityLimit[i];
+    i_param.wbms_walking_preparation_torso_angular_acceleration_limit[i] = this->gaitParam_.wbmsWalkingPreparationTorsoAngularAccelerationLimit[i];
+    i_param.wbms_walking_preparation_com_velocity_limit[i] = this->gaitParam_.wbmsWalkingPreparationComVelocityLimit[i];
+    i_param.wbms_walking_preparation_com_acceleration_limit[i] = this->gaitParam_.wbmsWalkingPreparationComAccelerationLimit[i];
     i_param.wbms_torso_angular_velocity_limit[i] = this->gaitParam_.wbmsTorsoAngularVelocityLimit[i];
     i_param.wbms_torso_angular_acceleration_limit[i] = this->gaitParam_.wbmsTorsoAngularAccelerationLimit[i];
     i_param.wbms_torso_rpy_lower_limit[i] = this->gaitParam_.wbmsTorsoRpyLowerLimit[i];
