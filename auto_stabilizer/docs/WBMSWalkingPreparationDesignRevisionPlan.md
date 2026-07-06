@@ -6,6 +6,8 @@
 
 正式な新マイルストーン番号は追加しない。本作業は `M4.2.2設計修正` と呼ぶ。
 
+この文書は設計判断、修正方針、acceptance criteria、次スレッドへの実装引き継ぎを扱う。シミュレータログの数値詳細、時刻表、実施済み作業の経過は `WBMSFeasibleVelocityPostureControlProgress.md` に記録する。
+
 既存文書とこの文書が矛盾する場合、次の点についてはこの文書を優先する。
 
 - WBMS中に歩行準備がREADYでない場合、歩行APIを実行しない。
@@ -464,3 +466,114 @@ rg -n "startWbmsWalkingPreparation|cancelWbmsWalkingPreparation|getWbmsWalkingPr
 - FAILED後の `startWbmsWalkingPreparation()` 再実行を許可するか。
 - 初期limit値は既存 `wbmsComVelocityLimit`、`wbmsComAccelerationLimit`、`wbmsTorsoAngularVelocityLimit`、`wbmsTorsoAngularAccelerationLimit` の流用から始めてよいか。
 
+## 11. 追加検証で判明した修正項目
+
+この章は、M4.2.2設計修正の実装後にシミュレータ検証を進める中で判明した追加修正を扱う。事前に独立した計画書で区切ったタスクではないが、安全上重要であり、次スレッドではこの章を実装起点として扱う。
+
+詳細なログ解析値は `WBMSFeasibleVelocityPostureControlProgress.md` の次の節を参照する。
+
+- `M4.2.2設計修正後 simulatorログ解析記録 2026-07-06 16:42`
+- `M4.2.2設計修正後 simulatorログ解析記録 2026-07-06 17:00`
+
+### 11.1 文書の役割分担
+
+項目ごとの記録先は次の通りとする。
+
+| 項目 | 記録先 |
+|---|---|
+| ログ名、試験条件、主要時刻、最大値、PASS/FAIL | `WBMSFeasibleVelocityPostureControlProgress.md` |
+| 破綻経路の推定、設計上の原因候補 | 本文書 |
+| 修正方針、実装対象、acceptance criteria | 本文書 |
+| 実装後のbuild結果、simulator再検証結果 | `WBMSFeasibleVelocityPostureControlProgress.md` |
+| 次スレッドで最初に読むべき入口 | 本文書の11章とProgress文書の該当ログ節 |
+
+### 11.2 READY前footstep進行抑制
+
+検証ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061642*
+```
+
+判明した問題:
+
+- `startWbmsWalkingPreparation()` だけでREADY前に `footstepNodesList` が1から11へ増加した。
+- support phaseもREADY前に変化し、歩行API accepted前に足踏み相へ入った。
+- READY前歩行API gateは効いていたが、通常AutoBalancer経路の `FootStepGenerator::procFootStepNodesList()` と `FootStepGenerator::calcFootSteps()` からの自動footstep生成は抑止できていなかった。
+
+修正方針:
+
+- `REQUESTED`、`DECELERATING`、`RETURNING`、`HANDOFF`、`READY` 中は通常のfootstep時系列更新と自動footstep生成を止める。
+- `READY` 後に明示的なwalking APIが受理され、phaseが `WALKING_HOLD` へ移った後だけ、既存のfootstep進行と `goVelocity(0.0, 0.0, 0.0)` 由来の足踏み開始を許可する。
+- footstep進行抑制は、歩行API gateとは別の安全条件として扱う。
+
+進捗:
+
+- 実装済み。
+- `GaitParam::shouldKeepFootStepsStaticForWbmsWalkingPreparation()` を追加し、該当phase中は `AutoStabilizer::execAutoStabilizer()` で `procFootStepNodesList()` / `calcFootSteps()` を呼ばないようにした。
+- `catkin build auto_stabilizer --no-deps` は成功済み。
+- `test_start_walking202607061700*` でREADY前に `footstepNodesList.size()` が1のまま保持されることを確認済み。
+
+acceptance criteria:
+
+- `startWbmsWalkingPreparation()` だけではREADY前に `footstepNodesList.size()` が増えない。
+- READY前に support phase が変化しない。
+- READY前の `goVelocity` / `goPos` / `setFootSteps` はrejectされる。
+- READYになっただけではfootstep生成しない。
+- READY後に `goVelocity(0.0, 0.0, 0.0)` がacceptedされた場合は、既存どおり足踏み開始する。
+
+### 11.3 RETURNING中の急激な姿勢復帰と腕振動
+
+検証ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061700*
+```
+
+判明した問題:
+
+- READY前footstep生成は解消したが、`startWbmsWalkingPreparation()` 直後から1.3-1.6s付近にCHEST/root/脚関節が急変した。
+- `el_q` と `ast_q` はほぼ一致しており、AutoStabilizerの出力段階で既に急な関節角指令になっている。
+- 腕姿勢指令なしでも、右腕上腕部を含む腕関節が1.7-3.0sで大きく振動的に変化した。
+- pre-walk return targetの速度制限値は0.1rad/s級である一方、最終IK後のCHEST pitch実現速度は3rad/s超まで出ており、target側の速度制限だけでは実ロボットへ送る関節角の安全速度を保証できていない。
+
+原因候補:
+
+- RETURNING開始後、`wbmsOperationModeValue=1.0` のまま `wbmsWalkingStabilityModeValue` が0から1へrampし、final IK内のroot姿勢拘束weightが立ち上がる。
+- CHEST/COM return target、root姿勢拘束、COM拘束、上半身EEのCHEST相対拘束が同時に効き、IK解が体幹と腕関節を急激に動かしている。
+- 上半身EE拘束はWBMS中にCHEST相対で維持されるため、体幹/rootが急に戻ると、腕指令なしでも腕関節が補償動作を行う。
+- READY条件は最終IK後joint deltaを見ているが、RETURNING中の実現CHEST速度や関節一周期差分を安全監視していない。
+
+修正方針:
+
+- root姿勢復帰もpre-walk returnの制御対象として扱い、速度・加速度limitを通す。
+- `wbmsWalkingStabilityModeValue` の立ち上げをRETURNING開始直後から無条件に進めない。root姿勢復帰targetと整合するように、phaseまたはroot errorに応じてramp開始条件・速度を制限する。
+- RETURNING中も final IK後CHEST実現速度、final IK後COM実現速度、final IK後一周期最大関節差分を安全監視する。
+- 安全監視が閾値を超えた場合、READY待ちを継続するだけでなく、必要に応じて `FAILED/UNSAFE` へ落とす。
+- 腕EE拘束は「clearしない」方針を維持する。ただし歩行準備中の急な体幹復帰を増幅しないよう、weight ramp、maxError制限、または歩行準備開始時のCHEST相対目標再ラッチを検討する。
+- `wbmsWalkingPreparationReturnTorsoAngularVelocity` だけを安全判定に使わず、最終IK後に実際に出る速度と関節差分を制御・判定対象に含める。
+
+次スレッドでの実装候補:
+
+1. `GaitParam` にroot return target姿勢、root return角速度、実現速度監視用debug値を追加する。
+2. `WbmsPostureControl` のRETURNING処理で、CHEST/COMに加えてroot姿勢targetを速度・加速度limitで更新する。
+3. `wbmsWalkingStabilityModeValue` の目標値またはramp時間を、root return targetの進行と同期させる。
+4. `updateWbmsFinalIKDiagnostics()` または同等の経路で、RETURNING中の実現CHEST速度・COM速度・関節差分が閾値を超えた場合にunsafe扱いできるようにする。
+5. 腕EE拘束については、まずdebugで歩行準備中の腕EE constraint error / weight / maxErrorを確認できるようにし、weight rampかtarget再ラッチのどちらが必要か判断する。
+
+acceptance criteria:
+
+- `startWbmsWalkingPreparation()` 直後に、final IK後CHEST実現速度が設定した安全閾値を超えない。
+- `el_q` 相当の一周期最大関節差分が、RETURNING全期間で安全閾値以下に収まる。
+- 腕指令なし条件で、RARM/LARMの上腕関節が0.1rad級に振動しない。
+- 体幹復帰が「急動作の後に低速復帰」の2段階に見えず、速度制限に従った一貫した復帰になる。
+- READY前footstep抑制、READY前walking API reject、READY後 `goVelocity(0.0, 0.0, 0.0)` acceptは退行しない。
+- COM Z保持、`refdz`、`l.z`、`omega` の整合は維持する。
+- 腕EE commandと `wbmsMode` はclearしない。ただし歩行準備中の腕拘束weightやtargetを安全側に調整する場合、その仕様を明示する。
+
+未確定事項:
+
+- root return用の速度・加速度limitを既存pre-walk torso limitと共用するか、専用parameterを追加するか。
+- RETURNING中の安全監視閾値を既存READY閾値から流用するか、専用parameterを追加するか。
+- 腕EE拘束の対策をweight ramp、maxError制限、target再ラッチのどれから試すか。
+- 実機向け安全閾値を、シミュレータ初期値からどこまで保守的に設定するか。

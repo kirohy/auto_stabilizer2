@@ -2245,6 +2245,178 @@ review全文や生ログは貼らず、判断と処置のみ記録する。
 - 腕EE操作を継続したまま、歩行準備、READY、歩行開始を行い、腕commandとCHEST相対拘束が維持されることを確認する。
 - 必要に応じてpre-walk専用limit parameterをrobot/simulatorに合わせて調整する。
 
+## M4.2.2設計修正後 simulatorログ解析記録 2026-07-06 16:42
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061642*
+```
+
+試験条件:
+
+- 事前に体幹を前傾させた姿勢から開始。
+- ログ開始から約1秒後に `startWbmsWalkingPreparation()` を呼ぶ。
+- 5秒後から `goVelocity(0.0, 0.0, 0.0)` を `true` になるまで0.1秒周期で呼ぶ。
+- WBMS parameterは初期値、腕姿勢指令なし。
+
+総合判定はFAILである。
+
+READY前の歩行API gate自体は期待通り動作した。`goVelocity(0.0, 0.0, 0.0)` は相対時刻6.009-6.714sに8回rejectされ、READY後の6.816sに1回acceptされた。FAILED flagは全周期0、failure codeも0であった。
+
+一方で、`startWbmsWalkingPreparation()` だけでREADY前に footstep が生成されている。相対時刻1.005sにRETURNINGへ入り、1.377sで `footstepNodesList.size()` が1から11へ増えた。その後、1.533sにLLEG supportがfalse、2.473sにRLEG supportがfalseへ変化しており、歩行API accepted前に足踏み相へ入っている。この挙動は「READYになるだけでは自動歩行開始しない」「`startWbmsWalkingPreparation()` は歩行準備状態だけを開始する」というM4.2.2設計修正仕様に反する。
+
+主要時刻:
+
+| 相対時刻[s] | 事象 |
+|---:|---|
+| 0.000 | INACTIVE、`footstepNodesList.size()=1` |
+| 1.005 | `startWbmsWalkingPreparation()` event、RETURNING開始、held COM height=0.921282m |
+| 1.377 | `footstepNodesList.size()` が1から11へ増加 |
+| 1.533 | LLEG support=false |
+| 2.473 | RLEG support=false |
+| 5.407 | `footstepNodesList.size()` が一旦1へ戻る |
+| 6.009-6.714 | READY前 `goVelocity(0,0,0)` reject 8回 |
+| 6.546 | HANDOFF |
+| 6.731 | READY flag true |
+| 6.816 | `goVelocity(0,0,0)` accepted、WALKING_HOLD、`footstepNodesList.size()` が1から7へ増加 |
+| 7.785 | READY後歩行でRLEG support=false |
+
+最大値・範囲:
+
+| 項目 | 値 |
+|---|---|
+| CHEST error | max 0.265233rad、READY時0.028246rad |
+| COM XY error | max 0.000026m |
+| COM Z hold error | max 0.000312m |
+| held COM height | 0.921282m |
+| current COM height | 0.920970-0.921313m |
+| return velocity max | 0.100010m/sまたはrad/s |
+| final IK後CHEST実現角速度 | max 1.11207rad/s at 1.348s |
+| final IK後COM実現速度 | max 0.153142m/s at 1.348s |
+| final IK max joint delta | max 0.010294rad |
+| `ast_q` 一周期最大差分 | max 0.010293rad、joint 2、t=1.298s |
+| `refdz` / `l.z` | 0.921028-0.921298m |
+| `omega` | 3.262573-3.263051 |
+| `refZmpTraj` 総時間 | 0.598-1.598s |
+| target ZMP一周期最大jump | 0.155685m at 5.259s |
+| actual COM一周期最大jump | 0.014736m |
+| act-gen DCM error | max 0.073947m |
+| projector time | mean 0.352ms、p99 0.769ms、max 2.145ms |
+| final IK time | mean 0.779ms、p99 1.394ms、max 1.973ms |
+| onExecute time | mean 1.442ms、p95 2.102ms、p99 2.438ms、max 6.257ms、2ms超過225周期 |
+
+COM Z保持は概ね良好であり、`heldRobotComHeightInFootMid`、`refdz`、`l.z`、`omega` は大きく破綻していない。actual DCMも発散は見えない。ただし、READY前 footstep生成によりtarget ZMPが周期間で最大15.6cm飛び、support phaseも変化しているため、ZMP/footstep時系列としては異常ありと判定する。
+
+前傾角度が狭い件は、初期値 `wbmsTorsoRpyUpperLimit.y = 0.25rad` が主要原因候補である。ログ上のCHEST pitch offset最大は0.265rad程度であり、約15deg相当で頭打ちになっている。これは実行時parameter調整で扱うため、この記録時点ではコード修正対象にしない。
+
+最小原因候補:
+
+- `AutoStabilizer::execAutoStabilizer()` の通常AutoBalancer経路で、歩行準備中も `FootStepGenerator::procFootStepNodesList()` と `FootStepGenerator::calcFootSteps()` が通常通り実行されていた。
+- READY前歩行API gateはfootstep生成API入口には効くが、CP/emergency stepやmodify footstepの自動生成経路には効いていなかった。
+- CHEST return target速度は0.1rad/s程度に制限されているが、final IK後の実現CHEST角速度が1.11rad/sまで出ており、別途実現速度側の監視または制限が必要である。
+- 500Hz周期に対して `onExecute` はp95で2msを超えており、実時間余裕は未達である。
+
+このログを受けた修正方針:
+
+- `REQUESTED`、`DECELERATING`、`RETURNING`、`HANDOFF`、`READY` 中は通常の footstep 時系列更新と自動footstep生成を止め、`footstepNodesList` を静止状態に保持する。
+- `READY` 後に明示的な walking API が受理されて `WALKING_HOLD` へ入った場合だけ、従来どおり `goVelocity(0,0,0)` の足踏み開始を許可する。
+- 前傾角上限初期値は変更しない。大きな前傾試験では実行時に `wbmsTorsoRpyUpperLimit.y` を調整する。
+
+## M4.2.2設計修正後 simulatorログ解析記録 2026-07-06 17:00
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061700*
+```
+
+試験条件:
+
+- 事前に体幹を前傾させた姿勢から開始。
+- ログ開始から約1秒後に `startWbmsWalkingPreparation()` を呼ぶ。
+- 5秒後から `goVelocity(0.0, 0.0, 0.0)` を `true` になるまで0.1秒周期で呼ぶ。
+- 前回問題になった前傾角度制限は、実行時parameterで `wbmsTorsoRpyUpperLimit.y` を広げて確認。
+- 腕姿勢指令なし。
+
+総合判定はFAILである。ただし前回 `test_start_walking202607061642*` で発生した、READY前の想定外footstep生成は解消している。
+
+主要時刻:
+
+| 相対時刻[s] | 事象 |
+|---:|---|
+| 0.000 | INACTIVE、`footstepNodesList.size()=1` |
+| 1.004 | `startWbmsWalkingPreparation()` event、RETURNING開始 |
+| 1.3-1.6 | CHEST/root/脚関節の急変、右腕を含む腕関節の大きな変化が集中 |
+| 6.008-7.123 | READY前 `goVelocity(0,0,0)` reject 12回 |
+| 7.012 | HANDOFF |
+| 7.133 | READY flag true |
+| 7.218 | `goVelocity(0,0,0)` accepted、WALKING_HOLD、`footstepNodesList.size()` が1から7へ増加 |
+| 8.151 | READY後歩行でRLEG support=false |
+
+footstep関連:
+
+- `startWbmsWalkingPreparation()` 後からREADYまでは `footstepNodesList.size()` は1のまま。
+- support phaseもREADY後歩行開始まで両脚支持のまま。
+- READY後の `goVelocity(0,0,0)` acceptedで `footstepNodesList.size()` が1から7、直後に8へ増加し、既存の足踏み開始挙動に戻った。
+
+最大値・範囲:
+
+| 項目 | 値 |
+|---|---|
+| CHEST pitch offset | 0.468rad付近から1.56sに0.176rad付近へ急減 |
+| CHEST error | max 0.467997rad、READY時0.014630rad |
+| COM XY error | max 0.000015m |
+| COM Z hold error | max 0.000649m |
+| held COM height | 0.921258m |
+| current COM height | 0.920609-0.921415m |
+| final IK後CHEST実現角速度 | max 3.427rad/s at 1.560s |
+| final IK後COM実現速度 | max 0.103318m/s |
+| final IK max joint delta | max 0.011342rad |
+| `el_q` 一周期最大差分 | max 0.011343rad、RLEG_JOINT2、t=1.334s |
+| `RobotHardware0_q` 一周期最大差分 | max 0.017471rad、LLEG_JOINT2、t=1.321s |
+| target ZMP一周期最大jump | 0.078117m |
+| actual DCM一周期最大jump | 0.029595m |
+| projector time | mean 0.348ms、p99 0.691ms、max 0.932ms |
+| final IK time | mean 0.775ms、p99 1.334ms、max 2.114ms |
+| onExecute time | mean 1.417ms、p95 2.048ms、p99 2.387ms、max 3.416ms、2ms超過216周期 |
+
+腕関節の観測:
+
+- `el_q` と `ast_q` はほぼ一致しており、RTC出力段階で急な関節角指令になっている。
+- 右腕は1.7-3.0sで特に振動的に変化した。
+- 右腕上腕部を含む関節変化は、腕指令なしでも発生した。
+
+代表値:
+
+| 関節 | 1.7-3.0sの範囲 |
+|---|---:|
+| RARM_JOINT0 | span 0.145rad |
+| RARM_JOINT1 | span 0.160rad |
+| RARM_JOINT3 | span 0.109rad |
+| RARM_JOINT6 | span 0.124rad |
+| LARM_JOINT0 | span 0.146rad |
+| LARM_JOINT1 | span 0.160rad |
+| LARM_JOINT3 | span 0.110rad |
+| LARM_JOINT6 | span 0.124rad |
+
+原因候補:
+
+- `wbmsWalkingPreparationReturnTorsoAngularVelocity` は0.1rad/s程度に制限されているが、最終IK後の実現CHEST pitch速度は3.43rad/sまで出ている。したがって、pre-walk return targetの速度制限だけでは、実際の `el_q` とCHEST実現速度を安全に制限できていない。
+- RETURNING開始後、`wbmsOperationModeValue=1.0` のまま `wbmsWalkingStabilityModeValue` が0から1へrampする。これにより、final IK内のroot姿勢拘束weightが立ち上がり、CHEST/COM/root/腕EE拘束が同時に強く効く。
+- 腕指令なしでもWBMS active中は上半身EE拘束がCHEST相対で維持される。体幹/rootが急に戻ると、手先相対拘束を満たすために腕関節が補償し、右腕上腕部の振動として現れた可能性が高い。
+- 1.3-1.6sでは脚hip pitch、CHEST pitch、root pitchが同時に大きく変化しており、急激に直立へ近づいた後、`wbmsWalkingStabilityModeValue` が十分立ち上がった状態で0.1rad/s級のゆっくりした戻りに切り替わったため、目視上「急動作の後に低速復帰」の2段階に見えたと考えられる。
+
+このログから設計文書へ移した暫定修正候補:
+
+- READY前のroot姿勢拘束立ち上げを、CHEST/COM returnと同じ速度・加速度制限の管理下に入れる。
+- `wbmsWalkingStabilityModeValue` をRETURNING開始直後から上げない、またはroot errorが安全速度で減るように専用rate limitを入れる。
+- READY条件だけでなくRETURNING中も、final IK後CHEST速度、final IK後COM速度、`el_q` 相当の一周期関節差分を監視し、閾値超過時はFAILED/UNSAFEへ落とす。
+- 腕EE拘束は歩行準備中に急な体幹復帰を増幅し得るため、歩行準備中はweight ramp、maxError制限、または保持姿勢の再ラッチ方針を検討する。
+- `wbmsWalkingPreparationReturnTorsoAngularVelocity` だけを安全判定に使わず、最終IK後に実際に出るCHEST速度と関節差分を安全判定へ含める。
+
+この修正候補は、事前に計画書で区切ったタスクではなく、シミュレータ検証中に発見された追加修正である。正式な修正方針、実装候補、acceptance criteriaは `WBMSWalkingPreparationDesignRevisionPlan.md` の「11. 追加検証で判明した修正項目」へ移した。次スレッドでは、詳細ログ値は本節、実装方針は同設計文書11章を参照する。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
