@@ -175,7 +175,7 @@ public:
   double wbmsWalkingPreparationChestErrorEps = 0.03; // [rad]
   double wbmsWalkingPreparationComXYErrorEps = 0.01; // [m]
   double wbmsWalkingPreparationComZErrorEps = 0.01; // [m]
-  double wbmsWalkingPreparationRootErrorEps = 0.08; // [rad]
+  double wbmsWalkingPreparationRootErrorEps = 0.01; // [rad]
   double wbmsWalkingPreparationMaxJointDeltaEps = 0.08; // [rad or m]
   cnoid::Vector3 wbmsWalkingPreparationTorsoAngularVelocityLimit = cnoid::Vector3(0.10, 0.10, 0.20); // [rad/s]. 歩行準備RETURN用CHEST角速度limit
   cnoid::Vector3 wbmsWalkingPreparationTorsoAngularAccelerationLimit = cnoid::Vector3(0.30, 0.30, 0.60); // [rad/s^2]. 歩行準備RETURN用CHEST角加速度limit

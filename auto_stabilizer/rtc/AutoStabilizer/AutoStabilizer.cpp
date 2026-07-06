@@ -1183,6 +1183,8 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
         gaitParam.wbmsWalkingPreparationComZError <= gaitParam.wbmsWalkingPreparationComZErrorEps;
       const bool wbmsReadyRootError =
         gaitParam.wbmsWalkingPreparationRootError <= gaitParam.wbmsWalkingPreparationRootErrorEps;
+      const bool wbmsReadyWalkingStability =
+        gaitParam.wbmsWalkingStabilityModeValue >= 0.99;
       const bool wbmsReadyFinalIKJointStep =
         gaitParam.debugData.wbmsFinalIKMaxJointDelta <= gaitParam.wbmsWalkingPreparationMaxJointDeltaEps;
       const bool wbmsReadyDynamics =
@@ -1196,7 +1198,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       const bool wbmsReturnFinalIKChestVelocitySafe =
         wbmsFinalIKChestAngularVelocityNorm <= gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit.norm();
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(126);
+      ports.m_wbmsDebug_.data.length(125);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1286,6 +1288,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = wbmsReadyComXYError ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = wbmsReadyComZError ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = wbmsReadyRootError ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyWalkingStability ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionCandidateSafe ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = wbmsReadyFinalIKJointStep ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = wbmsReadyDynamics ? 1.0 : 0.0;

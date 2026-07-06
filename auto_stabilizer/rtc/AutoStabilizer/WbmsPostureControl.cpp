@@ -915,13 +915,11 @@ void WbmsPostureControl::updateWalkingPreparationReadiness(GaitParam& gaitParam,
 
   bool readyCondition = gaitParam.wbmsAppliedComVelocityCommand.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
     gaitParam.wbmsAppliedTorsoAngularVelocityCommand.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
-    gaitParam.wbmsWalkingPreparationReturnComVelocity.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
-    gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
-    gaitParam.wbmsWalkingPreparationReturnRootAngularVelocity.norm() <= gaitParam.wbmsWalkingPreparationVelocityEps &&
     gaitParam.wbmsWalkingPreparationChestError <= gaitParam.wbmsWalkingPreparationChestErrorEps &&
     gaitParam.wbmsWalkingPreparationComXYError <= gaitParam.wbmsWalkingPreparationComXYErrorEps &&
     gaitParam.wbmsWalkingPreparationComZError <= gaitParam.wbmsWalkingPreparationComZErrorEps &&
     gaitParam.wbmsWalkingPreparationRootError <= gaitParam.wbmsWalkingPreparationRootErrorEps &&
+    gaitParam.wbmsWalkingStabilityModeValue >= 0.99 &&
     gaitParam.wbmsProjectionCandidateSafe &&
     gaitParam.debugData.wbmsFinalIKMaxJointDelta <= gaitParam.wbmsWalkingPreparationMaxJointDeltaEps &&
     dynamicsFinite;
@@ -948,6 +946,8 @@ void WbmsPostureControl::updateWalkingPreparationReadiness(GaitParam& gaitParam,
       this->setWalkingPreparationPhase(gaitParam, GaitParam::WBMS_WALKING_PREPARATION_HANDOFF);
       gaitParam.wbmsWalkingPreparationReturnAlpha = 1.0;
       gaitParam.wbmsWalkingPreparationHandoffAlpha = 1.0;
+      gaitParam.wbmsWalkingPreparationTargetRootR = gaitParam.stTargetRootPose.linear();
+      gaitParam.wbmsWalkingPreparationReturnRootAngularVelocity.setZero();
     }else{
       gaitParam.wbmsWalkingPreparationSettleElapsedTime = 0.0;
     }
@@ -955,6 +955,8 @@ void WbmsPostureControl::updateWalkingPreparationReadiness(GaitParam& gaitParam,
   }
 
   if(readyCondition){
+    gaitParam.wbmsWalkingPreparationTargetRootR = gaitParam.stTargetRootPose.linear();
+    gaitParam.wbmsWalkingPreparationReturnRootAngularVelocity.setZero();
     gaitParam.wbmsWalkingPreparationSettleElapsedTime += dt;
     if(gaitParam.wbmsWalkingPreparationSettleElapsedTime >= gaitParam.wbmsWalkingPreparationSettleTime){
       gaitParam.wbmsWalkingPreparationPhase = GaitParam::WBMS_WALKING_PREPARATION_READY;
@@ -1034,7 +1036,8 @@ void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning
      gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_RETURNING){
     gaitParam.wbmsOperationModeValue = gaitParam.wbmsMode.value();
   }else if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_HANDOFF ||
-           gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY){
+           gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY ||
+           gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD){
     gaitParam.wbmsOperationModeValue = 0.0;
   }else{
     gaitParam.wbmsOperationModeValue = gaitParam.wbmsMode.value() * (1.0 - gaitParam.wbmsWalkingStabilityModeValue);
