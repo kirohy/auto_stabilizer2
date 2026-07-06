@@ -839,6 +839,35 @@ phase番号は `GaitParam::WbmsWalkingPreparationPhase` の値をそのまま `w
 | 58 | preparation failure code |
 | 59 | runtime `wbmsWalkingStabilityStartTime` |
 
+M4.2.2の初回シミュレータログ解析後、原因切り分けに不足していた値を追加するため、既存index 0-59を維持したまま `wbmsDebugOut` を84要素へ拡張した。追加indexは次の通り。
+
+| index | 意味 | 単位・値 |
+|---:|---|---|
+| 60 | final IK後root roll | generate frame、rad |
+| 61 | final IK後root pitch | generate frame、rad |
+| 62 | final IK後root yaw | generate frame、rad |
+| 63 | `stTargetRootPose` roll | generate frame、rad |
+| 64 | `stTargetRootPose` pitch | generate frame、rad |
+| 65 | `stTargetRootPose` yaw | generate frame、rad |
+| 66 | `refdz` | m |
+| 67 | `l.z` | m |
+| 68 | `omega` | 1/s |
+| 69 | `refZmpTraj[0]` start X | generate frame、m |
+| 70 | `refZmpTraj[0]` start Y | generate frame、m |
+| 71 | `refZmpTraj[0]` start Z | generate frame、m |
+| 72 | `refZmpTraj[0]` goal X | generate frame、m |
+| 73 | `refZmpTraj[0]` goal Y | generate frame、m |
+| 74 | `refZmpTraj[0]` goal Z | generate frame、m |
+| 75 | `refZmpTraj[0]` time | s |
+| 76 | `refZmpTraj` total time | s |
+| 77 | `footstepNodesList.size()` | 個数 |
+| 78 | `footstepNodesList[0].remainTime` | s |
+| 79 | 現在footstepの `elapsedTime` | s |
+| 80 | 右脚support flag | supportなら1 |
+| 81 | 左脚support flag | supportなら1 |
+| 82 | 右脚 `swingState` | `LIFT=0, SWING=1, DOWN=2` |
+| 83 | 左脚 `swingState` | `LIFT=0, SWING=1, DOWN=2` |
+
 failure codeは `NONE=0`、`SNAPSHOT=1`、`TIMEOUT=2`、`NONFINITE=3`、`UNSAFE=4`、`CANCELLED=5` である。
 
 #### 5. held COM heightの定義

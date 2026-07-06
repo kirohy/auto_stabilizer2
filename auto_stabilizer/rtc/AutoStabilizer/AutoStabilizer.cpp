@@ -1114,6 +1114,12 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       double currentRobotComHeightInFootMid = 0.0;
       double chestOrientationError = 0.0;
       double rootOrientationError = 0.0;
+      cnoid::Vector3 rootRpy = cnoid::Vector3::Zero();
+      cnoid::Vector3 stTargetRootRpy = cnoid::Vector3::Zero();
+      cnoid::Vector3 refZmpTrajFirstStart = cnoid::Vector3::Zero();
+      cnoid::Vector3 refZmpTrajFirstGoal = cnoid::Vector3::Zero();
+      double refZmpTrajFirstTime = 0.0;
+      double refZmpTrajTotalTime = 0.0;
       if(gaitParam.wbmsPostureBaselineValid){
         const cnoid::Isometry3 footMid = gaitParam.footMidCoords.value();
         wbmsComOffset = footMid.inverse() * gaitParam.wbmsProjectedRobotCom - gaitParam.wbmsStartComInFootMid;
@@ -1128,9 +1134,17 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       if(gaitParam.genRobot){
         currentRobotComHeightInFootMid = (gaitParam.footMidCoords.value().inverse() * gaitParam.genRobot->centerOfMass())[2];
         rootOrientationError = cnoid::AngleAxis(gaitParam.genRobot->rootLink()->R() * gaitParam.stTargetRootPose.linear().transpose()).angle();
+        rootRpy = cnoid::rpyFromRot(gaitParam.genRobot->rootLink()->R());
+        stTargetRootRpy = cnoid::rpyFromRot(gaitParam.stTargetRootPose.linear());
+      }
+      if(!gaitParam.refZmpTraj.empty()){
+        refZmpTrajFirstStart = gaitParam.refZmpTraj[0].getStart();
+        refZmpTrajFirstGoal = gaitParam.refZmpTraj[0].getGoal();
+        refZmpTrajFirstTime = gaitParam.refZmpTraj[0].getTime();
+        for(size_t i=0;i<gaitParam.refZmpTraj.size();i++) refZmpTrajTotalTime += gaitParam.refZmpTraj[i].getTime();
       }
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(60);
+      ports.m_wbmsDebug_.data.length(84);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1172,6 +1186,22 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPendingCommandReleaseEvent ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = static_cast<double>(gaitParam.wbmsWalkingPreparationFailureCode);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingStabilityStartTime);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(rootRpy[i]);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(stTargetRootRpy[i]);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.refdz);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.l[2]);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.omega);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(refZmpTrajFirstStart[i]);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(refZmpTrajFirstGoal[i]);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(refZmpTrajFirstTime);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(refZmpTrajTotalTime);
+      ports.m_wbmsDebug_.data[index++] = static_cast<double>(gaitParam.footstepNodesList.size());
+      ports.m_wbmsDebug_.data[index++] = gaitParam.footstepNodesList.empty() ? 0.0 : finiteOrZero(gaitParam.footstepNodesList[0].remainTime);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.elapsedTime);
+      ports.m_wbmsDebug_.data[index++] = (!gaitParam.footstepNodesList.empty() && gaitParam.footstepNodesList[0].isSupportPhase.size() > 0 && gaitParam.footstepNodesList[0].isSupportPhase[0]) ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = (!gaitParam.footstepNodesList.empty() && gaitParam.footstepNodesList[0].isSupportPhase.size() > 1 && gaitParam.footstepNodesList[0].isSupportPhase[1]) ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.swingState.size() > 0 ? static_cast<double>(gaitParam.swingState[0]) : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.swingState.size() > 1 ? static_cast<double>(gaitParam.swingState[1]) : 0.0;
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){

@@ -514,6 +514,30 @@ IDL変更は必須ではない。Work Package AではIDL変更しない。Work P
 | 58 | preparation timeout/failure code |
 | 59 | runtime walking stability start time |
 
+### 11.3 M4.2.2 simulator再試験用追加debug
+
+M4.2.2のシミュレータ試験ログ解析で、`refdz/l.z/omega`、`refZmpTraj`総時間、footstep phase、root姿勢をログから直接確認できないことが分かった。
+後続スレッドで同じ解析を再現できるよう、既存index 0-59は変更せず、`wbmsDebugOut` の末尾へ次を追加する。
+
+| index | 内容 |
+|---:|---|
+| 60-62 | final IK後 `genRobot` root RPY |
+| 63-65 | `stTargetRootPose` RPY |
+| 66 | `refdz` |
+| 67 | `l.z` |
+| 68 | `omega` |
+| 69-71 | `refZmpTraj[0].getStart()` |
+| 72-74 | `refZmpTraj[0].getGoal()` |
+| 75 | `refZmpTraj[0].getTime()` |
+| 76 | `refZmpTraj` 総時間 |
+| 77 | `footstepNodesList.size()` |
+| 78 | `footstepNodesList[0].remainTime` |
+| 79 | 現在footstepの `elapsedTime` |
+| 80 | 現在footstepの右脚support flag |
+| 81 | 現在footstepの左脚support flag |
+| 82 | 右脚 `swingState` |
+| 83 | 左脚 `swingState` |
+
 最終indexは実装前調査で確定する。既存indexを再利用・並べ替えしない。
 
 ---
