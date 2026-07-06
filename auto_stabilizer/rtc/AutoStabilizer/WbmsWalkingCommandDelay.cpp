@@ -134,9 +134,11 @@ bool WbmsWalkingCommandDelay::snapshotPreparation(GaitParam& gaitParam){
   gaitParam.wbmsWalkingPreparationNominalRobotComInFootMid = nominalRobotComInFootMid;
   gaitParam.heldRobotComHeightInFootMid = robotComInFootMid[2];
   gaitParam.wbmsWalkingPreparationStartRootR = gaitParam.genRobot->rootLink()->R();
+  gaitParam.wbmsWalkingPreparationTargetRootR = gaitParam.wbmsWalkingPreparationStartRootR;
   gaitParam.wbmsWalkingPreparationTargetChestRInFootMid = gaitParam.wbmsWalkingPreparationStartChestRInFootMid;
   gaitParam.wbmsWalkingPreparationTargetRobotComInFootMid = gaitParam.wbmsWalkingPreparationStartRobotComInFootMid;
   gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.setZero();
+  gaitParam.wbmsWalkingPreparationReturnRootAngularVelocity.setZero();
   gaitParam.wbmsWalkingPreparationReturnComVelocity.setZero();
   gaitParam.wbmsWalkingPreparationSnapshotValid = gaitParam.wbmsWalkingPreparationStartChestRInFootMid.allFinite() &&
     gaitParam.wbmsWalkingPreparationStartRootR.allFinite() &&

@@ -253,9 +253,11 @@ public:
   cnoid::Vector3 wbmsWalkingPreparationStartRobotComInFootMid = cnoid::Vector3::Zero();
   cnoid::Vector3 wbmsWalkingPreparationNominalRobotComInFootMid = cnoid::Vector3::Zero();
   cnoid::Matrix3 wbmsWalkingPreparationStartRootR = cnoid::Matrix3::Identity();
+  cnoid::Matrix3 wbmsWalkingPreparationTargetRootR = cnoid::Matrix3::Identity();
   cnoid::Matrix3 wbmsWalkingPreparationTargetChestRInFootMid = cnoid::Matrix3::Identity();
   cnoid::Vector3 wbmsWalkingPreparationTargetRobotComInFootMid = cnoid::Vector3::Zero();
   cnoid::Vector3 wbmsWalkingPreparationReturnTorsoAngularVelocity = cnoid::Vector3::Zero();
+  cnoid::Vector3 wbmsWalkingPreparationReturnRootAngularVelocity = cnoid::Vector3::Zero();
   cnoid::Vector3 wbmsWalkingPreparationReturnComVelocity = cnoid::Vector3::Zero();
   double wbmsWalkingPreparationChestError = 0.0;
   double wbmsWalkingPreparationComXYError = 0.0;
@@ -394,9 +396,11 @@ public:
     wbmsWalkingPreparationStartRobotComInFootMid.setZero();
     wbmsWalkingPreparationNominalRobotComInFootMid.setZero();
     wbmsWalkingPreparationStartRootR.setIdentity();
+    wbmsWalkingPreparationTargetRootR.setIdentity();
     wbmsWalkingPreparationTargetChestRInFootMid.setIdentity();
     wbmsWalkingPreparationTargetRobotComInFootMid.setZero();
     wbmsWalkingPreparationReturnTorsoAngularVelocity.setZero();
+    wbmsWalkingPreparationReturnRootAngularVelocity.setZero();
     wbmsWalkingPreparationReturnComVelocity.setZero();
     wbmsWalkingPreparationChestError = 0.0;
     wbmsWalkingPreparationComXYError = 0.0;

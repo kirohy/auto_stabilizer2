@@ -182,10 +182,18 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
 
   // root
   {
+    cnoid::Isometry3 rootTargetPose = gaitParam.stTargetRootPose;
+    if(gaitParam.wbmsWalkingPreparationSnapshotValid &&
+       (gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_RETURNING ||
+        gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_HANDOFF ||
+        gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY) &&
+       gaitParam.wbmsWalkingPreparationTargetRootR.allFinite()){
+      rootTargetPose.linear() = gaitParam.wbmsWalkingPreparationTargetRootR;
+    }
     this->rootPositionConstraint->A_link() = genRobot->rootLink();
     this->rootPositionConstraint->A_localpos() = cnoid::Isometry3::Identity();
     this->rootPositionConstraint->B_link() = nullptr;
-    this->rootPositionConstraint->B_localpos() = gaitParam.stTargetRootPose;
+    this->rootPositionConstraint->B_localpos() = rootTargetPose;
     this->rootPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
     this->rootPositionConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
     // this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい

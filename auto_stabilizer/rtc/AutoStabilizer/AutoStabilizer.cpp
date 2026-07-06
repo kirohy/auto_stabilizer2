@@ -1118,6 +1118,8 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       double rootOrientationError = 0.0;
       cnoid::Vector3 rootRpy = cnoid::Vector3::Zero();
       cnoid::Vector3 stTargetRootRpy = cnoid::Vector3::Zero();
+      cnoid::Vector3 wbmsWalkingPreparationTargetRootRpy = cnoid::Vector3::Zero();
+      double wbmsWalkingPreparationTargetRootError = 0.0;
       cnoid::Vector3 refZmpTrajFirstStart = cnoid::Vector3::Zero();
       cnoid::Vector3 refZmpTrajFirstGoal = cnoid::Vector3::Zero();
       double refZmpTrajFirstTime = 0.0;
@@ -1139,14 +1141,62 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
         rootRpy = cnoid::rpyFromRot(gaitParam.genRobot->rootLink()->R());
         stTargetRootRpy = cnoid::rpyFromRot(gaitParam.stTargetRootPose.linear());
       }
+      if(gaitParam.wbmsWalkingPreparationTargetRootR.allFinite()){
+        wbmsWalkingPreparationTargetRootRpy = cnoid::rpyFromRot(gaitParam.wbmsWalkingPreparationTargetRootR);
+        wbmsWalkingPreparationTargetRootError =
+          cnoid::AngleAxis(gaitParam.wbmsWalkingPreparationTargetRootR * gaitParam.stTargetRootPose.linear().transpose()).angle();
+      }
       if(!gaitParam.refZmpTraj.empty()){
         refZmpTrajFirstStart = gaitParam.refZmpTraj[0].getStart();
         refZmpTrajFirstGoal = gaitParam.refZmpTraj[0].getGoal();
         refZmpTrajFirstTime = gaitParam.refZmpTraj[0].getTime();
         for(size_t i=0;i<gaitParam.refZmpTraj.size();i++) refZmpTrajTotalTime += gaitParam.refZmpTraj[i].getTime();
       }
+      const double wbmsWalkingPreparationReturnComVelocityNorm =
+        gaitParam.wbmsWalkingPreparationReturnComVelocity.norm();
+      const double wbmsWalkingPreparationReturnTorsoVelocityNorm =
+        gaitParam.wbmsWalkingPreparationReturnTorsoAngularVelocity.norm();
+      const double wbmsWalkingPreparationReturnRootVelocityNorm =
+        gaitParam.wbmsWalkingPreparationReturnRootAngularVelocity.norm();
+      const double wbmsWalkingPreparationReturnAllVelocityNorm =
+        std::max(std::max(wbmsWalkingPreparationReturnComVelocityNorm,
+                          wbmsWalkingPreparationReturnTorsoVelocityNorm),
+                 wbmsWalkingPreparationReturnRootVelocityNorm);
+      const double wbmsFinalIKComVelocityNorm =
+        gaitParam.debugData.wbmsFinalIKRealizedComVelocity.norm();
+      const double wbmsFinalIKChestAngularVelocityNorm =
+        gaitParam.debugData.wbmsFinalIKRealizedChestAngularVelocity.norm();
+      const bool wbmsReadyAppliedVelocity =
+        std::max(gaitParam.wbmsAppliedComVelocityCommand.norm(),
+                 gaitParam.wbmsAppliedTorsoAngularVelocityCommand.norm()) <= gaitParam.wbmsWalkingPreparationVelocityEps;
+      const bool wbmsReadyReturnComVelocity =
+        wbmsWalkingPreparationReturnComVelocityNorm <= gaitParam.wbmsWalkingPreparationVelocityEps;
+      const bool wbmsReadyReturnTorsoVelocity =
+        wbmsWalkingPreparationReturnTorsoVelocityNorm <= gaitParam.wbmsWalkingPreparationVelocityEps;
+      const bool wbmsReadyReturnRootVelocity =
+        wbmsWalkingPreparationReturnRootVelocityNorm <= gaitParam.wbmsWalkingPreparationVelocityEps;
+      const bool wbmsReadyChestError =
+        gaitParam.wbmsWalkingPreparationChestError <= gaitParam.wbmsWalkingPreparationChestErrorEps;
+      const bool wbmsReadyComXYError =
+        gaitParam.wbmsWalkingPreparationComXYError <= gaitParam.wbmsWalkingPreparationComXYErrorEps;
+      const bool wbmsReadyComZError =
+        gaitParam.wbmsWalkingPreparationComZError <= gaitParam.wbmsWalkingPreparationComZErrorEps;
+      const bool wbmsReadyRootError =
+        gaitParam.wbmsWalkingPreparationRootError <= gaitParam.wbmsWalkingPreparationRootErrorEps;
+      const bool wbmsReadyFinalIKJointStep =
+        gaitParam.debugData.wbmsFinalIKMaxJointDelta <= gaitParam.wbmsWalkingPreparationMaxJointDeltaEps;
+      const bool wbmsReadyDynamics =
+        gaitParam.genCog.allFinite() &&
+        std::isfinite(gaitParam.refdz) && gaitParam.refdz > 0.0 &&
+        gaitParam.l.allFinite() &&
+        std::isfinite(gaitParam.omega) && gaitParam.omega > 0.0 &&
+        refZmpTrajTotalTime > 0.0;
+      const bool wbmsReturnFinalIKComVelocitySafe =
+        wbmsFinalIKComVelocityNorm <= gaitParam.wbmsWalkingPreparationComVelocityLimit.norm();
+      const bool wbmsReturnFinalIKChestVelocitySafe =
+        wbmsFinalIKChestAngularVelocityNorm <= gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit.norm();
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(96);
+      ports.m_wbmsDebug_.data.length(126);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1219,6 +1269,30 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsWalkingPreparationSnapshotValid ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationSettleElapsedTime);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingStartDelayRemainTime);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationReturnRootAngularVelocity[i]);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsWalkingPreparationReturnComVelocityNorm);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsWalkingPreparationReturnTorsoVelocityNorm);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsWalkingPreparationReturnRootVelocityNorm);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsWalkingPreparationReturnAllVelocityNorm);
+      for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsWalkingPreparationTargetRootRpy[i]);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsWalkingPreparationTargetRootError);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsFinalIKComVelocityNorm);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(wbmsFinalIKChestAngularVelocityNorm);
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyAppliedVelocity ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyReturnComVelocity ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyReturnTorsoVelocity ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyReturnRootVelocity ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyChestError ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyComXYError ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyComZError ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyRootError ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsProjectionCandidateSafe ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyFinalIKJointStep ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReadyDynamics ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReturnFinalIKComVelocitySafe ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = wbmsReturnFinalIKChestVelocitySafe ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationTimeout - gaitParam.wbmsWalkingPreparationElapsedTime);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.wbmsWalkingPreparationVelocityEps);
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){
