@@ -2417,6 +2417,219 @@ footstep関連:
 
 この修正候補は、事前に計画書で区切ったタスクではなく、シミュレータ検証中に発見された追加修正である。正式な修正方針、実装候補、acceptance criteriaは `WBMSWalkingPreparationDesignRevisionPlan.md` の「11. 追加検証で判明した修正項目」へ移した。次スレッドでは、詳細ログ値は本節、実装方針は同設計文書11章を参照する。
 
+## M4.2.2 11.3修正後 simulatorログ解析記録 2026-07-06 17:47
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061747*
+```
+
+試験条件:
+
+- 事前に体幹を前傾させた姿勢から開始。
+- ログ開始から約1秒後に `startWbmsWalkingPreparation()` を呼ぶ。
+- 5秒後から `goVelocity(0.0, 0.0, 0.0)` を `true` になるまで0.1秒周期で呼ぶ。
+- 腕姿勢指令なし。
+- 11.3対策として、root return target追加、root return targetの速度・加速度limit、RETURNING中の `wbmsWalkingStabilityModeValue` 同期、RETURNING中final IK後安全監視を実装済み。
+
+総合判定はFAILである。ただし、急激な直立復帰と腕振動は大きく改善した。
+
+主要時刻:
+
+| 相対時刻[s] | 事象 |
+|---:|---|
+| 0.000-1.005 | INACTIVE |
+| 1.007 | `startWbmsWalkingPreparation()` event、RETURNING開始 |
+| 6.011-11.146 | READY前 `goVelocity(0,0,0)` reject 52回 |
+| 8.162 | `FAILED/TIMEOUT`、failure code 2 |
+
+phase遷移:
+
+```text
+0.000-1.005s   INACTIVE
+1.007-8.160s   RETURNING
+8.162s以降     FAILED
+```
+
+最大値・範囲:
+
+| 項目 | 値 |
+|---|---:|
+| 初期 CHEST error | 0.465123rad |
+| 初期 root error | 0.212094rad |
+| timeout直前 CHEST error | 0.006991rad |
+| timeout直前 root error | 0.000078rad |
+| timeout直前 returnNorm | 0.000755 |
+| timeout直前 returnAlpha | 0.999177 |
+| final IK後CHEST角速度 max | 0.100028rad/s |
+| final IK後COM速度 max | 0.000866m/s |
+| final IK max joint delta max | 0.002020rad |
+| `RobotHardware0_q` 一周期最大差分 | 0.001062rad |
+| `footstepNodesList.size()` | 全期間1 |
+| `goVelocity` accepted | 0回 |
+
+腕関節の観測:
+
+- `el_q` と `ast_q` は完全一致。
+- 前回0.1rad級だった腕関節spanは、1.7-3.0sでは代表的な腕関節で `3e-5` から `6e-5rad` 程度。
+- 腕指令なし条件での大きな腕振動は、このログでは再現していない。
+
+推定:
+
+- 見えているREADY条件の多くはtimeout前に満たしているが、当時のdebugにはroot return速度が出ていなかった。
+- `wbmsWalkingPreparationReturnRootAngularVelocity` がREADY条件を阻害している可能性が高いと推定した。
+- timeoutを単純に延長するだけで解決するかは未確定であり、READY条件booleanとroot return速度を追加debugする必要があると判断した。
+
+実施したdebug追加:
+
+- `wbmsDebugOut` 末尾に、root return速度、COM/CHEST/root return速度norm、root target RPY、root target error、final IK後速度norm、READY条件boolean、RETURNING中final IK安全判定、timeout残り時間、速度epsを追加した。
+- 既存96列は維持した。
+- 実装上 `data.length(126)` に対し、意味を持つ追加列は28列で、末尾2列は未使用の0として出力される状態である。
+
+## M4.2.2 11.3 debug追加後 simulatorログ解析記録 2026-07-06 18:14/18:16/18:17
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607061814*
+auto_stabilizer/log/test_start_walking202607061816*
+auto_stabilizer/log/test_start_walking202607061817*
+```
+
+試験条件:
+
+- `wbms_walking_preparation_timeout = 10.0`。
+- 事前に体幹を前傾させた姿勢から開始。
+- ログ開始から約1秒後に `startWbmsWalkingPreparation()` を呼ぶ。
+- 5秒後から `goVelocity(0.0, 0.0, 0.0)` を0.1秒周期、最大10秒retryする。
+- 3本とも同じ起動方法、同じparameter設定。
+- 腕姿勢指令なし。
+
+総合判定はFAILである。3本で挙動が分岐した。
+
+| ログ | 判定 | 概要 |
+|---|---|---|
+| `061814` | FAIL | READY後に `goVelocity` accepted。ただし足踏み開始直後に股関節付近の急動作が残る |
+| `061816` | PASS相当 | READY後に `goVelocity` accepted。滑らかに足踏み開始 |
+| `061817` | FAIL | READYへ到達せず、`FAILED/TIMEOUT`。`goVelocity` はacceptedされない |
+
+### ログ1: `test_start_walking202607061814*`
+
+主要時刻:
+
+| 相対時刻[s] | 事象 |
+|---:|---|
+| 0.000-1.000 | INACTIVE |
+| 1.002-8.297 | RETURNING |
+| 8.300-8.417 | HANDOFF |
+| 8.419-8.425 | READY |
+| 8.427 | `goVelocity(0,0,0)` accepted、WALKING_HOLD |
+
+主要値:
+
+| 項目 | 値 |
+|---|---:|
+| 初期 CHEST error max | 0.495147rad |
+| root error max | 0.628610rad |
+| READY時 rootError | 0.068002rad |
+| READY時 `returnRootVelNorm` | 0.000855 |
+| READY時 `wbmsWalkingStabilityModeValue` | 0.902 |
+| accepted直後 `wbmsOperationModeValue` | 0.098 |
+| accepted直後 `footstepNodesList.size()` | 1 -> 7 -> 8 |
+| accepted直後 final IK後CHEST角速度 max | 4.885705rad/s |
+| accepted直後 final IK後COM速度 max | 2.091680m/s |
+| `el_q` 一周期最大差分 | 0.018394rad at 8.439s |
+
+READY条件:
+
+- READY phase中は追加debugのREADY booleanは全項目true。
+- RETURNING後半では `readyReturnRootVelocity=false` が長く残り、最後にtrueへ落ちてHANDOFFへ進んだ。
+- `readyRootError=true` は `rootError=0.068rad` でも成立しており、現在の `wbmsWalkingPreparationRootErrorEps=0.08rad` は足踏み開始安全条件として緩い可能性がある。
+
+急動作の発生箇所:
+
+- 急動作はRETURNING中ではなく、`goVelocity` accepted直後のWALKING_HOLD / footstep生成後に発生。
+- accepted直後に `postureRefValid=0`、`candidateSafe=0`、`footstepNodesList.size()` が増加し、同時に `wbmsOperationModeValue=0.098` が残っていた。
+- `el_q` の最大一周期差分は脚関節で、accept直後windowの上位差分はRLEG/LLEG hip pitch周辺に集中した。
+
+### ログ2: `test_start_walking202607061816*`
+
+主要時刻:
+
+| 相対時刻[s] | 事象 |
+|---:|---|
+| 0.000-1.004 | INACTIVE |
+| 1.006-10.137 | RETURNING |
+| 10.138-10.258 | HANDOFF |
+| 10.260-10.343 | READY |
+| 10.348 | `goVelocity(0,0,0)` accepted、WALKING_HOLD |
+
+主要値:
+
+| 項目 | 値 |
+|---|---:|
+| 初期 CHEST error max | 0.503451rad |
+| root error max | 0.037241rad |
+| READY時 rootError | 0.000111rad |
+| READY時 `returnRootVelNorm` | 0.000990 |
+| READY時 `wbmsWalkingStabilityModeValue` | 1.000 |
+| accepted直後 `wbmsOperationModeValue` | 0.000 |
+| accepted直後 final IK後CHEST角速度 | 0.044rad/s |
+| accept window `el_q` 一周期最大差分 | 0.000287rad |
+
+READY条件:
+
+- READY phase中は追加debugのREADY booleanは全項目true。
+- `wbmsWalkingStabilityModeValue=1.0`、`wbmsOperationModeValue=0.0` で歩行開始しており、ログ1のような足踏み開始直後の急動作は出ていない。
+
+### ログ3: `test_start_walking202607061817*`
+
+主要時刻:
+
+| 相対時刻[s] | 事象 |
+|---:|---|
+| 0.000-1.001 | INACTIVE |
+| 1.003-12.888 | RETURNING |
+| 12.890以降 | `FAILED/TIMEOUT` |
+| 6.008-16.175 | `goVelocity(0,0,0)` reject 102回 |
+
+主要値:
+
+| 項目 | 値 |
+|---|---:|
+| 初期 CHEST error max | 0.572723rad |
+| root error max | 0.456161rad |
+| timeout直前 CHEST error | 0.000001rad |
+| timeout直前 rootError | 0.000033rad |
+| timeout直前 `returnRootVelNorm` | 0.004483 |
+| timeout直前 `returnTorsoVelNorm` | 0.001274 |
+| timeout直前 `returnAllVelNorm` | 0.004483 |
+| failure code | 2 (`TIMEOUT`) |
+| `goVelocity` accepted | 0回 |
+| `footstepNodesList.size()` | 全期間1 |
+
+READY条件:
+
+- timeout直前、誤差系と安全系のREADY booleanはtrue。
+- `readyReturnRootVelocity=false`、`readyReturnTorsoVelocity=false` が残り、READYへ進まなかった。
+- 姿勢誤差は十分小さいため、root/torso return target速度のゼロ収束条件がREADY阻害要因である。
+
+### 3本の比較からの推定
+
+- ログ1とログ2の差は、READY時のroot error、`wbmsWalkingStabilityModeValue`、歩行API accepted直後の `wbmsOperationModeValue` に現れている。
+- ログ1は `rootError=0.068rad`、`wbmsWalkingStabilityModeValue=0.902` でREADYとなり、accepted直後に `wbmsOperationModeValue=0.098` が残る。この状態でfootstep生成が始まり、final IK後CHEST/COM速度と脚関節差分が急増する。
+- ログ2は `rootError=0.000111rad`、`wbmsWalkingStabilityModeValue=1.000`、`wbmsOperationModeValue=0.000` で歩行開始しており、急動作が出ない。
+- ログ3は姿勢誤差が十分小さいにもかかわらず、root/torso return速度条件によりREADYにならない。
+
+このログから設計文書へ移した修正候補:
+
+- READY後およびWALKING_HOLD中は `wbmsOperationModeValue=0.0` を強制し、歩行API accepted後にWBMS操作blendを復活させない。
+- READY条件からroot return target速度の厳格条件を外す、または専用閾値へ分離する。
+- root READY条件を厳しくし、`rootError=0.068rad` 程度でREADYにしない。`wbmsWalkingStabilityModeValue > 0.99` をREADY条件に含める案も検討する。
+- HANDOFF/READY中もroot targetと `stTargetRootPose` の同期を継続するか、root側が十分settleしてからREADY判定する。
+- `wbmsDebugOut` の未使用末尾2列を整理する。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。

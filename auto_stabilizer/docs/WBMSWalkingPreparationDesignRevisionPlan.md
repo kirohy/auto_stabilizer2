@@ -474,6 +474,8 @@ rg -n "startWbmsWalkingPreparation|cancelWbmsWalkingPreparation|getWbmsWalkingPr
 
 - `M4.2.2設計修正後 simulatorログ解析記録 2026-07-06 16:42`
 - `M4.2.2設計修正後 simulatorログ解析記録 2026-07-06 17:00`
+- `M4.2.2 11.3修正後 simulatorログ解析記録 2026-07-06 17:47`
+- `M4.2.2 11.3 debug追加後 simulatorログ解析記録 2026-07-06 18:14/18:16/18:17`
 
 ### 11.1 文書の役割分担
 
@@ -561,6 +563,35 @@ auto_stabilizer/log/test_start_walking202607061700*
 4. `updateWbmsFinalIKDiagnostics()` または同等の経路で、RETURNING中の実現CHEST速度・COM速度・関節差分が閾値を超えた場合にunsafe扱いできるようにする。
 5. 腕EE拘束については、まずdebugで歩行準備中の腕EE constraint error / weight / maxErrorを確認できるようにし、weight rampかtarget再ラッチのどちらが必要か判断する。
 
+進捗:
+
+- 実装済み。
+- `GaitParam` に `wbmsWalkingPreparationTargetRootR` と `wbmsWalkingPreparationReturnRootAngularVelocity` を追加した。
+- 歩行準備snapshot時とRETURNING開始ラッチ時にroot return targetを現在root姿勢へ初期化するようにした。
+- RETURNING中にroot return targetをCHEST returnと同じ `wbmsWalkingPreparationTorsoAngularVelocityLimit` / `wbmsWalkingPreparationTorsoAngularAccelerationLimit` で更新するようにした。
+- `FullbodyIKSolver` のroot姿勢拘束targetは、RETURNING/HANDOFF/READY中のみ `stTargetRootPose` ではなく制限済みroot return targetを使うようにした。
+- RETURNING中は `wbmsWalkingStabilityModeValue` をreturn進行度へ同期し、RETURNING開始直後から無条件に1へrampしないようにした。
+- RETURNING中の final IK後CHEST実現角速度、final IK後COM実現速度、final IK後一周期最大関節差分を安全監視し、閾値超過時は `FAILED/UNSAFE` へ落とすようにした。
+- debug追加として、`wbmsDebugOut` 末尾にroot return速度、root target、READY条件boolean、final IK安全判定、timeout残り時間を追加した。
+- 既存96列の順序は維持した。ただし実装時点で `data.length(126)` に対し、意味を持つ追加列は28列で、末尾2列は未使用の0として出ている。
+- `catkin build auto_stabilizer --no-deps` は成功済み。
+
+修正後ログから判明した残課題:
+
+- `test_start_walking202607061747*` では急激な直立復帰と腕振動は大きく改善したが、`wbms_walking_preparation_timeout=6.0` ではREADYにならず `FAILED/TIMEOUT` となった。
+- `test_start_walking202607061814*` / `061816*` / `061817*` では `wbms_walking_preparation_timeout=10.0` で同条件を3回試したが、READY後歩行開始直後に急動作が出るケース、滑らかに歩行開始するケース、READYにならずtimeoutするケースが分かれた。
+- ログ1 `061814` はREADYには到達したが、READY時 `rootError=0.068002rad`、`wbmsWalkingStabilityModeValue=0.902`、歩行API accepted直後 `wbmsOperationModeValue=0.098` が残り、footstep生成直後に final IK後CHEST角速度 `4.885705rad/s`、COM速度 `2.091680m/s`、`el_q` 一周期最大差分 `0.018394rad` が出た。
+- ログ2 `061816` はREADY時 `rootError=0.000111rad`、`wbmsWalkingStabilityModeValue=1.000`、歩行API accepted直後 `wbmsOperationModeValue=0.000` で、accept windowの `el_q` 一周期最大差分は `0.000287rad` に収まった。
+- ログ3 `061817` はtimeout直前に `chestError=0.000001rad`、`rootError=0.000033rad` まで収束していたが、`returnRootVelNorm=0.004483`、`returnTorsoVelNorm=0.001274` により `readyReturnRootVelocity=false`、`readyReturnTorsoVelocity=false` のまま `FAILED/TIMEOUT` となった。
+- 腕指令なし条件での0.1rad級腕振動は、修正後ログでは再現していない。
+
+残る原因候補:
+
+- READY条件がroot/torso return target速度のゼロ収束へ過剰に依存している。`stTargetRootPose` がStabilizer由来で動き続けるため、姿勢誤差が十分小さくても `returnRootVelocity` が `wbmsWalkingPreparationVelocityEps=1e-3` 以下へ落ちにくい。
+- `wbmsWalkingPreparationRootErrorEps=0.08rad` はREADY条件として緩すぎる。ログ1では `rootError=0.068rad` でREADYになり、その後の歩行開始直後に急動作が発生した。
+- READY後またはWALKING_HOLD移行後に `wbmsWalkingStabilityModeValue` が1未満だと、既存式により `wbmsOperationModeValue` が再び非ゼロとなり、footstep生成直後のCOM weight/reference blendを通じてfinal IK急変を誘発する。
+- HANDOFF/READY中にroot targetと `stTargetRootPose` の同期が不十分な場合、READY直後のroot姿勢拘束target切替やWBMS操作blend解除が歩行開始時の不連続として残る。
+
 acceptance criteria:
 
 - `startWbmsWalkingPreparation()` 直後に、final IK後CHEST実現速度が設定した安全閾値を超えない。
@@ -571,9 +602,25 @@ acceptance criteria:
 - COM Z保持、`refdz`、`l.z`、`omega` の整合は維持する。
 - 腕EE commandと `wbmsMode` はclearしない。ただし歩行準備中の腕拘束weightやtargetを安全側に調整する場合、その仕様を明示する。
 
+次に必要な修正:
+
+1. READY後およびWALKING_HOLD中は `wbmsOperationModeValue=0.0` を強制する。歩行API accepted後に `wbmsWalkingStabilityModeValue` が1未満でも、WBMS操作blendを復活させない。
+2. READY条件からroot return target速度の厳格条件を外す、または専用閾値へ分離する。姿勢誤差、final IK後速度、関節差分が安全ならREADYへ進める方針へ変更する。
+3. root READY条件を厳しくする。少なくとも `wbmsWalkingPreparationRootErrorEps` を0.08radより小さくするか、READY条件へ `wbmsWalkingStabilityModeValue > 0.99` 相当を追加する。
+4. HANDOFF/READY中もroot targetと `stTargetRootPose` の同期を継続するか、HANDOFF前にroot側が十分settleしてからREADY判定する。
+5. `wbmsDebugOut` の `data.length` と実際に意味を持つ列数を一致させ、未使用末尾2列を整理する。
+
+追加acceptance criteria:
+
+- READY後の歩行API accepted直後に `wbmsOperationModeValue` が0である。
+- READY時のroot errorが、足踏み開始直後にfinal IK急変を起こさない閾値以下である。
+- `wbms_walking_preparation_timeout=10.0`、初期前傾量に多少のばらつきがある条件で、READY到達と歩行開始挙動が再現性を持つ。
+- 歩行API accepted直後の `finalIKChestAngVelNorm`、`finalIKComVelNorm`、`el_q` 一周期最大差分が安全閾値以下である。
+
 未確定事項:
 
 - root return用の速度・加速度limitを既存pre-walk torso limitと共用するか、専用parameterを追加するか。
 - RETURNING中の安全監視閾値を既存READY閾値から流用するか、専用parameterを追加するか。
 - 腕EE拘束の対策をweight ramp、maxError制限、target再ラッチのどれから試すか。
 - 実機向け安全閾値を、シミュレータ初期値からどこまで保守的に設定するか。
+- root return target速度をREADY条件から外す場合、代替としてどのroot error閾値とfinal IK後速度閾値を採用するか。
