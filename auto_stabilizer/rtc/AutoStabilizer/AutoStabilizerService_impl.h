@@ -19,6 +19,9 @@ public:
   CORBA::Boolean jumpTo( CORBA::Double x,  CORBA::Double y,  CORBA::Double z,  CORBA::Double ts,  CORBA::Double tf);
   CORBA::Boolean setFootSteps(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs);
   CORBA::Boolean setFootStepsWithParam(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs, const auto_stabilizer::AutoStabilizerService::StepParamSequence& spss);
+  CORBA::Boolean startWbmsWalkingPreparation();
+  CORBA::Boolean cancelWbmsWalkingPreparation();
+  CORBA::Boolean getWbmsWalkingPreparationState(auto_stabilizer::AutoStabilizerService::WbmsWalkingPreparationState_out state);
   void waitFootSteps();
   CORBA::Boolean startAutoBalancer();
   CORBA::Boolean stopAutoBalancer();

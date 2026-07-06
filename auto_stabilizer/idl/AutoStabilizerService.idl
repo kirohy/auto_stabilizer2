@@ -42,6 +42,40 @@ module auto_stabilizer
     typedef sequence<StepParam> StepParamSequence;
 
     /**
+     * @enum WbmsWalkingPreparationPhase
+     * @brief WBMS姿勢から歩行可能姿勢へ移行する歩行準備状態
+     */
+    enum WbmsWalkingPreparationPhase {
+      WBMS_WALK_PREP_IDLE,
+      WBMS_WALK_PREP_SNAPSHOT,
+      WBMS_WALK_PREP_DECELERATE,
+      WBMS_WALK_PREP_RETURN,
+      WBMS_WALK_PREP_SETTLE,
+      WBMS_WALK_PREP_READY,
+      WBMS_WALK_PREP_WALKING,
+      WBMS_WALK_PREP_FAILED,
+      WBMS_WALK_PREP_CANCELLED
+    };
+
+    /**
+     * @struct WbmsWalkingPreparationState
+     * @brief WBMS歩行準備状態の診断情報
+     */
+    struct WbmsWalkingPreparationState {
+      WbmsWalkingPreparationPhase phase;
+      boolean ready;
+      boolean failed;
+      double elapsed_time;
+      double held_robot_com_height_in_foot_mid;
+      double chest_error;
+      double com_xy_error;
+      double com_z_error;
+      double root_error;
+      double applied_velocity_norm;
+      long failure_code;
+    };
+
+    /**
      * @enum EmergencyCheckMode
      * @brief Mode of emergency checking
      */
@@ -328,6 +362,25 @@ module auto_stabilizer
      * @return true if set successfully, false otherwise
      */
     boolean setFootStepsWithParam(in FootstepSequence fs, in StepParamSequence sps);
+
+    /**
+     * @brief Start WBMS walking preparation without starting walking.
+     * @return true if preparation was started or is already ready/running, false otherwise
+     */
+    boolean startWbmsWalkingPreparation();
+
+    /**
+     * @brief Cancel WBMS walking preparation without stopping WBMS.
+     * @return true if cancelled, false otherwise
+     */
+    boolean cancelWbmsWalkingPreparation();
+
+    /**
+     * @brief Get WBMS walking preparation state.
+     * @param state is output state
+     * @return true if state was filled, false otherwise
+     */
+    boolean getWbmsWalkingPreparationState(out WbmsWalkingPreparationState state);
 
     /**
      * @brief Wait for whole footsteps are executed.

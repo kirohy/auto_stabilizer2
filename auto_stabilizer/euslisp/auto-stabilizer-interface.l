@@ -259,6 +259,18 @@
   (:stop-whole-body-master-slave
    ()
    (send self :autostabilizerservice_stopWholeBodyMasterSlave))
+  (:start-wbms-walking-preparation
+   ()
+   (send self :autostabilizerservice_startWbmsWalkingPreparation))
+  (:cancel-wbms-walking-preparation
+   ()
+   (send self :autostabilizerservice_cancelWbmsWalkingPreparation))
+  (:raw-get-wbms-walking-preparation-state
+   ()
+   (send (send self :autostabilizerservice_getWbmsWalkingPreparationState) :state))
+  (:get-wbms-walking-preparation-state
+   ()
+   (send self :raw-get-wbms-walking-preparation-state))
   (:calc-dvel-with-velocity-center-offset
    (ang velocity-center-offset)
    "Calculate velocity params for rotating with given velocity center offset.
@@ -290,5 +302,3 @@
         (/ ang default-step-time) ;; velth [rad/s]
         ))))
   )
-
-

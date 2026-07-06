@@ -1144,7 +1144,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
         for(size_t i=0;i<gaitParam.refZmpTraj.size();i++) refZmpTrajTotalTime += gaitParam.refZmpTraj[i].getTime();
       }
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(84);
+      ports.m_wbmsDebug_.data.length(90);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1202,6 +1202,12 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = (!gaitParam.footstepNodesList.empty() && gaitParam.footstepNodesList[0].isSupportPhase.size() > 1 && gaitParam.footstepNodesList[0].isSupportPhase[1]) ? 1.0 : 0.0;
       ports.m_wbmsDebug_.data[index++] = gaitParam.swingState.size() > 0 ? static_cast<double>(gaitParam.swingState[0]) : 0.0;
       ports.m_wbmsDebug_.data[index++] = gaitParam.swingState.size() > 1 ? static_cast<double>(gaitParam.swingState[1]) : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_FAILED ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingApiRejectedNotReadyEvent ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingApiAcceptedReadyEvent ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPreparationStartEvent ? 1.0 : 0.0;
+      ports.m_wbmsDebug_.data[index++] = gaitParam.debugData.wbmsWalkingPreparationCancelEvent ? 1.0 : 0.0;
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){
@@ -1256,6 +1262,7 @@ RTC::ReturnCode_t AutoStabilizer::onExecute(RTC::UniqueId ec_id){
   }
 
   AutoStabilizer::writeOutPortData(this->ports_, this->mode_, this->idleToAbcTransitionInterpolator_, this->dt_, this->gaitParam_);
+  this->gaitParam_.debugData.clearWbmsWalkingPreparationEvents();
 
   this->gaitParam_.debugData.onExecuteTime = std::chrono::duration<double>(std::chrono::steady_clock::now() - startTime).count();
   return RTC::RTC_OK;
@@ -1283,16 +1290,41 @@ RTC::ReturnCode_t AutoStabilizer::onDeactivated(RTC::UniqueId ec_id){
 }
 RTC::ReturnCode_t AutoStabilizer::onFinalize(){ return RTC::RTC_OK; }
 
+bool AutoStabilizer::isWbmsWalkingApiReady() const{
+  return this->gaitParam_.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY ||
+    this->gaitParam_.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD;
+}
+
+bool AutoStabilizer::rejectWbmsWalkingApiIfNotReady(const char* apiName){
+  if(this->wbmsWalkingCommandDelay_.isWbmsActive(this->gaitParam_) &&
+     !this->isWbmsWalkingApiReady()){
+    std::cerr << "[" << this->m_profile.instance_name << "] " << apiName << " rejected: WBMS walking preparation is not ready. Call startWbmsWalkingPreparation() first." << std::endl;
+    this->gaitParam_.debugData.wbmsWalkingApiRejectedNotReadyEvent = true;
+    return true;
+  }
+  return false;
+}
+
+void AutoStabilizer::markWbmsWalkingApiAcceptedIfReady(){
+  if(this->wbmsWalkingCommandDelay_.isWbmsActive(this->gaitParam_) &&
+     this->isWbmsWalkingApiReady()){
+    this->gaitParam_.debugData.wbmsWalkingApiAcceptedReadyEvent = true;
+    this->gaitParam_.wbmsWalkingPreparationPhase = GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD;
+    this->gaitParam_.wbmsWalkingPreparationReleaseRequested = false;
+    this->gaitParam_.isWbmsWalkingStartDelay = false;
+    this->gaitParam_.wbmsWalkingStartDelayRemainTime = 0.0;
+  }
+}
+
 bool AutoStabilizer::goPos(const double& x, const double& y, const double& th){
   std::lock_guard<std::mutex> guard(this->mutex_);
   if(this->mode_.isABCRunning()){
     if(std::isfinite(x) && std::isfinite(y) && std::isfinite(th)){
-      if(this->wbmsWalkingCommandDelay_.shouldDelay(this->gaitParam_) || this->gaitParam_.isWbmsWalkingStartDelay){
-        this->wbmsWalkingCommandDelay_.storeGoPos(this->gaitParam_, cnoid::Vector3(x, y, th));
-        return true;
-      }
-      return this->footStepGenerator_.goPos(this->gaitParam_, x, y, th,
-                                            this->gaitParam_.footstepNodesList);
+      if(this->rejectWbmsWalkingApiIfNotReady("goPos")) return false;
+      bool ret = this->footStepGenerator_.goPos(this->gaitParam_, x, y, th,
+                                                this->gaitParam_.footstepNodesList);
+      if(ret) this->markWbmsWalkingApiAcceptedIfReady();
+      return ret;
     }else{
       std::cerr << "goPos is not finite!" << std::endl;
       return false;
@@ -1306,14 +1338,12 @@ bool AutoStabilizer::goVelocity(const double& vx, const double& vy, const double
   if(this->mode_.isABCRunning()){
     if(std::isfinite(vx) && std::isfinite(vy) && std::isfinite(vth)){
       cnoid::Vector3 refCmdVel(vx, vy, vth / 180.0 * M_PI);
-      if(this->wbmsWalkingCommandDelay_.shouldDelay(this->gaitParam_) || this->gaitParam_.isWbmsWalkingStartDelay){
-        this->wbmsWalkingCommandDelay_.storeGoVelocity(this->gaitParam_, refCmdVel);
-        return true;
-      }
+      if(this->rejectWbmsWalkingApiIfNotReady("goVelocity")) return false;
       this->cmdVelGenerator_.refCmdVel[0] = vx;
       this->cmdVelGenerator_.refCmdVel[1] = vy;
       this->cmdVelGenerator_.refCmdVel[2] = vth / 180.0 * M_PI;
       this->footStepGenerator_.isGoVelocityMode = true;
+      this->markWbmsWalkingApiAcceptedIfReady();
       return true;
     }else{
       std::cerr << "goVelocity is not finite!" << std::endl;
@@ -1383,16 +1413,96 @@ bool AutoStabilizer::setFootStepsWithParam(const auto_stabilizer::AutoStabilizer
       stepNode.swingEnd = sps[i].swing_end;
       footsteps.push_back(stepNode);
     }
-    if(this->wbmsWalkingCommandDelay_.shouldDelay(this->gaitParam_) || this->gaitParam_.isWbmsWalkingStartDelay){
-      this->wbmsWalkingCommandDelay_.storeFootSteps(this->gaitParam_, footsteps);
-      return true;
-    }
-    return this->footStepGenerator_.setFootSteps(this->gaitParam_, footsteps, // input
-                                                 this->gaitParam_.footstepNodesList); // output
+    if(this->rejectWbmsWalkingApiIfNotReady("setFootStepsWithParam")) return false;
+    bool ret = this->footStepGenerator_.setFootSteps(this->gaitParam_, footsteps, // input
+                                                     this->gaitParam_.footstepNodesList); // output
+    if(ret) this->markWbmsWalkingApiAcceptedIfReady();
+    return ret;
   }else{
     return false;
   }
 }
+
+bool AutoStabilizer::startWbmsWalkingPreparation(){
+  std::lock_guard<std::mutex> guard(this->mutex_);
+  if(!this->mode_.isABCRunning()){
+    std::cerr << "[" << this->m_profile.instance_name << "] startWbmsWalkingPreparation rejected: AutoBalancer is not running." << std::endl;
+    return false;
+  }
+  if(!this->wbmsWalkingCommandDelay_.isWbmsActive(this->gaitParam_)){
+    std::cerr << "[" << this->m_profile.instance_name << "] startWbmsWalkingPreparation rejected: WBMS is not running." << std::endl;
+    return false;
+  }
+  if(!this->gaitParam_.isStatic()){
+    std::cerr << "[" << this->m_profile.instance_name << "] startWbmsWalkingPreparation rejected: robot is not static." << std::endl;
+    return false;
+  }
+  this->wbmsWalkingCommandDelay_.startPreparation(this->gaitParam_);
+  this->gaitParam_.debugData.wbmsWalkingPreparationStartEvent = true;
+  std::cerr << "[" << this->m_profile.instance_name << "] Start WBMS walking preparation" << std::endl;
+  return true;
+}
+
+bool AutoStabilizer::cancelWbmsWalkingPreparation(){
+  std::lock_guard<std::mutex> guard(this->mutex_);
+  if(!this->wbmsWalkingCommandDelay_.isWbmsActive(this->gaitParam_) &&
+     this->gaitParam_.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_INACTIVE){
+    std::cerr << "[" << this->m_profile.instance_name << "] cancelWbmsWalkingPreparation rejected: WBMS walking preparation is inactive." << std::endl;
+    return false;
+  }
+  this->wbmsWalkingCommandDelay_.cancelPreparation(this->gaitParam_);
+  this->gaitParam_.debugData.wbmsWalkingPreparationCancelEvent = true;
+  std::cerr << "[" << this->m_profile.instance_name << "] Cancel WBMS walking preparation" << std::endl;
+  return true;
+}
+
+bool AutoStabilizer::getWbmsWalkingPreparationState(auto_stabilizer::AutoStabilizerService::WbmsWalkingPreparationState& state){
+  std::lock_guard<std::mutex> guard(this->mutex_);
+  switch(this->gaitParam_.wbmsWalkingPreparationPhase){
+  case GaitParam::WBMS_WALKING_PREPARATION_REQUESTED:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_SNAPSHOT;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_DECELERATING:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_DECELERATE;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_RETURNING:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_RETURN;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_HANDOFF:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_SETTLE;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_READY:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_READY;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_WALKING;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_FAILED:
+    if(this->gaitParam_.wbmsWalkingPreparationFailureCode == GaitParam::WBMS_WALKING_PREPARATION_FAILURE_CANCELLED) state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_CANCELLED;
+    else state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_FAILED;
+    break;
+  case GaitParam::WBMS_WALKING_PREPARATION_INACTIVE:
+  default:
+    state.phase = auto_stabilizer::AutoStabilizerService::WBMS_WALK_PREP_IDLE;
+    break;
+  }
+  state.ready = this->gaitParam_.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_READY;
+  state.failed = this->gaitParam_.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_FAILED;
+  state.elapsed_time = std::isfinite(this->gaitParam_.wbmsWalkingPreparationElapsedTime) ? this->gaitParam_.wbmsWalkingPreparationElapsedTime : 0.0;
+  state.held_robot_com_height_in_foot_mid =
+    this->gaitParam_.wbmsWalkingComHeightHoldValid && std::isfinite(this->gaitParam_.heldRobotComHeightInFootMid) ?
+    this->gaitParam_.heldRobotComHeightInFootMid : 0.0;
+  state.chest_error = std::isfinite(this->gaitParam_.wbmsWalkingPreparationChestError) ? this->gaitParam_.wbmsWalkingPreparationChestError : 0.0;
+  state.com_xy_error = std::isfinite(this->gaitParam_.wbmsWalkingPreparationComXYError) ? this->gaitParam_.wbmsWalkingPreparationComXYError : 0.0;
+  state.com_z_error = std::isfinite(this->gaitParam_.wbmsWalkingPreparationComZError) ? this->gaitParam_.wbmsWalkingPreparationComZError : 0.0;
+  state.root_error = std::isfinite(this->gaitParam_.wbmsWalkingPreparationRootError) ? this->gaitParam_.wbmsWalkingPreparationRootError : 0.0;
+  state.applied_velocity_norm = std::max(this->gaitParam_.wbmsAppliedComVelocityCommand.norm(),
+                                         this->gaitParam_.wbmsAppliedTorsoAngularVelocityCommand.norm());
+  if(!std::isfinite(state.applied_velocity_norm)) state.applied_velocity_norm = 0.0;
+  state.failure_code = static_cast<CORBA::Long>(this->gaitParam_.wbmsWalkingPreparationFailureCode);
+  return true;
+}
+
 void AutoStabilizer::waitFootSteps(){
   while (this->mode_.isABCRunning() && (!this->gaitParam_.isStatic() || this->gaitParam_.isWbmsWalkingStartDelay)) usleep(1000);
   usleep(1000);

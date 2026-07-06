@@ -58,6 +58,9 @@ public:
   bool jumpTo(const double& x, const double& y, const double& z, const double& ts, const double& tf);
   bool setFootSteps(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs);
   bool setFootStepsWithParam(const auto_stabilizer::AutoStabilizerService::FootstepSequence& fs, const auto_stabilizer::AutoStabilizerService::StepParamSequence& sps);
+  bool startWbmsWalkingPreparation();
+  bool cancelWbmsWalkingPreparation();
+  bool getWbmsWalkingPreparationState(auto_stabilizer::AutoStabilizerService::WbmsWalkingPreparationState& state);
   void waitFootSteps();
   bool startAutoBalancer();
   bool stopAutoBalancer();
@@ -279,6 +282,9 @@ protected:
 protected:
   // utility functions
   bool getProperty(const std::string& key, std::string& ret);
+  bool isWbmsWalkingApiReady() const;
+  bool rejectWbmsWalkingApiIfNotReady(const char* apiName);
+  void markWbmsWalkingApiAcceptedIfReady();
   static void copyEigenCoords2FootStep(const cnoid::Isometry3& in_fs, auto_stabilizer::AutoStabilizerService::Footstep& out_fs);
 
   static bool readInPortData(const double& dt, GaitParam& gaitParam, const AutoStabilizer::ControlMode& mode, AutoStabilizer::Ports& ports, cnoid::BodyPtr refRobotRaw, cnoid::BodyPtr actRobotRaw, std::vector<cnoid::Vector6>& refEEWrenchOrigin, std::vector<cpp_filters::TwoPointInterpolatorSE3>& refEEPoseRaw, std::vector<GaitParam::Collision>& selfCollision, std::vector<std::vector<cnoid::Vector3> >& steppableRegion, std::vector<double>& steppableHeight, double& relLandingHeight, cnoid::Vector3& relLandingNormal);

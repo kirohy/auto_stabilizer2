@@ -39,6 +39,21 @@ CORBA::Boolean AutoStabilizerService_impl::setFootStepsWithParam(const auto_stab
   return this->comp_->setFootStepsWithParam(fs, spss);
 }
 
+CORBA::Boolean AutoStabilizerService_impl::startWbmsWalkingPreparation()
+{
+  return this->comp_->startWbmsWalkingPreparation();
+}
+
+CORBA::Boolean AutoStabilizerService_impl::cancelWbmsWalkingPreparation()
+{
+  return this->comp_->cancelWbmsWalkingPreparation();
+}
+
+CORBA::Boolean AutoStabilizerService_impl::getWbmsWalkingPreparationState(auto_stabilizer::AutoStabilizerService::WbmsWalkingPreparationState_out state)
+{
+  return this->comp_->getWbmsWalkingPreparationState(state);
+}
+
 void AutoStabilizerService_impl::waitFootSteps()
 {
   return this->comp_->waitFootSteps();

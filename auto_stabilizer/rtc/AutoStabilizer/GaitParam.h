@@ -303,12 +303,24 @@ public:
     bool wbmsFinalIKPreviousValid = false;
     double wbmsFinalIKMaxJointDelta = 0.0; // [rad or m]. final IK後関節角の一周期最大変化量
     bool wbmsWalkingPendingCommandReleaseEvent = false; // 現周期でlegacy delayのpending commandをreleaseした
+    bool wbmsWalkingApiRejectedNotReadyEvent = false; // WBMS歩行準備未完了により歩行APIをrejectした
+    bool wbmsWalkingApiAcceptedReadyEvent = false; // WBMS歩行準備READY後に歩行APIを受け付けた
+    bool wbmsWalkingPreparationStartEvent = false; // startWbmsWalkingPreparation serviceが受理された
+    bool wbmsWalkingPreparationCancelEvent = false; // cancelWbmsWalkingPreparation serviceが受理された
 
     void resetWbmsFinalIKDiagnostics(){
       wbmsFinalIKRealizedComVelocity.setZero();
       wbmsFinalIKRealizedChestAngularVelocity.setZero();
       wbmsFinalIKMaxJointDelta = 0.0;
       wbmsFinalIKPreviousValid = false;
+    }
+
+    void clearWbmsWalkingPreparationEvents(){
+      wbmsWalkingPendingCommandReleaseEvent = false;
+      wbmsWalkingApiRejectedNotReadyEvent = false;
+      wbmsWalkingApiAcceptedReadyEvent = false;
+      wbmsWalkingPreparationStartEvent = false;
+      wbmsWalkingPreparationCancelEvent = false;
     }
   };
   DebugData debugData; // デバッグ用のOutPortから出力するためのデータ. AutoStabilizer内の制御処理では使われることは無い. そのため、モード遷移や初期化等の処理にはあまり注意を払わなくて良い
