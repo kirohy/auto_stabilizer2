@@ -95,7 +95,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
     this->ikEEPositionConstraint[i]->B_link() = nullptr;
     this->ikEEPositionConstraint[i]->B_localpos() = gaitParam.abcEETargetPose[i];
     this->ikEEPositionConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->ikEEPositionConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
+    this->ikEEPositionConstraint[i]->precision() = 0.0;
     this->ikEEPositionConstraint[i]->weight() = this->ikEEPositionWeight[i].value();
     this->ikEEPositionConstraint[i]->eval_link() = genRobot->link(this->ikEEEvalLink[i]);
     if(this->ikEEPositionConstraint[i]->eval_link()) this->ikEEPositionConstraint[i]->eval_localR() = this->ikEEPositionConstraint[i]->eval_link()->R().transpose() * this->ikEEPositionConstraint[i]->B_localpos().linear();
@@ -117,7 +117,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
       this->ikEEPositionConstraint[i]->B_localpos() = gaitParam.refRobot->rootLink()->T().inverse() * gaitParam.abcEETargetPose[i];
     }
     this->ikEEPositionConstraint[i]->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->ikEEPositionConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
+    this->ikEEPositionConstraint[i]->precision() = 0.0;
     this->ikEEPositionConstraint[i]->weight() = this->ikEEPositionWeight[i].value();
     this->ikEEPositionConstraint[i]->eval_link() = genRobot->link(this->ikEEEvalLink[i]);
     cnoid::Matrix3 eeTargetR;
@@ -136,7 +136,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
     cnoid::Vector3 cogTarget = gaitParam.genCog + gaitParam.sbpOffset;
     this->comConstraint->B_localp() = cogTarget;
     this->comConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt;
-    this->comConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
+    this->comConstraint->precision() = 0.0;
     cnoid::Vector3 nominalComWeight(10.0, 10.0, 1.0 * wbmsStabilityMode);
     this->comConstraint->weight() = nominalComWeight * (1.0 - wbmsOperationMode) + gaitParam.wbmsComPositionWeight * wbmsOperationMode;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
@@ -173,7 +173,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
     this->angularMomentumConstraint->robot() = genRobot;
     this->angularMomentumConstraint->targetAngularMomentum() = cnoid::Vector3::Zero(); // TODO
     this->angularMomentumConstraint->maxError() << 1.0*dt, 1.0*dt, 1.0*dt;
-    this->angularMomentumConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
+    this->angularMomentumConstraint->precision() = 0.0;
     this->angularMomentumConstraint->weight() << 1e-4, 1e-4, 0.0; // TODO
     this->angularMomentumConstraint->dt() = dt;
     this->comConstraint->eval_R() = cnoid::Matrix3::Identity();
@@ -195,7 +195,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
     this->rootPositionConstraint->B_link() = nullptr;
     this->rootPositionConstraint->B_localpos() = rootTargetPose;
     this->rootPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->rootPositionConstraint->precision() = 0.0; // 強制的にIKをmax loopまで回す
+    this->rootPositionConstraint->precision() = 0.0;
     // this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
     //this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-1, 3e-1, 3e-1;
     this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode;
@@ -219,7 +219,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
         l = std::max(l,gaitParam.jointLimitTables[i][j]->getLlimit());
       }
       this->refJointAngleConstraint[i]->targetq() = std::min(u, std::max(l, refq[i]));
-      this->refJointAngleConstraint[i]->precision() = 0.0; // 強制的にIKをmax loopまで回す
+      this->refJointAngleConstraint[i]->precision() = 0.0;
       ikConstraint4.push_back(this->refJointAngleConstraint[i]);
     }
   }
@@ -235,6 +235,9 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
     }
   }
   prioritized_inverse_kinematics_solver2::IKParam param;
+  // WBMS final IKは500Hz運用のため1 iteration固定で使う。
+  // precision=0.0はこの条件では反復数を増やさず、solveIKLoop()の最終満足判定だけを厳しくする。
+  // 現状の制御判断は戻り値に依存せず、solve後の姿勢を後段のlimit checkへ渡す。
   param.maxIteration = 1;
   param.dqWeight = dqWeight;
   param.wn = 1e-6;

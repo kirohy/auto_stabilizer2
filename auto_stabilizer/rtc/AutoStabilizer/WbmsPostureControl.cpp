@@ -29,6 +29,8 @@ void WbmsPostureControl::init(const cnoid::BodyPtr& genRobot, const GaitParam& g
     this->projectionVariables_.push_back(this->wbmsPostureRobot_->joint(this->projectionJointIds_[i]));
   }
 
+  // WBMS projectorは1周期先の安全な小ステップ候補を作る用途なので、
+  // 500Hz運用では1 iteration固定で使う。maxIteration>1の収束設計は別途扱う。
   this->projectionIKParam_.maxIteration = 1;
   this->projectionIKParam_.dqWeight.assign(6 + this->projectionJointIds_.size(), 1.0);
   this->projectionIKParam_.wn = 1e-6;
@@ -604,6 +606,9 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   }
 
   this->projectionIKParam_.dt = dt;
+  // precision=0.0はmaxIteration=1では反復数を増やさず、solveIKLoop()の
+  // 最終満足判定だけを厳しくする。projector候補の採用可否は下の
+  // validateProjectionCandidate()で判定し、allConstraintsSatisfiedは診断値として扱う。
   bool allConstraintsSatisfied = prioritized_inverse_kinematics_solver2::solveIKLoop(this->projectionVariables_,
                                                                                     this->projectionConstraints_,
                                                                                     this->projectionTasks_,
