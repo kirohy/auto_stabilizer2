@@ -2841,6 +2841,332 @@ e25a5f5 Clarify WBMS one-iteration IK policy
 - M5.2以降で計算時間を比較する場合、制御挙動baselineは `test_start_walking202607061848*`、`061851*`、`061853*` のPASS相当ログ、時間統計baselineは `061700` 記録を参照する。
 - 作業時点で未追跡の `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/log/` はM5.1コミット対象外として残した。後続作業でも不要に削除しない。
 
+## M5.2 `checkFinalState=false` 実装と適用 実装・評価記録
+
+`WBMSComputationReductionImplementationPlan.md` のM5.2として、`prioritized_inverse_kinematics_solver2::IKParam::checkFinalState` を実装し、WBMS projector/final IKで `checkFinalState=false` を適用した。
+
+### 実装した範囲
+
+- `prioritized_inverse_kinematics_solver2::IKParam::checkFinalState` のヘッダコメントに、`false` 時は最終状態のconstraint再評価を省略し、戻り値がfalseになることを明記した。
+- `prioritized_inverse_kinematics_solver2::solveIKLoop()` で、最終iteration後の速度計算、FK、COM更新は従来どおり実行し、その後 `checkFinalState=false` かつ `loop+1 >= maxIteration` の場合は `updateConstraints()` と `checkConstraintsSatisfied()` を省略してfalseを返すようにした。
+- 既定値は `checkFinalState=true` のままとし、既存利用者の挙動を維持した。
+- `WbmsPostureControl::init()` で projector IK の `projectionIKParam_.checkFinalState = false` を設定した。
+- `FullbodyIKSolver::solveFullbodyIK()` で final IK の `param.checkFinalState = false` を設定した。
+- projector側コメントを、`allConstraintsSatisfied` は `checkFinalState=false` では常にfalse相当の診断値であり、採用判定は `validateProjectionCandidate()` で行う、という現行挙動へ更新した。
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `../ik_solvers2/prioritized_inverse_kinematics_solver2/include/prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h` | `checkFinalState=false` 時の戻り値と再評価省略を明記 |
+| `../ik_solvers2/prioritized_inverse_kinematics_solver2/src/prioritized_inverse_kinematics_solver2.cpp` | 最終iteration後のFK/COM更新後に、constraint再評価を省略する分岐を追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | projector IKで `checkFinalState=false` を設定し、診断値コメントを更新 |
+| `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp` | final IKで `checkFinalState=false` を設定 |
+
+### ビルド確認
+
+```sh
+catkin build prioritized_inverse_kinematics_solver2 auto_stabilizer --no-deps
+```
+
+結果:
+
+```text
+All 2 packages succeeded.
+Warnings: None.
+```
+
+### シミュレータ評価ログ
+
+M5.2実装後、最新PASS相当ログ `061848`, `061851`, `061853` と同じ条件でシミュレータ確認を行った。
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607071526.*
+```
+
+比較対象:
+
+```text
+auto_stabilizer/log/test_start_walking202607061848.*
+auto_stabilizer/log/test_start_walking202607061851.*
+auto_stabilizer/log/test_start_walking202607061853.*
+```
+
+ログ解析では `ast_wbmsDebug` を用いた。ログファイルの1列目は時刻であり、`wbmsDebugOut` のdata index `i` はログ上の `i+2` 列目に対応する。現行125要素の対応表は本節末尾の「現行 `wbmsDebugOut` 対応表」にまとめた。
+
+### 歩行準備・歩行開始挙動
+
+`test_start_walking202607071526.ast_wbmsDebug` から読み取った主要イベント:
+
+| 項目 | 値 |
+|---|---:|
+| RETURNING開始 | 1.000s |
+| HANDOFF | 7.269s |
+| READY | 7.388s |
+| `goVelocity(0,0,0)` accepted | 7.412s |
+| READY前walking API reject | 14回 |
+| READY前walking API accept | 0回 |
+| READY前 `footstepNodesList.size()` 最大 | 1 |
+| accept後 `footstepNodesList.size()` 最大 | 8 |
+| FAILED遷移 | なし |
+
+READY/accept時の主要値:
+
+| 項目 | 値 |
+|---|---:|
+| READY時root error | 0.000010rad |
+| READY時 `wbmsWalkingStabilityModeValue` | 0.990109 |
+| READY時 `wbmsOperationModeValue` | 0.000000 |
+| READY時timeout残り | 4.558s |
+| READY時candidate safe | 1 |
+| READY時max joint delta | 0.000015rad |
+| accept直後 `wbmsOperationModeValue` | 0.000000 |
+| accept直後 `wbmsWalkingStabilityModeValue` | 0.990119 |
+| accept直後root pitch | -0.042310rad |
+| accept直後 `stTargetRootPose` pitch | -0.042310rad |
+| accept直後final IK COM速度norm | 0.000014m/s |
+| accept直後final IK CHEST角速度norm | 0.028184rad/s |
+| accept直後max joint delta | 0.000173rad |
+
+accept直後から1.0s windowの最大値:
+
+| 項目 | 値 |
+|---|---:|
+| final IK COM速度norm最大 | 0.103319m/s |
+| final IK CHEST角速度norm最大 | 1.145691rad/s |
+| max joint delta最大 | 0.002290rad |
+| `footstepNodesList.size()` 最大 | 8 |
+| window終端root pitch | -0.037991rad |
+
+評価:
+
+- READY後に `goVelocity(0,0,0)` がacceptedされる。
+- READY前walking API reject、READY前footstep抑制、READY後walking API acceptは維持されている。
+- accepted直後に `wbmsOperationModeValue=0.0` が維持され、operation blend残留はない。
+- READY時 `wbmsWalkingStabilityModeValue >= 0.99` が維持されている。
+- accept直後1.0s windowのmax joint deltaは既存閾値 `wbmsWalkingPreparationMaxJointDeltaEps=0.08rad` より十分小さい。
+- accept時root pitchは -0.042310rad であり、過去3本のうち直立に近かった `061853` と同程度である。
+
+以上より、M5.2による歩行準備・歩行開始安全条件の退行は確認されない。
+
+### `allConstraintsSatisfied` の扱い
+
+M5.2後の `wbmsProjectionAllConstraintsSatisfied` は全周期0である。
+
+これは `checkFinalState=false` により `solveIKLoop()` の戻り値を「最終満足判定未実施」としてfalseにしているためであり、M5.2の想定挙動である。projector採用可否は `validateProjectionCandidate()` による `candidate safe` と独自validationで判定される。
+
+今回ログでは:
+
+| 項目 | 値 |
+|---|---:|
+| `wbmsProjectionAllConstraintsSatisfied` unique | 0のみ |
+| projector valid rate | 0.879 |
+| candidate safe rate | 0.879 |
+| projection status | 20が3152周期、1が433周期 |
+
+`allConstraintsSatisfied=false` がprojector validを常時falseへ落とす退行は起きていない。
+
+### 計算時間評価
+
+M5.2後ログ `071526` の計算時間統計:
+
+| 項目 | mean | p95 | p99 | max |
+|---|---:|---:|---:|---:|
+| projector | 0.321ms | 0.517ms | 0.582ms | 0.747ms |
+| final IK | 0.662ms | 0.945ms | 1.077ms | 1.441ms |
+| onExecute | 1.277ms | 1.799ms | 2.018ms | 4.157ms |
+
+最新PASS相当3本 `061848`, `061851`, `061853` 平均との比較:
+
+| 項目 | 最新3本平均 | M5.2後 `071526` | 差分 |
+|---|---:|---:|---:|
+| projector mean | 0.361ms | 0.321ms | -11.1% |
+| projector p99 | 0.730ms | 0.582ms | -20.3% |
+| projector max | 1.062ms | 0.747ms | -29.6% |
+| final IK mean | 0.766ms | 0.662ms | -13.7% |
+| final IK p99 | 1.325ms | 1.077ms | -18.7% |
+| final IK max | 2.115ms | 1.441ms | -31.9% |
+| onExecute mean | 1.420ms | 1.277ms | -10.0% |
+| onExecute p95 | 2.081ms | 1.799ms | -13.6% |
+| onExecute p99 | 2.386ms | 2.018ms | -15.4% |
+| onExecute max | 4.418ms | 4.157ms | -5.9% |
+| onExecute 2ms超過周期数 | 286.7周期 | 37周期 | -87.1% |
+
+M5計画書に記載した `061700` 時間baselineとの比較:
+
+| 項目 | `061700` baseline | M5.2後 `071526` | 評価 |
+|---|---:|---:|---|
+| projector mean | 0.348ms | 0.321ms | 改善 |
+| projector p99 | 0.691ms | 0.582ms | 改善 |
+| projector max | 0.932ms | 0.747ms | 改善 |
+| final IK mean | 0.775ms | 0.662ms | 改善 |
+| final IK p99 | 1.334ms | 1.077ms | 改善 |
+| final IK max | 2.114ms | 1.441ms | 改善 |
+| onExecute mean | 1.417ms | 1.277ms | 改善 |
+| onExecute p95 | 2.048ms | 1.799ms | 改善 |
+| onExecute p99 | 2.387ms | 2.018ms | 改善 |
+| onExecute max | 3.416ms | 4.157ms | 悪化 |
+| onExecute 2ms超過周期数 | 216周期 | 37周期 | 改善 |
+
+onExecute max単体は `061700` baselineより悪化している。ただし、maxは単発外れ値の影響を受けやすく、p95/p99、mean、2ms超過周期数は明確に改善している。M5.2の主目的である、projector/final IKのsolve後constraint再評価削減による500Hz余裕増加は確認できた。
+
+### M5.2 acceptance確認
+
+| 項目 | 結果 | 備考 |
+|---|---|---|
+| `checkFinalState=true` の既存挙動が維持される | PASS相当 | 既定値はtrueのまま。M5.2ではfalse指定時だけ分岐 |
+| projectorは `checkFinalState=false` で動作する | PASS | `allConstraintsSatisfied` は0固定相当、candidate safe/validは維持 |
+| projector採用判定が `validateProjectionCandidate()` で維持される | PASS | valid rate 0.879、READY/accept到達 |
+| final IKは `checkFinalState=false` で動作し、戻り値に依存しない | PASS | final IK後limit checkと出力は継続 |
+| 最新PASS相当条件でREADY到達 | PASS | READY 7.388s |
+| READY後walking API accept | PASS | accepted 7.412s |
+| operation blend残留なし | PASS | accepted直後operation 0.000000 |
+| READY時stability >= 0.99 | PASS | 0.990109 |
+| READY前footstep抑制 | PASS | READY前footstep max 1 |
+| projector/final IK/onExecute時間が悪化しない | PASS相当 | p95/p99/meanと2ms超過数は改善。onExecute maxのみ `061700` baseline比で悪化 |
+
+### M5.2結論
+
+M5.2は完了扱いでよい。
+
+制御挙動の退行は今回ログでは確認されず、計算時間はprojector/final IKともに改善した。`onExecute` もmean/p95/p99と2ms超過周期数が改善しており、500Hz運用余裕は増えた。一方で、`onExecute max` は単発外れ値として `061700` baselineより大きいため、今後のM5.3以降でもmaxだけを単独指標にせず、p99、2ms超過周期数、発生phaseを併せて見る。
+
+M5.3へ進む場合は、計画書どおりprojector priority 4姿勢参照の削減を次候補とする。
+
+## 現行 `wbmsDebugOut` 対応表
+
+この表はM5.2ログ解析時点の `AutoStabilizer::writeOutPortData()` 実装に基づく。`ast_wbmsDebug` ログでは1列目が時刻であり、data index `i` はログ上の `i+2` 列目に対応する。
+
+| index | 内容 |
+|---:|---|
+| 0 | raw COM velocity X |
+| 1 | raw COM velocity Y |
+| 2 | raw COM velocity Z |
+| 3 | applied COM velocity X |
+| 4 | applied COM velocity Y |
+| 5 | applied COM velocity Z |
+| 6 | realized COM velocity X |
+| 7 | realized COM velocity Y |
+| 8 | realized COM velocity Z |
+| 9 | raw torso angular velocity roll |
+| 10 | raw torso angular velocity pitch |
+| 11 | raw torso angular velocity yaw |
+| 12 | applied torso angular velocity roll |
+| 13 | applied torso angular velocity pitch |
+| 14 | applied torso angular velocity yaw |
+| 15 | realized torso angular velocity roll |
+| 16 | realized torso angular velocity pitch |
+| 17 | realized torso angular velocity yaw |
+| 18 | WBMS開始時からのCOM offset X |
+| 19 | WBMS開始時からのCOM offset Y |
+| 20 | WBMS開始時からのCOM offset Z |
+| 21 | WBMS開始時からのCHEST RPY offset roll |
+| 22 | WBMS開始時からのCHEST RPY offset pitch |
+| 23 | WBMS開始時からのCHEST RPY offset yaw |
+| 24 | `wbmsOperationModeValue` |
+| 25 | `wbmsWalkingStabilityModeValue` |
+| 26 | projector valid flag (`wbmsPostureReferenceValid`) |
+| 27 | projector計算時間[s] |
+| 28 | final IK計算時間[s] |
+| 29 | 前回出力更新周期の `onExecute()` 全体計算時間[s] |
+| 30 | `wbmsProjectionStatus` |
+| 31 | `wbmsProjectionAllConstraintsSatisfied` |
+| 32 | `wbmsProjectionCandidateSafe` |
+| 33 | `wbmsProjectionSupportHullValid` |
+| 34 | candidate root translation step[m] |
+| 35 | candidate root rotation step[rad] |
+| 36 | candidate max joint step[rad or m] |
+| 37 | candidate minimum joint limit margin |
+| 38 | candidate max foot position error[m] |
+| 39 | candidate max foot rotation error[rad] |
+| 40 | final IK後robot COM realized velocity X[foot-mid, m/s] |
+| 41 | final IK後robot COM realized velocity Y[foot-mid, m/s] |
+| 42 | final IK後robot COM realized velocity Z[foot-mid, m/s] |
+| 43 | final IK後CHEST realized angular velocity roll軸相当[foot-mid, rad/s] |
+| 44 | final IK後CHEST realized angular velocity pitch軸相当[foot-mid, rad/s] |
+| 45 | final IK後CHEST realized angular velocity yaw軸相当[foot-mid, rad/s] |
+| 46 | `wbmsWalkingPreparationPhase` |
+| 47 | `wbmsWalkingPreparationElapsedTime`[s] |
+| 48 | `wbmsWalkingPreparationReturnAlpha` |
+| 49 | `wbmsWalkingPreparationHandoffAlpha` |
+| 50 | held robot COM height in footMid[m]。保持無効時0 |
+| 51 | current robot COM height in footMid[m] |
+| 52 | `wbmsWalkingPreparationChestError`[rad] |
+| 53 | `wbmsWalkingPreparationComXYError`[m] |
+| 54 | `wbmsWalkingPreparationComZError`[m] |
+| 55 | `wbmsWalkingPreparationRootError`[rad] |
+| 56 | final IK後max joint delta per cycle[rad or m] |
+| 57 | pending command release event |
+| 58 | `wbmsWalkingPreparationFailureCode` |
+| 59 | runtime `wbmsWalkingStabilityStartTime`[s] |
+| 60 | final IK後root roll[generate frame, rad] |
+| 61 | final IK後root pitch[generate frame, rad] |
+| 62 | final IK後root yaw[generate frame, rad] |
+| 63 | `stTargetRootPose` roll[generate frame, rad] |
+| 64 | `stTargetRootPose` pitch[generate frame, rad] |
+| 65 | `stTargetRootPose` yaw[generate frame, rad] |
+| 66 | `refdz`[m] |
+| 67 | `l.z`[m] |
+| 68 | `omega`[1/s] |
+| 69 | `refZmpTraj[0]` start X[generate frame, m] |
+| 70 | `refZmpTraj[0]` start Y[generate frame, m] |
+| 71 | `refZmpTraj[0]` start Z[generate frame, m] |
+| 72 | `refZmpTraj[0]` goal X[generate frame, m] |
+| 73 | `refZmpTraj[0]` goal Y[generate frame, m] |
+| 74 | `refZmpTraj[0]` goal Z[generate frame, m] |
+| 75 | `refZmpTraj[0]` time[s] |
+| 76 | `refZmpTraj` total time[s] |
+| 77 | `footstepNodesList.size()` |
+| 78 | `footstepNodesList[0].remainTime`[s] |
+| 79 | current footstep `elapsedTime`[s] |
+| 80 | right leg support flag |
+| 81 | left leg support flag |
+| 82 | right leg `swingState` |
+| 83 | left leg `swingState` |
+| 84 | READY phase flag |
+| 85 | FAILED phase flag |
+| 86 | walking API rejected-not-ready event |
+| 87 | walking API accepted-ready event |
+| 88 | walking preparation start event |
+| 89 | walking preparation cancel event |
+| 90 | applied velocity command norm |
+| 91 | return velocity command norm |
+| 92 | phase is READY or WALKING_HOLD flag |
+| 93 | walking preparation snapshot valid flag |
+| 94 | walking preparation settle elapsed time[s] |
+| 95 | walking start delay remain time[s] |
+| 96 | return root angular velocity roll[rad/s] |
+| 97 | return root angular velocity pitch[rad/s] |
+| 98 | return root angular velocity yaw[rad/s] |
+| 99 | return COM velocity norm[m/s] |
+| 100 | return torso angular velocity norm[rad/s] |
+| 101 | return root angular velocity norm[rad/s] |
+| 102 | return all velocity norm |
+| 103 | walking preparation target root roll[rad] |
+| 104 | walking preparation target root pitch[rad] |
+| 105 | walking preparation target root yaw[rad] |
+| 106 | walking preparation target root error[rad] |
+| 107 | final IK COM velocity norm[m/s] |
+| 108 | final IK CHEST angular velocity norm[rad/s] |
+| 109 | READY条件: applied velocity |
+| 110 | READY条件: return COM velocity |
+| 111 | READY条件: return torso velocity |
+| 112 | READY条件: return root velocity |
+| 113 | READY条件: CHEST error |
+| 114 | READY条件: COM XY error |
+| 115 | READY条件: COM Z error |
+| 116 | READY条件: root error |
+| 117 | READY条件: walking stability |
+| 118 | READY条件: candidate safe |
+| 119 | READY条件: final IK joint step |
+| 120 | READY条件: dynamics |
+| 121 | RETURNING中安全判定: final IK COM velocity safe |
+| 122 | RETURNING中安全判定: final IK CHEST velocity safe |
+| 123 | walking preparation timeout残り[s] |
+| 124 | `wbmsWalkingPreparationVelocityEps` |
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
@@ -2902,7 +3228,7 @@ e25a5f5 Clarify WBMS one-iteration IK policy
 - 最終IKのCOM targetは `genCog + sbpOffset`。M2のCOM/ZMP統合によりstatic WBMS中の `genCog` は投影COMへblend済みである。
 - 最終IKのreference angleはjoint mask trueの関節だけ投影Qへmode blendし、腕などmask falseの関節は従来referenceを使う。
 - `wbmsOperationModeValue` はstatic WBMS操作と通常歩行安定化を切り替える共通係数として使う。
-- `wbmsDebugOut` はM4.1時点で40要素。既存index 0-29はM3定義を維持し、30-39にprojection statusとvalidation metricsを追加している。
+- `wbmsDebugOut` はM5.2評価時点で125要素。現行indexは本書の「現行 `wbmsDebugOut` 対応表」を参照する。`ast_wbmsDebug` ログでは1列目が時刻で、data index `i` はログ上の `i+2` 列目である。
 
 ### 次のセッションで最初に確認すべきコード箇所
 
