@@ -3604,6 +3604,140 @@ M5.6を後で実施する場合の方針:
 3. M5.6は、M5.7/M5.8後にも500Hz余裕が不足する場合、またはallocation由来のばらつきが計測で確認された場合に小範囲で実施する。
 4. M5.9 prioritized_qp fixed-structure fast pathは効果見込みは大きいが影響範囲も広いため、M5.7/M5.8後の残課題として扱う。
 
+## M5.7 `solveIKLoop()` 1-iteration fast path 実装記録 2026-07-07
+
+`WBMSComputationReductionImplementationPlan.md` のM5.7として、`prioritized_inverse_kinematics_solver2::solveIKLoop()` に1 iteration専用のfast pathを追加した。
+
+実装内容:
+
+- `prioritized_inverse_kinematics_solver2/src/prioritized_inverse_kinematics_solver2.cpp` に `solveIKLoopOneIterationFast()` を追加した。
+- fast pathの適用条件は以下に限定した。
+  - `param.maxIteration == 1`
+  - `param.checkFinalState == false`
+  - `rejections.empty()`
+  - `path == nullptr`
+  - `variables` が0個または1個の `Body` に属する
+- 条件を満たす場合、従来経路で毎回行っていた以下を省く。
+  - `std::set<cnoid::BodyPtr>` によるbody集合構築
+  - `std::unordered_map<cnoid::LinkPtr, InitialJointState>` による初期状態保存
+  - `prevFrame` の構築
+  - rejection復帰用のframe保存・復元
+  - path出力処理
+  - 複数body向けFK/COM loop
+- fast pathでも以下は従来どおり実行する。
+  - solve前の速度更新
+  - solve前のFK/COM更新
+  - solve前のconstraint更新
+  - `solveIKOnce()`
+  - solve後の速度更新
+  - solve後のFK/COM更新
+- `checkFinalState=false` の既存仕様どおり、solve後のconstraint再評価は行わず、戻り値は `false` とする。
+
+保持した挙動:
+
+- `checkFinalState=true`、`maxIteration!=1`、rejectionあり、pathあり、複数bodyの場合は従来の汎用経路を使う。
+- projector/final IKのconstraint構成、安全判定、速度limit、mode遷移、hidden goal非蓄積には手を入れていない。
+- `auto_stabilizer` 側の呼び出しは既にM5.2で `maxIteration=1` かつ `checkFinalState=false` になっているため、projectorとfinal IKの通常経路でfast pathが使われる。
+
+ビルド確認:
+
+```sh
+catkin build prioritized_inverse_kinematics_solver2
+catkin build auto_stabilizer --no-deps
+```
+
+結果はいずれも成功した。
+
+注意点:
+
+- M5.7は `ik_solvers2` 側の `prioritized_inverse_kinematics_solver2` に変更を持つ。
+- シミュレータログによる計算時間改善と挙動確認は未実施である。M5.7後の評価では、M5.5と同じ条件でREADY到達、READY後walking API accept、FAILEDなし、projector/final IK/onExecute時間、final IK後COM速度・CHEST角速度・max joint deltaを比較する。
+
+### M5.7 シミュレータ評価 2026-07-07
+
+M5.7実装後、M5.5までと同じ条件でシミュレータ確認を行った。
+
+評価ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607072003.*
+```
+
+比較対象:
+
+- M5.3後ログ: `auto_stabilizer/log/test_start_walking202607071608.*`
+- M5.5後ログ: `auto_stabilizer/log/test_start_walking202607071904.*`
+- M5.5後ログ: `auto_stabilizer/log/test_start_walking202607071905.*`
+
+`072003` の `ast_wbmsDebug` は125要素であり、M5.4差し戻し後のindex対応と同じである。ログファイルの1列目は時刻、data index `i` はログ上の `i+2` 列目として解析した。
+
+ユーザーのシミュレータ目視では、明確に変な挙動は確認されなかった。
+
+主要イベント:
+
+| 項目 | M5.3 `071608` | M5.5 `071904` | M5.5 `071905` | M5.7 `072003` |
+|---|---:|---:|---:|---:|
+| phase遷移 | 0 -> 3 -> 4 -> 5 -> 6 | 0 -> 3 -> 4 -> 5 -> 6 | 0 -> 3 -> 4 -> 5 -> 6 | 0 -> 3 -> 4 -> 5 -> 6 |
+| READY到達 | 7.772s | 8.407s | 7.895s | 7.463s |
+| 歩行API accept | 7.820s | 8.431s | 7.926s | 7.508s |
+| FAILED | なし | なし | なし | なし |
+| walking API reject event数 | 18 | 24 | 19 | 15 |
+| projector valid ratio | 0.886 | 0.903 | 0.890 | 0.884 |
+| candidate safe ratio | 0.886 | 0.903 | 0.890 | 0.884 |
+| all constraints satisfied ratio | 0.0 | 0.0 | 0.0 | 0.0 |
+
+計算時間:
+
+| 指標 | M5.3 `071608` | M5.5 `071904` | M5.5 `071905` | M5.7 `072003` |
+|---|---:|---:|---:|---:|
+| projector mean | 0.248ms | 0.251ms | 0.260ms | 0.246ms |
+| projector p95 | 0.408ms | 0.387ms | 0.427ms | 0.406ms |
+| projector p99 | 0.514ms | 0.474ms | 0.575ms | 0.509ms |
+| projector max | 0.696ms | 0.652ms | 0.874ms | 0.669ms |
+| final IK mean | 0.657ms | 0.650ms | 0.671ms | 0.643ms |
+| final IK p95 | 0.917ms | 0.902ms | 0.980ms | 0.926ms |
+| final IK p99 | 1.107ms | 1.053ms | 1.161ms | 1.090ms |
+| final IK max | 1.468ms | 1.436ms | 1.673ms | 1.511ms |
+| onExecute mean | 1.202ms | 1.200ms | 1.242ms | 1.193ms |
+| onExecute p95 | 1.708ms | 1.642ms | 1.818ms | 1.702ms |
+| onExecute p99 | 2.084ms | 1.911ms | 2.286ms | 2.022ms |
+| onExecute max | 2.913ms | 2.402ms | 3.554ms | 2.746ms |
+| final IK 2ms超過周期 | 0 | 0 | 0 | 0 |
+| projector 2ms超過周期 | 0 | 0 | 0 | 0 |
+| onExecute 2ms超過周期 | 53 | 29 | 105 | 40 |
+
+M5.7のfast pathによる計算時間改善は、M5.5のログばらつきに対して明確に大きいとは言えない。`072003` はfinal IK mean、onExecute mean、onExecute 2ms超過周期でM5.5の2本より良いが、p99/maxはM5.5の2本の間または近傍であり、M5.7単体の効果として強く主張しない。
+
+一方、projector/final IK単体の2ms超過はなく、onExecute p99もM5.5の2本の範囲内であるため、M5.7による計算時間悪化は確認されない。
+
+挙動・安全指標:
+
+| 指標 | M5.3 `071608` | M5.5 `071904` | M5.5 `071905` | M5.7 `072003` |
+|---|---:|---:|---:|---:|
+| final IK COM速度norm最大 | 0.103m/s | 0.347m/s | 0.103m/s | 0.103m/s |
+| final IK CHEST角速度norm最大 | 3.309rad/s | 2.411rad/s | 1.142rad/s | 1.732rad/s |
+| final IK後max joint delta最大 | 0.00663rad | 0.00843rad | 0.00380rad | 0.00350rad |
+| `el_q` 一周期最大差分 | 0.00663rad | 0.00843rad | 0.00380rad | 0.00350rad |
+| `RobotHardware0_q` 一周期最大差分 | 0.00218rad | 0.00152rad | 0.00122rad | 0.00115rad |
+| `RobotHardware0_dq` 最大 | 1.104 | 0.773 | 0.637 | 0.589 |
+| final IK後root pitch最小 | -0.091rad | -0.382rad | -0.217rad | -0.150rad |
+| `stTargetRootPose.pitch` 最小 | -0.096rad | -0.687rad | -0.289rad | -0.177rad |
+| 歩行API accept時root pitch | -0.040rad | -0.361rad | -0.084rad | -0.064rad |
+| 歩行API accept時final IK COM速度norm | 0.000002m/s | 0.154m/s | 0.000040m/s | 0.000028m/s |
+| 歩行API accept時final IK CHEST角速度norm | 0.038rad/s | 0.751rad/s | 0.151rad/s | 0.151rad/s |
+| 歩行API accept時final IK後max joint delta | 0.000240rad | 0.00601rad | 0.000987rad | 0.000986rad |
+
+`072003` では、M5.4無効化ログ `071822` で見られたREADY未到達、TIMEOUT、FAILED後の大ジャンプ、root姿勢過大化は確認されない。`071904` で見られた後傾歩行開始と比べても、歩行API accept時root pitchは `-0.064rad` と小さい。
+
+M5.7判断:
+
+- M5.7による明確な制御退行は、今回ログでは確認されない。
+- READY到達、歩行API accept、FAILEDなし、accepted直後 `wbmsOperationModeValue=0.0` は維持された。
+- final IK後COM速度、CHEST角速度、max joint delta、`RobotHardware0_q` 一周期差分、`RobotHardware0_dq` はM5.5のばらつき範囲内であり、安全上の悪化は確認されない。
+- 計算時間改善効果は小さい。M5.7は汎用loop処理を削減するが、支配的な負荷は引き続きconstraint更新、QP行列構築、OSQP solve側に残っていると見る。
+- ただし計算時間悪化も確認されないため、採用は可能である。効果が小さいことを理由に不採用とする場合でも、M5.7のtracked変更は `ik_solvers2` 側の `prioritized_inverse_kinematics_solver2.cpp` と、本Progress文書のM5.7記録に閉じており、対応するcommitをrevertすれば巻き戻せる。
+- 次に計算時間を詰める場合は、計画書どおりM5.8 self collision active set安定化を検討する。ただし実装前に、`distance < 0.05` をまたぐactive constraint数が周期間で振動しているかログで確認する。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
