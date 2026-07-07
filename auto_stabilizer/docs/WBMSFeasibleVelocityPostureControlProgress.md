@@ -3035,6 +3035,195 @@ M5.2は完了扱いでよい。
 
 M5.3へ進む場合は、計画書どおりprojector priority 4姿勢参照の削減を次候補とする。
 
+## M5.3 projector priority 4姿勢参照の削減 実装記録
+
+`WBMSComputationReductionImplementationPlan.md` のM5.3として、projector側の低weight姿勢参照を既定で無効化した。
+
+### 実装した範囲
+
+- `WbmsPostureControl` に内部flag `useProjectionPostureReference_` を追加し、既定値を `false` とした。
+- `useProjectionPostureReference_ == false` の場合、projector priority 4の `JointAngleConstraint` を生成しないようにした。
+- 同条件では `projectionConstraints_` を4段構成にし、priority 4自体を `solveIKLoop()` に渡さないようにした。
+- joint velocity、joint limit、self collision、足拘束、CHEST/COM拘束、`validateProjectionCandidate()` によるcandidate validationは維持した。
+- hidden goal非蓄積の前提は変更していない。projectorは従来どおり毎周期現在の `genRobot` から開始する。
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.h` | projector姿勢参照の内部flagを追加 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | flag無効時にpriority 4姿勢参照constraint生成とpriority段追加を省略 |
+
+### ビルド確認
+
+```sh
+catkin build auto_stabilizer --no-deps
+```
+
+結果:
+
+```text
+All 1 packages succeeded.
+Warnings: None.
+```
+
+### シミュレータ評価ログ
+
+M5.3実装後、M5.2評価時と同条件でシミュレータ確認を行った。
+
+対象ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607071608.*
+```
+
+主な比較対象:
+
+```text
+auto_stabilizer/log/test_start_walking202607071526.*
+```
+
+`ast_wbmsDebug` は125要素であり、M5.2評価時と同じindex対応で解析した。ログファイルの1列目は時刻であり、`wbmsDebugOut` のdata index `i` はログ上の `i+2` 列目に対応する。
+
+### 歩行準備・歩行開始挙動
+
+`test_start_walking202607071608.ast_wbmsDebug` から読み取った主要イベント:
+
+| 項目 | 値 |
+|---|---:|
+| RETURNING開始 | 1.003s |
+| READY | 7.772s |
+| `goVelocity(0,0,0)` accepted | 7.820s |
+| READY前walking API reject | 18回 |
+| READY前walking API accept | 0回 |
+| READY前 `footstepNodesList.size()` 最大 | 1 |
+| FAILED遷移 | なし |
+
+READY/accept時の主要値:
+
+| 項目 | 値 |
+|---|---:|
+| READY時root error | 0.000009rad |
+| READY時 `wbmsWalkingStabilityModeValue` | 0.990219 |
+| READY時 `wbmsOperationModeValue` | 0.000000 |
+| READY時candidate safe | 1 |
+| READY時max joint delta | 0.000013rad |
+| READY時final IK COM速度norm | 0.000000m/s |
+| READY時final IK CHEST角速度norm | 0.002088rad/s |
+| accepted直後 `wbmsOperationModeValue` | 0.000000 |
+| accepted直後 `wbmsWalkingStabilityModeValue` | 0.990239 |
+| accepted直後root pitch | -0.040093rad |
+| accepted直後 `stTargetRootPose` pitch | -0.040093rad |
+| accepted直後final IK COM速度norm | 0.000002m/s |
+| accepted直後final IK CHEST角速度norm | 0.038106rad/s |
+| accepted直後max joint delta | 0.000240rad |
+
+accept直後から1.0s windowの最大値:
+
+| 項目 | 値 |
+|---|---:|
+| final IK COM速度norm最大 | 0.103417m/s |
+| final IK CHEST角速度norm最大 | 1.050974rad/s |
+| max joint delta最大 | 0.002100rad |
+| `footstepNodesList.size()` 最大 | 8 |
+| window終端root pitch | -0.036518rad |
+
+評価:
+
+- READY後に `goVelocity(0,0,0)` がacceptedされる。
+- READY前walking API reject、READY前footstep抑制、READY後walking API acceptは維持されている。
+- accepted直後に `wbmsOperationModeValue=0.0` が維持され、operation blend残留はない。
+- READY時 `wbmsWalkingStabilityModeValue >= 0.99` が維持されている。
+- accept直後1.0s windowのmax joint deltaは既存閾値 `wbmsWalkingPreparationMaxJointDeltaEps=0.08rad` より十分小さい。
+
+以上より、M5.3による歩行準備・歩行開始安全条件の退行は確認されない。
+
+### projector candidate評価
+
+今回ログでは:
+
+| 項目 | 値 |
+|---|---:|
+| projector valid rate | 0.886 |
+| candidate safe rate | 0.886 |
+| projection status | 20が3340周期、1が429周期 |
+| `wbmsProjectionAllConstraintsSatisfied` unique | 0のみ |
+
+valid candidate周期のvalidation metrics:
+
+| 項目 | mean | max |
+|---|---:|---:|
+| root translation step | 0.000021m | 0.000034m |
+| root rotation step | 0.000027rad | 0.000070rad |
+| max joint step | 0.000172rad | 0.000264rad |
+| min joint limit margin | 0.138856 | 0.157047 |
+| max foot position error | 0.000000m | 0.000000m |
+| max foot rotation error | 0.000000rad | 0.000000rad |
+
+`wbmsProjectionAllConstraintsSatisfied` が全周期0なのは、M5.2で `checkFinalState=false` を適用した想定挙動である。M5.3後も採用可否は `validateProjectionCandidate()` による `candidate safe` と独自validationで判定され、projector validが維持されている。
+
+### 計算時間評価
+
+M5.3後ログ `071608` の計算時間統計:
+
+| 項目 | mean | p95 | p99 | max |
+|---|---:|---:|---:|---:|
+| projector | 0.248ms | 0.408ms | 0.514ms | 0.696ms |
+| final IK | 0.657ms | 0.917ms | 1.107ms | 1.468ms |
+| onExecute | 1.202ms | 1.708ms | 2.084ms | 2.913ms |
+
+M5.2後 `071526` との比較:
+
+| 項目 | M5.2後 `071526` | M5.3後 `071608` | 差分 |
+|---|---:|---:|---:|
+| projector mean | 0.321ms | 0.248ms | -22.6% |
+| projector p99 | 0.582ms | 0.514ms | -11.6% |
+| projector max | 0.747ms | 0.696ms | -6.8% |
+| final IK mean | 0.662ms | 0.657ms | -0.8% |
+| final IK p99 | 1.077ms | 1.107ms | +2.7% |
+| final IK max | 1.441ms | 1.468ms | +1.9% |
+| onExecute mean | 1.277ms | 1.202ms | -5.8% |
+| onExecute p95 | 1.799ms | 1.708ms | -5.1% |
+| onExecute p99 | 2.018ms | 2.084ms | +3.3% |
+| onExecute max | 4.157ms | 2.913ms | -29.9% |
+| onExecute 2ms超過周期数 | 37周期 | 53周期 | +43.2% |
+
+最新PASS相当3本 `061848`, `061851`, `061853` 平均との比較:
+
+| 項目 | 最新3本平均 | M5.3後 `071608` | 差分 |
+|---|---:|---:|---:|
+| projector mean | 0.361ms | 0.248ms | -31.2% |
+| projector p99 | 0.730ms | 0.514ms | -29.5% |
+| projector max | 1.062ms | 0.696ms | -34.5% |
+| final IK mean | 0.766ms | 0.657ms | -14.2% |
+| final IK p99 | 1.325ms | 1.107ms | -16.4% |
+| final IK max | 2.115ms | 1.468ms | -30.6% |
+| onExecute mean | 1.420ms | 1.202ms | -15.3% |
+| onExecute p95 | 2.081ms | 1.708ms | -17.9% |
+| onExecute p99 | 2.386ms | 2.084ms | -12.7% |
+| onExecute max | 4.418ms | 2.913ms | -34.1% |
+| onExecute 2ms超過周期数 | 286.7周期 | 53周期 | -81.5% |
+
+M5.3の主目的であるprojector priority 4削減によるprojector計算時間削減は確認できた。M5.2単体比較では `onExecute p99` と2ms超過周期数が悪化しているが、最新PASS相当3本平均に対しては大きく改善した水準を維持している。`onExecute` は外れ値とphase差の影響を受けるため、M5.4以降もmean/p95/p99、2ms超過周期数、発生phaseを併せて評価する。
+
+### M5.3 acceptance確認
+
+| 項目 | 結果 | 備考 |
+|---|---|---|
+| projectorがvalid candidateを生成できる | PASS | valid rate 0.886、READY/accept到達 |
+| hidden goal非蓄積が維持される | PASS相当 | projectorは毎周期現在の `genRobot` から開始。ログ上もcandidate stepは小さい |
+| joint limit、joint velocity、self collision、足拘束、CHEST/COM、candidate validationが維持される | PASS相当 | priority 4以外は維持。validation metricsに足誤差増加なし |
+| projector timeが改善する | PASS | M5.2比 mean -22.6%、p99 -11.6%、max -6.8% |
+| final IK後の関節差分が悪化しない | PASS相当 | accept後1.0s max joint delta 0.002100radでM5.2の0.002290rad以下 |
+| CHEST/COM速度が悪化しない | PASS相当 | accept後1.0s max COM速度は同等、CHEST角速度はM5.2より低い |
+| 歩行準備遷移が悪化しない | PASS | READY到達、READY前reject、READY後accept、FAILEDなし |
+
+### M5.3結論
+
+M5.3は完了扱いでよい。
+
+priority 4姿勢参照を既定無効化しても、このログ上ではprojector valid、candidate validation、歩行準備・歩行開始条件に退行は確認されない。projector計算時間は明確に改善した。M5.2単体比較で `onExecute p99` と2ms超過周期数が少し悪化した点は残るが、最新PASS相当baselineに対しては改善を維持しており、M5.3を戻す根拠にはならない。次は計画書どおりM5.4 final IKのAngularMomentumConstraint切り分けを検討する。
+
 ## 現行 `wbmsDebugOut` 対応表
 
 この表はM5.2ログ解析時点の `AutoStabilizer::writeOutPortData()` 実装に基づく。`ast_wbmsDebug` ログでは1列目が時刻であり、data index `i` はログ上の `i+2` 列目に対応する。
