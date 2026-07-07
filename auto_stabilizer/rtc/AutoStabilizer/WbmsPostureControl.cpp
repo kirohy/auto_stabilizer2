@@ -36,6 +36,7 @@ void WbmsPostureControl::init(const cnoid::BodyPtr& genRobot, const GaitParam& g
   this->projectionIKParam_.wn = 1e-6;
   this->projectionIKParam_.we = 1e2;
   this->projectionIKParam_.debugLevel = 0;
+  this->projectionIKParam_.checkFinalState = false;
 
   this->jointVelocityConstraint_.clear();
   this->jointLimitConstraint_.clear();
@@ -606,9 +607,9 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   }
 
   this->projectionIKParam_.dt = dt;
-  // precision=0.0はmaxIteration=1では反復数を増やさず、solveIKLoop()の
-  // 最終満足判定だけを厳しくする。projector候補の採用可否は下の
-  // validateProjectionCandidate()で判定し、allConstraintsSatisfiedは診断値として扱う。
+  // checkFinalState=falseのためsolve後のconstraint再評価は省かれる。
+  // allConstraintsSatisfiedは常にfalse相当の診断値であり、projector候補の採用可否は下の
+  // validateProjectionCandidate()で判定する。
   bool allConstraintsSatisfied = prioritized_inverse_kinematics_solver2::solveIKLoop(this->projectionVariables_,
                                                                                     this->projectionConstraints_,
                                                                                     this->projectionTasks_,

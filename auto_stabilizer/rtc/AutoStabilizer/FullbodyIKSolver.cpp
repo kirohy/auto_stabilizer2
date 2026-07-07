@@ -236,9 +236,10 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   }
   prioritized_inverse_kinematics_solver2::IKParam param;
   // WBMS final IKは500Hz運用のため1 iteration固定で使う。
-  // precision=0.0はこの条件では反復数を増やさず、solveIKLoop()の最終満足判定だけを厳しくする。
+  // checkFinalState=falseでsolve後のconstraint再評価を省く。
   // 現状の制御判断は戻り値に依存せず、solve後の姿勢を後段のlimit checkへ渡す。
   param.maxIteration = 1;
+  param.checkFinalState = false;
   param.dqWeight = dqWeight;
   param.wn = 1e-6;
   param.we = 1e2; // 1e0だとやや不安定. 1e3だと大きすぎる
