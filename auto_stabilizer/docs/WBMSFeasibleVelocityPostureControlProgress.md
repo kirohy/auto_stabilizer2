@@ -3738,6 +3738,98 @@ M5.7判断:
 - ただし計算時間悪化も確認されないため、採用は可能である。効果が小さいことを理由に不採用とする場合でも、M5.7のtracked変更は `ik_solvers2` 側の `prioritized_inverse_kinematics_solver2.cpp` と、本Progress文書のM5.7記録に閉じており、対応するcommitをrevertすれば巻き戻せる。
 - 次に計算時間を詰める場合は、計画書どおりM5.8 self collision active set安定化を検討する。ただし実装前に、`distance < 0.05` をまたぐactive constraint数が周期間で振動しているかログで確認する。
 
+## M5.8 self collision active set安定化 保留判断 2026-07-07
+
+`WBMSComputationReductionImplementationPlan.md` のM5.8として、self collision constraintのactive setへヒステリシスを入れる案を検討した。M5.8の目的は、`distance < 0.05` の閾値付近でself collision constraint数が周期間に増減し、QP次元変化やOSQP再初期化が発生する場合に、その変動を抑えることである。
+
+実装前確認として、auto_stabilizerへ外部から入ってくるself collision portのログを使い、`distance < 0.05` をまたぐactive constraint数が周期間で振動しているかを確認した。`wbmsDebugOut` 等のdebug OutPortには新規要素を追加していない。ログ解析用の補助として `auto_stabilizer/docs/analyze_self_collision_active_set.py` を追加した。
+
+### 1回目ログ確認
+
+評価ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607072029.*
+```
+
+このログでは `CollisionChecker0_collisionOut` ファイルは存在したが0行であり、self collision距離系列を解析できなかった。このため、M5.8の主要判断材料である「`distance < 0.05` をまたぐactive constraint数の振動」は確認不能であった。
+
+同ログの `ast_wbmsDebug` では、計算時間はM5.7後ログ `072003` と同程度であった。
+
+| 指標 | M5.7 `072003` | M5.8確認1回目 `072029` |
+|---|---:|---:|
+| projector mean | 0.246ms | 0.247ms |
+| projector p99 | 0.508ms | 0.531ms |
+| projector max | 0.669ms | 0.828ms |
+| final IK mean | 0.643ms | 0.647ms |
+| final IK p99 | 1.090ms | 1.112ms |
+| final IK max | 1.511ms | 1.667ms |
+| onExecute mean | 1.193ms | 1.201ms |
+| onExecute p99 | 2.022ms | 2.092ms |
+| onExecute max | 2.746ms | 2.733ms |
+| projector 2ms超過周期 | 0 | 0 |
+| final IK 2ms超過周期 | 0 | 0 |
+| onExecute 2ms超過周期 | 40 | 54 |
+
+`072029` はREADY到達、FAILEDなし、walking API accept 1回、accept時 `wbmsOperationModeValue=0.0` を満たした。ただしself collision距離ログが空であるため、M5.8実装判断の根拠としては不十分とした。
+
+### 2回目ログ確認
+
+評価ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607072139.*
+```
+
+このログでは `CollisionChecker0_collisionOut` が取得できており、3111 sample、各sample 216 collision候補であった。解析結果は以下である。
+
+| 項目 | 値 |
+|---|---:|
+| samples | 3111 |
+| collision候補数 | 216 |
+| active条件 `distance < 0.05` を満たす候補数 | 全周期0 |
+| active count toggles | 0 |
+| `0.05/0.07` ヒステリシス仮適用時のactive候補数 | 全周期0 |
+| hysteresis count toggles | 0 |
+| 最小distance | 0.060194m |
+| 最接近候補 | `RLEG_JOINT5` - `LLEG_JOINT5` |
+| `distance < 0.07` の候補数 | 全周期2、toggle 0 |
+| `distance < 0.10` の候補数 | 全周期12、toggle 0 |
+
+したがって、このログ条件では現行コードがpriority 1へ入れるself collision constraintは常に0個であり、QP次元変化を起こすactive set変動は発生していない。`0.05/0.07` のヒステリシスを入れても、`distance < 0.05` が一度も成立しないため、active setは常に空のままで計算量削減効果はない。
+
+同ログの計算時間:
+
+| 指標 | M5.7 `072003` | M5.8確認1回目 `072029` | M5.8確認2回目 `072139` |
+|---|---:|---:|---:|
+| projector mean | 0.246ms | 0.247ms | 0.244ms |
+| projector p95 | 0.406ms | 0.420ms | 0.404ms |
+| projector p99 | 0.508ms | 0.531ms | 0.473ms |
+| projector max | 0.669ms | 0.828ms | 0.712ms |
+| final IK mean | 0.643ms | 0.647ms | 0.641ms |
+| final IK p95 | 0.926ms | 0.954ms | 0.923ms |
+| final IK p99 | 1.090ms | 1.112ms | 1.057ms |
+| final IK max | 1.511ms | 1.667ms | 1.373ms |
+| onExecute mean | 1.193ms | 1.201ms | 1.175ms |
+| onExecute p95 | 1.702ms | 1.779ms | 1.672ms |
+| onExecute p99 | 2.022ms | 2.092ms | 1.988ms |
+| onExecute max | 2.746ms | 2.733ms | 2.517ms |
+| projector 2ms超過周期 | 0 | 0 | 0 |
+| final IK 2ms超過周期 | 0 | 0 | 0 |
+| onExecute 2ms超過周期 | 40 | 54 | 35 |
+
+`072139` はM5.7後ログと同等または少し良い計算時間であり、projector/final IK単体の2ms超過は0周期であった。またREADY到達、FAILEDなし、walking API accept 1回、accept時 `wbmsOperationModeValue=0.0` を満たした。
+
+M5.8判断:
+
+- 現行ログ条件ではself collision active setの周期間変動が存在しない。
+- 現行閾値 `distance < 0.05` に入るcollision候補が全周期0であるため、M5.8のヒステリシス実装は計算量削減に寄与しない。
+- `distance < 0.07` や `distance < 0.10` で見ても候補数は一定であり、近傍候補数の短周期振動は確認されない。
+- 計算時間にも、M5.8を急ぐべき悪化は確認されない。
+- 安全制約の意味を変えずに効果が見込める根拠がないため、M5.8は実装しないで保留する。
+
+将来、self collision距離が `0.05` 付近をまたぐ操作ログ、またはactive constraint数が短周期で増減するログが得られた場合に、M5.8を再検討する。その場合も、active解除を遅くする安全側ヒステリシス、または一定周期保持を候補とし、実装前後でprojector/final IK/onExecuteのp99/maxと挙動を比較する。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
