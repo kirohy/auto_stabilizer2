@@ -3577,6 +3577,33 @@ M5.5判断:
 - 計算時間削減効果は小さく、ログばらつきの範囲である。M5.5単体を大きな高速化施策としては扱わない。
 - `071904` の後傾歩行開始は別課題として残す。READY条件へabsolute root upright条件を追加するかどうかは、M5計算量削減ではなく歩行準備遷移仕様として別途判断する。
 
+## M5.6 final IK固定buffer化 保留判断 2026-07-07
+
+`WBMSComputationReductionImplementationPlan.md` では、M5.6として `FullbodyIKSolver::solveFullbodyIK()` の毎周期ローカルvectorと `IKParam` をmember buffer化する計画を置いていた。しかし、M5.5までの実装・評価結果を踏まえ、M5.6は一旦実装せず保留する。
+
+判断理由:
+
+- M5.6の主対象は、`refq`、`variables`、`dqWeight`、priority別constraint vector、`constraints`、`IKParam` などのallocation削減である。
+- 計画書の初期分析どおり、WBMS中の支配的な負荷はvector生成そのものではなく、constraint更新、FK/COM更新、QP行列構築、OSQP solveである。
+- M5.2の `checkFinalState=false` とM5.3のprojector priority 4削減は、constraint再評価や追加QP solveを直接減らしたため、計算時間改善が確認できた。
+- M5.5の姿勢専用constraint化は、より直接的にJacobian計算を減らす施策だったが、計算時間削減効果はログばらつきの範囲だった。これより間接的なM5.6の効果は大きくない可能性が高い。
+- allocationの非効率は `FullbodyIKSolver` だけに閉じた問題ではなく、projector、self collision active set、QP層の行列再構築にも残る。このため、final IK側だけを局所的にbuffer化してもp99/max改善の主因にはなりにくい。
+- `jointControllable` はMODE_IDLEでしか変更されない前提だが、ロボットモデル変更や `controllable_joints` 再設定の拡張性を考えると、M5.6で無理に完全固定長化する利益は小さい。毎周期 `jointControllable` を見てconstraintを組む既存仕様は維持した方が安全である。
+- `gaitParam.selfCollision.size()` は別componentの運用上変動しない前提を置けるが、M5.6で得られる効果が限定的な状況では、その前提に基づく最適化を急ぐ必要は低い。
+
+M5.6を後で実施する場合の方針:
+
+- 完全な固定構造化ではなく、member vectorのcapacity再利用に留める。
+- `selfCollisionConstraint` は、`gaitParam.selfCollision.size()` が運用上固定である前提をコメントで明記しつつ、入力増加時のみ防御的に拡張する。
+- `jointControllable` の完全キャッシュは避け、既存仕様を優先する。もし必要なら、変更検出時だけ `controllableJointIds` を再構築する程度に留める。
+
+今後の推奨順:
+
+1. M5.7 `solveIKLoop()` の1-iteration fast pathを優先する。projectorとfinal IKの両方に効き、制約の意味を変えずに汎用処理を削減できる見込みがある。
+2. 次点でM5.8 self collision active set安定化を検討する。実装前に、`distance < 0.05` をまたぐactive constraint数が周期間で振動しているかログで確認する。
+3. M5.6は、M5.7/M5.8後にも500Hz余裕が不足する場合、またはallocation由来のばらつきが計測で確認された場合に小範囲で実施する。
+4. M5.9 prioritized_qp fixed-structure fast pathは効果見込みは大きいが影響範囲も広いため、M5.7/M5.8後の残課題として扱う。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
