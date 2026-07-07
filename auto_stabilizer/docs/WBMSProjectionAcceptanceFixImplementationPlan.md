@@ -18,6 +18,12 @@
 
 提案Bのtask scaling付き速度QPへの移行は、本書の範囲外である。
 
+参照順の補足:
+
+- 本書は `M4.1` から `M4.2` 系のprojector候補採用判定修正計画である。
+- 歩行準備遷移は `M4.2.2` 系として `WBMSWalkingPreparationTransitionImplementationPlan.md` と `WBMSWalkingPreparationDesignRevisionPlan.md` を参照する。
+- 計算量削減は本書の範囲外であり、`M5: 500 Hz計算量削減` として `WBMSComputationReductionImplementationPlan.md` を参照する。
+
 ---
 
 ## 2. 対象リポジトリ
@@ -31,6 +37,8 @@
 
 - `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlImplementationPlan.md`
 - `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md`
+
+`WBMSFeasibleVelocityPostureControlImplementationPlan.md` は初期M1からM3の基礎仕様として参照する。projector候補採用判定、safe candidate、`solveIKLoop()` 戻り値の扱いについては、本書を優先する。
 
 本書をリポジトリへ配置する場合の推奨パス:
 

@@ -8,6 +8,12 @@
 
 この文書は設計判断、修正方針、acceptance criteria、次スレッドへの実装引き継ぎを扱う。シミュレータログの数値詳細、時刻表、実施済み作業の経過は `WBMSFeasibleVelocityPostureControlProgress.md` に記録する。
 
+参照順の補足:
+
+- 本書は `M4.2.2設計修正` の最新計画であり、歩行準備遷移に関して `WBMSWalkingPreparationTransitionImplementationPlan.md` より優先する。
+- `WBMSWalkingPreparationTransitionImplementationPlan.md` は本書の前提・経緯として参照する。
+- 計算量削減は本書の範囲外であり、`M5: 500 Hz計算量削減` として `WBMSComputationReductionImplementationPlan.md` を参照する。
+
 既存文書とこの文書が矛盾する場合、次の点についてはこの文書を優先する。
 
 - WBMS中に歩行準備がREADYでない場合、歩行APIを実行しない。

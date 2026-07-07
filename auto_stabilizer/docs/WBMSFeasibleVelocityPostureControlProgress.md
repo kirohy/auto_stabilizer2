@@ -1,5 +1,21 @@
 # WBMS実現可能速度投影型・体幹/COM操縦 進捗記録
 
+## 文書参照順とマイルストーンindex
+
+後続スレッドでは、まず本Progress文書で最新の作業状態、作業ログ、計測ログを確認する。仕様判断や実装方針は、対象範囲ごとに後続の計画書を優先する。
+
+本Progress文書は時系列の作業記録であり、下記の各時点の状態記述よりも、より後方に追記された作業記録を新しい情報として扱う。
+
+推奨参照順:
+
+1. `WBMSFeasibleVelocityPostureControlProgress.md`: 全体の作業履歴、最新ログ、実施済み修正の確認。
+2. `WBMSComputationReductionImplementationPlan.md`: `M5: 500 Hz計算量削減` の計画。計算量削減ではこれを優先する。
+3. `WBMSWalkingPreparationDesignRevisionPlan.md`: `M4.2.2設計修正` の最新計画。歩行準備遷移の判断ではこれを優先する。
+4. `WBMSWalkingPreparationTransitionImplementationPlan.md`: `M4.2.2設計修正` の前提となる歩行準備遷移計画。
+5. `WBMSProjectionAcceptanceFixImplementationPlan.md`: `M4.1` から `M4.2` 系のprojector候補採用判定修正計画。
+6. `WBMSFeasibleVelocityPostureControlImplementationPlan.md`: 初期M1からM3の基礎仕様。後続文書と矛盾する場合は後続文書を優先する。
+7. `WBMSFeasibleVelocityPostureControlCodexPlan.md`: 初期M1からM3の作業分割・引き継ぎ計画。現行仕様の優先元としては扱わない。
+
 ## 現在の全体状態
 
 対象ブランチは `wbms-dev`。現在の作業は、承認済み実装計画の「マイルストーン3: 最終IK統合・旧方式削除・debug/計測」まで完了している。

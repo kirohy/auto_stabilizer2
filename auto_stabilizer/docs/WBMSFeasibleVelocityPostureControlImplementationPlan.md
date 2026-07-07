@@ -1,5 +1,19 @@
 # WBMS実現可能速度投影型・体幹／重心操縦 実装仕様書
 
+## 現行優先度に関する注記
+
+本書はWBMS実現可能速度投影型・体幹/COM操縦の最初期に作成された実装仕様書であり、M1からM3の基礎実装方針を理解するための文書である。
+
+後続作業により、本書の一部仕様・計画は更新されている。後続スレッドで本書を読む場合は、以下の優先関係を守る。
+
+- 最新の作業状態、実装済み内容、ログ解釈は `WBMSFeasibleVelocityPostureControlProgress.md` を優先する。
+- projector候補採用判定、safe candidate、`solveIKLoop()` 戻り値の扱いは `WBMSProjectionAcceptanceFixImplementationPlan.md` を優先する。
+- 歩行準備遷移、READY判定、歩行API受付可否、pre-walk姿勢生成は `WBMSWalkingPreparationDesignRevisionPlan.md` を優先する。
+- `WBMSWalkingPreparationTransitionImplementationPlan.md` は、歩行準備遷移の前提・経緯として参照する。
+- 500 Hz計算量削減、IK parameter、`checkFinalState`、prioritized IK軽量化は `WBMSComputationReductionImplementationPlan.md` を優先する。
+
+本書と後続文書が矛盾する場合、本書を根拠に後続文書の仕様を上書きしてはならない。
+
 ## 1. 文書の目的
 
 本書は、`kirohy/auto_stabilizer2` の `wbms-dev` ブランチにおいて、`startWholeBodyMasterSlave()` 起動後の操縦モードへ、以下の機能を追加するための実装仕様・作業計画である。

@@ -1,5 +1,20 @@
 # WBMS実現可能速度投影型・体幹/COM操縦 引き継ぎ計画書
 
+## 現行優先度に関する注記
+
+本書は、最初期の `WBMSFeasibleVelocityPostureControlImplementationPlan.md` をM1からM3の実装作業へ分割するために作成された引き継ぎ計画書である。
+
+後続作業により、本書の「正式仕様書としてImplementationPlanを必ず読む」という記述は、初期M1からM3の文脈に限定して扱う。現行コードの最新仕様・優先順位を判断する場合は、まず `WBMSFeasibleVelocityPostureControlProgress.md` を読み、対象範囲ごとの後続計画書を優先する。
+
+特に以下は本書より後続文書を優先する。
+
+- projector候補採用判定、safe candidate、`solveIKLoop()` 戻り値の扱い: `WBMSProjectionAcceptanceFixImplementationPlan.md`
+- 歩行準備遷移、READY判定、歩行API受付可否、pre-walk姿勢生成: `WBMSWalkingPreparationDesignRevisionPlan.md`
+- 歩行準備遷移の前提・経緯: `WBMSWalkingPreparationTransitionImplementationPlan.md`
+- 500 Hz計算量削減、IK parameter、`checkFinalState`、prioritized IK軽量化: `WBMSComputationReductionImplementationPlan.md`
+
+本書と後続文書が矛盾する場合、本書を根拠に後続文書の仕様を上書きしてはならない。
+
 ## 正式仕様書
 
 正式仕様書として、以下を必ず読むこと。
