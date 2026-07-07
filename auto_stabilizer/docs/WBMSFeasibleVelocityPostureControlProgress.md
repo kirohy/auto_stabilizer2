@@ -3450,6 +3450,133 @@ M5.4判断:
 - M5.4で入れた一時的なIDL parameter、`GaitParam` flag、`FullbodyIKSolver` の条件分岐、`wbmsDebugOut` 末尾追加は差し戻した。
 - 差し戻し後の `wbmsDebugOut` はM5.3後と同じ125要素であり、既存indexは維持される。
 
+## M5.5 姿勢専用constraintの軽量化 実装記録 2026-07-07
+
+`WBMSComputationReductionImplementationPlan.md` のM5.5として、位置weightが0で姿勢だけを拘束していた箇所を、姿勢3軸専用のconstraintへ差し替えた。
+
+実装内容:
+
+- `ik_constraint2` に `OrientationConstraint` を追加した。
+  - `A_link/A_localR` と `B_link/B_localR` の姿勢誤差だけをeqへ入れる。
+  - `maxError`、`weight`、`precision` はeval frameの姿勢3軸だけを扱う。
+  - `PositionConstraint` の姿勢誤差処理と同等に、weightが1軸または2軸だけ有効な場合の軸合わせ処理を持つ。
+  - Jacobianは角速度成分だけを3行で構築し、位置Jacobianを計算しない。
+- `ik_constraint2/CMakeLists.txt` に `src/OrientationConstraint.cpp` を追加した。
+- `FullbodyIKSolver` のfinal IK CHEST姿勢拘束を `PositionConstraint` から `OrientationConstraint` へ差し替えた。
+- `FullbodyIKSolver` のfinal IK root姿勢拘束を `PositionConstraint` から `OrientationConstraint` へ差し替えた。
+- `WbmsPostureControl` のprojector CHEST姿勢拘束を `PositionConstraint` から `OrientationConstraint` へ差し替えた。
+- 足、上半身EE、COM、joint safety、self collision、AngularMomentumConstraint、reference angleは変更していない。
+
+保持した意味:
+
+- final IK CHEST姿勢targetは従来どおり `gaitParam.wbmsProjectedChestR`。
+- final IK CHEST姿勢weightは従来どおり `wbmsTorsoOrientationWeight * wbmsOperationModeValue`。
+- projector CHEST姿勢targetは従来どおり1周期先の `targetChestR`。
+- projector CHEST姿勢weightは従来どおり `wbmsTorsoOrientationWeight`。
+- root姿勢targetは従来どおり `stTargetRootPose.linear()` または歩行準備RETURN/HANDOFF/READY中の `wbmsWalkingPreparationTargetRootR`。
+- root姿勢weightは従来どおり `3.0 * wbmsStabilityMode`。
+- いずれも位置拘束は追加しない。
+
+ビルド確認:
+
+```sh
+catkin build ik_constraint2
+catkin build auto_stabilizer --no-deps
+```
+
+結果はいずれも成功した。`auto_stabilizer --no-deps` だけを先に実行した場合は、依存ライブラリ側に新規 `OrientationConstraint.cpp` が未リンクのため `undefined reference to vtable for ik_constraint2::OrientationConstraint` で失敗した。依存側 `ik_constraint2` を先にビルドすれば解消する。
+
+注意点:
+
+- `ik_constraint2` は `auto_stabilizer2` とは別Git管理であり、M5.5は両方のリポジトリに変更を持つ。
+- `ik_solvers2` 側には今回追加した `OrientationConstraint` 以外の未追跡ファイルも存在するため、後続でcommitする場合は対象ファイルを明示して扱う。
+- M5.5はビルド確認までであり、シミュレータログによる計算時間改善と挙動確認は未実施である。
+
+### M5.5 シミュレータ評価 2026-07-07
+
+M5.5実装後、M5.4までと同じ条件でシミュレータ確認を行った。
+
+評価ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607071904.*
+auto_stabilizer/log/test_start_walking202607071905.*
+```
+
+比較対象:
+
+- M5.3後ログ: `auto_stabilizer/log/test_start_walking202607071608.*`
+- M5.2後ログ: `auto_stabilizer/log/test_start_walking202607071526.*`
+- M5.4 AngularMomentumConstraint無効化評価ログ: `auto_stabilizer/log/test_start_walking202607071822.*`
+
+`071904` / `071905` の `ast_wbmsDebug` は125要素であり、M5.4差し戻し後のindex対応と同じである。ログファイルの1列目は時刻、data index `i` はログ上の `i+2` 列目として解析した。
+
+主要イベント:
+
+| 項目 | M5.3 `071608` | M5.5 `071904` | M5.5 `071905` |
+|---|---:|---:|---:|
+| phase遷移 | 0 -> 3 -> 4 -> 5 -> 6 | 0 -> 3 -> 4 -> 5 -> 6 | 0 -> 3 -> 4 -> 5 -> 6 |
+| READY到達 | 7.772s | 8.407s | 7.895s |
+| 歩行API accept | 7.820s | 8.431s | 7.926s |
+| FAILED | なし | なし | なし |
+| walking API reject event数 | 18 | 24 | 19 |
+| projector valid ratio | 0.886 | 0.903 | 0.890 |
+| candidate safe ratio | 0.886 | 0.903 | 0.890 |
+| all constraints satisfied ratio | 0.0 | 0.0 | 0.0 |
+
+計算時間:
+
+| 指標 | M5.3 `071608` | M5.5 `071904` | M5.5 `071905` |
+|---|---:|---:|---:|
+| projector mean | 0.248ms | 0.251ms | 0.260ms |
+| projector p95 | 0.408ms | 0.387ms | 0.427ms |
+| projector p99 | 0.514ms | 0.474ms | 0.575ms |
+| projector max | 0.696ms | 0.652ms | 0.874ms |
+| final IK mean | 0.657ms | 0.650ms | 0.671ms |
+| final IK p95 | 0.917ms | 0.902ms | 0.980ms |
+| final IK p99 | 1.107ms | 1.053ms | 1.161ms |
+| final IK max | 1.468ms | 1.436ms | 1.673ms |
+| onExecute mean | 1.202ms | 1.200ms | 1.242ms |
+| onExecute p95 | 1.708ms | 1.641ms | 1.818ms |
+| onExecute p99 | 2.084ms | 1.911ms | 2.286ms |
+| onExecute max | 2.913ms | 2.402ms | 3.554ms |
+| final IK 2ms超過周期 | 0 | 0 | 0 |
+| projector 2ms超過周期 | 0 | 0 | 0 |
+| onExecute 2ms超過周期 | 53 | 29 | 105 |
+
+M5.5の狙いである姿勢constraint軽量化の計算時間効果は、`071904` ではfinal IK p99/onExecute p99がやや改善し、`071905` ではやや悪化した。2本のばらつきが大きく、明確な高速化成功とは判断しない。一方、final IKとprojector単体で2ms超過はなく、M5.5による明確な計算時間悪化も確認されない。
+
+挙動・安全指標:
+
+| 指標 | M5.3 `071608` | M5.5 `071904` | M5.5 `071905` |
+|---|---:|---:|---:|
+| final IK COM速度norm最大 | 0.103m/s | 0.347m/s | 0.103m/s |
+| final IK CHEST角速度norm最大 | 3.309rad/s | 2.411rad/s | 1.142rad/s |
+| final IK後max joint delta最大 | 0.00663rad | 0.00843rad | 0.00380rad |
+| `el_q` 一周期最大差分 | 0.00663rad | 0.00843rad | 0.00380rad |
+| `RobotHardware0_q` 一周期最大差分 | 0.00218rad | 0.00152rad | 0.00122rad |
+| `RobotHardware0_dq` 最大 | 1.104 | 0.773 | 0.637 |
+| final IK後root pitch最小 | -0.091rad | -0.382rad | -0.217rad |
+| `stTargetRootPose.pitch` 最小 | -0.096rad | -0.687rad | -0.289rad |
+| 歩行API accept時root pitch | -0.040rad | -0.361rad | -0.084rad |
+| 歩行API accept時final IK COM速度norm | 0.000002m/s | 0.154m/s | 0.000040m/s |
+| 歩行API accept時final IK CHEST角速度norm | 0.038rad/s | 0.751rad/s | 0.151rad/s |
+| 歩行API accept時final IK後max joint delta | 0.000240rad | 0.00601rad | 0.000987rad |
+
+`071904` では、ユーザー観察どおり後傾した状態から歩行を開始している。accept時点でroot pitchは約 `-0.361rad`、phase 4の最小では約 `-0.382rad` であった。ただし同時に `stTargetRootPose.pitch` と歩行準備target root pitchもほぼ同じ値へ寄っており、READY条件上のroot errorは小さい。このためREADY条件は成立し、歩行APIもacceptされた。
+
+この後傾開始は、M5.5で追加した `OrientationConstraint` 固有の退行とは断定しない。既存のREADY条件は「rootが絶対的に直立したか」ではなく「rootが `stTargetRootPose` に一致したか」を見ているため、`stTargetRootPose` 自体が後傾側へ残る条件ではREADYになり得る。これはM4.2.2系ログ解析で既に残課題として整理したabsolute root upright条件の問題に近い。
+
+一方、`071904` の内部診断ではfinal IK COM速度norm最大 `0.347m/s`、final IK後max joint delta最大 `0.00843rad` とM5.3より大きい。ただし `RobotHardware0_q` 一周期最大差分と `RobotHardware0_dq` 最大はM5.3より小さく、M5.4無効化ログ `071822` のようなREADY未到達、TIMEOUT、FAILED後の大ジャンプは確認されない。
+
+M5.5判断:
+
+- `OrientationConstraint` 差し替えによる明確な制御退行は、今回の2本のログでは確認されない。
+- READY到達、歩行API accept、FAILEDなしは維持された。
+- M5.4無効化ログで見られたTIMEOUT、root姿勢過大化、final IK後速度・関節差分の大幅悪化は再発していない。
+- 計算時間削減効果は小さく、ログばらつきの範囲である。M5.5単体を大きな高速化施策としては扱わない。
+- `071904` の後傾歩行開始は別課題として残す。READY条件へabsolute root upright条件を追加するかどうかは、M5計算量削減ではなく歩行準備遷移仕様として別途判断する。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
