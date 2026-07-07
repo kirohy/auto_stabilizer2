@@ -11,6 +11,8 @@
 
 `WBMSFeasibleVelocityPostureControlImplementationPlan.md` は初期M1からM3の基礎仕様として参照する。歩行準備遷移、歩行中の腕操作、重心高さ保持については、本書および後続の `WBMSWalkingPreparationDesignRevisionPlan.md` を優先する。
 
+`WBMSWalkingControlSummary.md` は、WBMS中の上半身操縦と歩行制御を整理した初期引き継ぎ資料として参照する。歩行API受付、pending command、READY判定、pre-walk姿勢生成の最新仕様としては扱わない。
+
 既存仕様と本書が矛盾する場合、歩行開始遷移、歩行中の腕操作、重心高さ保持については本書を優先する。  
 本書は提案Bのtask scaling付き速度QPを対象としない。
 
@@ -658,6 +660,8 @@ Add WBMS walking preparation transition plan
 4. `auto_stabilizer/docs/WBMSWalkingControlSummary.md`
 
 `WBMSFeasibleVelocityPostureControlImplementationPlan.md` は初期M1からM3の基礎仕様であり、後続文書と矛盾する場合は後続文書を優先する。
+
+`WBMSWalkingControlSummary.md` は初期引き継ぎ資料であり、歩行準備遷移の最新仕様は後続の `WBMSWalkingPreparationDesignRevisionPlan.md` を優先する。
 
 ただし、歩行開始遷移、歩行中の腕操作、COM高さ保持について矛盾がある場合は本書を優先する。
 

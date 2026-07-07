@@ -16,6 +16,12 @@
 6. `WBMSFeasibleVelocityPostureControlImplementationPlan.md`: 初期M1からM3の基礎仕様。後続文書と矛盾する場合は後続文書を優先する。
 7. `WBMSFeasibleVelocityPostureControlCodexPlan.md`: 初期M1からM3の作業分割・引き継ぎ計画。現行仕様の優先元としては扱わない。
 
+背景資料として残す文書:
+
+- `WBMSWalkingControlSummary.md`: WBMS中の上半身操縦と歩行制御を整理した初期引き継ぎ資料。歩行準備遷移の最新仕様は `WBMSWalkingPreparationDesignRevisionPlan.md` を優先する。
+- `WBMSTorsoArmIKDesignPlan.md`: 体幹・腕協調IKの初期設計案。現行仕様ではなく、背景資料として扱う。
+- `WBMSTorsoArmIKExperimentLog.md`: 体幹・腕IKの古い試行錯誤と不採用理由の実験ログ。現行仕様ではなく、判断時の参考資料として扱う。
+
 ## 現在の全体状態
 
 対象ブランチは `wbms-dev`。現在の作業は、承認済み実装計画の「マイルストーン3: 最終IK統合・旧方式削除・debug/計測」まで完了している。
