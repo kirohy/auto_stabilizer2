@@ -658,28 +658,70 @@ active -> inactive: distance > 0.07
 
 `prioritized_qp_base::solve()` の行列再構築コストを削減する。
 
+### 採用方針
+
+QP構造を呼び出し側で決め打ちせず、毎周期のtask構造signatureが直近周期と一致した場合だけfast pathを使う。
+signatureが一致しない場合は従来経路へfallbackし、その構造を次周期以降の再利用対象として更新する。
+
+この方針を採る理由:
+
+- `prioritized_qp_base` は他パッケージも使うため、既存 `solve()` の意味を変えない。
+- WBMS運用でも、final IKのCHEST姿勢拘束、self collision active set、COM/CHEST/rootのzero/nonzero weight maskは構造変化要因として残る。
+- `OrientationConstraint`、`COMConstraint`、`PositionConstraint` は現行実装で `weight > 0.0` の軸だけをeq行へ入れる。これを「固定行として残す」変更はconstraintの出力行数とQPサイズを変えるため、M5.9では行わない。
+- root姿勢拘束も `OrientationConstraint` であり、`wbmsStabilityMode` が0の周期では0行になり得る。このためrootだけを3軸固定扱いすることはしない。
+- projection invalid時にはfinal IKのCHEST姿勢拘束が追加されない。直近ログではinvalidは主に `WBMS_PROJECTION_DISABLED` の初期区間だったが、運用上の安全側として固定決め打ちはしない。
+- self collision active setは直近ログでは常に0個だったが、近接姿勢では増え得るため固定決め打ちはしない。
+
 ### 設計案
 
-固定構造のQP問題として扱える場合のfast pathを追加する。
+`prioritized_qp_base` にworkspace付きの新APIを追加する。既存APIは互換性維持のため残す。
 
-対象条件:
+workspaceは直近1構造だけを保持する。複数構造cacheは、mode遷移時の再初期化削減には効く可能性があるが、実装と失敗時切り分けが複雑になるためM5.9初回実装では採用しない。
 
-- task数が固定。
-- 各taskのeq/ineq行数が固定。
-- ext列を使わない、またはext列構造が固定。
-- dimが固定。
+signatureに含める候補:
+
+- task数。
+- 各taskの `toSolve`。
+- `dim`。
+- 各taskのeq行数、ineq行数。
+- ext列数。
+- ext id構成。
+- 各priority solve時の `H/A/gradient/lowerBound/upperBound` サイズ。
 
 fast pathで行うこと:
 
-- `As/lBs/uBs` の最大サイズを事前確保する。
-- `H/A/gradient/bounds` のサイズを固定し、値だけ更新する。
-- OSQPのproblem sizeを変えず、毎周期updateで済ませる。
+- signature一致時は `As/lBs/uBs`、`H/A/gradient/lowerBound/upperBound` のbufferを再利用し、値だけ更新する。
+- OSQP problem sizeが変わらない場合は `updateSolver()` 経路を使い、再初期化を避ける。
+- signature不一致、OSQP update失敗、非finite、solve失敗時は従来の再構築/再初期化/cold start/failure扱いへ戻す。
 
-注意点:
+呼び出し側の適用方針:
 
-- `prioritized_qp_base` は他パッケージも使うため、既存APIの挙動を壊さない。
-- fast pathは新APIまたは新optionとして追加する。
-- まずauto_stabilizerのprojector/final IKで使える最小機能に限定する。
+- `prioritized_inverse_kinematics_solver2::IKParam` または新しい引数でworkspace使用を選べるようにする。
+- WBMS projector/final IKの `maxIteration=1` かつ `checkFinalState=false` の通常経路でのみ有効化する。
+- `WbmsPostureControl` と `FullbodyIKSolver` はそれぞれmember workspaceを持つ。
+- `wbmsDebugOut` の固定indexはM5.9の初回実装では原則増やさない。診断はworkspace内部カウンタ、debug出力、一時解析で確認し、恒久出力が必要になった場合だけ別途判断する。
+
+M5.9では行わないこと:
+
+- zero weight軸を固定行として残すためのconstraint変更。
+- self collision active setの固定化。
+- projection invalid時にもfinal IK CHEST姿勢拘束を無理に入れる変更。
+- root姿勢拘束の3軸固定化。
+- `jointControllable`、robot model、EE数、self collision候補数/orderが変わらないことを無検証で前提にした決め打ち。
+
+### 速度改善見込み
+
+M5.8確認2回目ログ `auto_stabilizer/log/test_start_walking202607072139.*` では、projector mean `0.244ms`、final IK mean `0.641ms`、onExecute p99 `1.988ms` であり、既にM5.5/M5.7の改善はログばらつき程度だった。
+
+M5.9はQP行列構築とOSQP再初期化を直接減らすため、M5.5/M5.7より効果が出る可能性はある。ただしconstraint更新やOSQP solve自体が支配的な場合、効果は限定的になる。
+
+保守的な見込み:
+
+- projector mean: `0.01〜0.04ms` 改善。
+- final IK mean: `0.03〜0.10ms` 改善。
+- onExecute p99: `0.05〜0.20ms` 改善。
+
+効果判定では平均だけでなくp99/max、OSQP再初期化回数、signature miss回数を確認する。
 
 ### 変更候補ファイル
 
@@ -691,9 +733,11 @@ fast pathで行うこと:
 ### acceptance criteria
 
 - 既存 `prioritized_qp_base::solve()` の互換性を維持する。
-- fixed-structure pathを使った場合、OSQP再初期化回数が減る。
+- workspace付きfast pathを使った場合、同一signature継続区間でOSQP再初期化回数が減る。
+- signature不一致時に従来経路へfallbackし、QP構造変化を安全に扱える。
 - projector/final IK時間のp99/maxが改善する。
 - QP failure時のfallbackは従来どおり安全側に倒れる。
+- projector/final IKのconstraint構成、安全判定、速度limit、mode遷移、hidden goal非蓄積の仕様を変えない。
 
 ## 7. 今回は採用しない方針
 

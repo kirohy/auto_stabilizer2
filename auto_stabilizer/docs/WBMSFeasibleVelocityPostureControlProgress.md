@@ -3830,6 +3830,106 @@ M5.8判断:
 
 将来、self collision距離が `0.05` 付近をまたぐ操作ログ、またはactive constraint数が短周期で増減するログが得られた場合に、M5.8を再検討する。その場合も、active解除を遅くする安全側ヒステリシス、または一定周期保持を候補とし、実装前後でprojector/final IK/onExecuteのp99/maxと挙動を比較する。
 
+## M5.9 prioritized_qp fixed-structure fast path 仕様決定記録 2026-07-08
+
+`WBMSComputationReductionImplementationPlan.md` のM5.9について、実装前に固定構造化の範囲を再検討した。結論として、QP構造を呼び出し側で決め打ちせず、毎周期のtask構造signatureが直近周期と一致した場合だけfast pathを使う方針にする。
+
+### 判断した前提
+
+`prioritized_qp_base::solve()` は優先度ごとに以下を毎回構築する。
+
+- 累積制約行列 `As`
+- 累積上下限 `lBs/uBs`
+- priority solve用の `H/A/gradient/lowerBound/upperBound`
+- ext列対応
+
+`prioritized_qp_osqp::Task::isInitializeSolverRequired()` は、OSQP solver未初期化、変数数変更、制約数変更の場合に再初期化を要求する。したがって、同一problem sizeが続く区間ではQP側のbuffer再利用とOSQP update経路の安定利用により計算量削減が見込める。
+
+一方、WBMS projector/final IKには構造変化要因が残る。
+
+- self collision active setは、直近ログでは0個固定だったが、近接姿勢では `distance < 0.05` により増え得る。
+- final IKのCHEST姿勢拘束は `gaitParam.wbmsPostureReferenceValid` がtrueのときだけ追加される。
+- `OrientationConstraint`、`COMConstraint`、`PositionConstraint` は `weight > 0.0` の軸だけをeq行へ入れる。
+- final IKのroot姿勢拘束も `OrientationConstraint` であり、`wbmsStabilityMode` が0の周期では0行になり得る。
+- `jointControllable`、robot model、EE数、self collision候補数/orderは通常運用では固定に近いが、M5.9で無検証に決め打ちする対象にはしない。
+
+このため、M5.9ではzero weight軸を固定行として残すconstraint変更、root姿勢拘束の3軸固定化、projection invalid時のCHEST姿勢拘束強制追加、self collision active set固定化は行わない。
+
+### 既存ログで確認したprojection valid状態
+
+`wbmsDebugOut` はdata index `26` が `wbmsPostureReferenceValid`、data index `30` が `wbmsProjectionStatus` である。ログファイルでは1列目が時刻、data index `i` はログ上の `i+2` 列目として解析した。
+
+直近ログでの `wbmsPostureReferenceValid` は以下だった。
+
+| ログ | samples | valid | invalid | valid ratio | invalid時status |
+|---|---:|---:|---:|---:|---|
+| `test_start_walking202607071904.ast_wbmsDebug` | 4016 | 3628 | 388 | 0.903 | 全て `1` (`WBMS_PROJECTION_DISABLED`) |
+| `test_start_walking202607071905.ast_wbmsDebug` | 3813 | 3393 | 420 | 0.890 | 全て `1` (`WBMS_PROJECTION_DISABLED`) |
+| `test_start_walking202607072003.ast_wbmsDebug` | 3626 | 3206 | 420 | 0.884 | 全て `1` (`WBMS_PROJECTION_DISABLED`) |
+| `test_start_walking202607072139.ast_wbmsDebug` | 3525 | 3098 | 427 | 0.879 | 全て `1` (`WBMS_PROJECTION_DISABLED`) |
+
+少なくともこれらのログでは、WBMS有効後にprojection失敗でfinal IK CHEST姿勢拘束が周期的に消える状況は確認されなかった。ただし、これは試験条件依存であり、運用上の安全側としてCHEST拘束を固定決め打ちにはしない。
+
+### 採用するM5.9仕様
+
+採用する仕様:
+
+- 既存 `prioritized_qp_base::solve()` は完全互換で残す。
+- workspace付きの新APIを追加する。
+- workspaceは直近1構造だけを保持する。
+- signature一致時だけfast pathを使う。
+- signature不一致時は従来経路へfallbackし、workspaceを更新する。
+- OSQP update失敗、非finite、solve失敗時は従来の再初期化/cold start/failure扱いへ戻す。
+- `prioritized_inverse_kinematics_solver2` からworkspace使用を選択可能にする。
+- WBMS projector/final IKの `maxIteration=1` かつ `checkFinalState=false` の通常経路でのみ有効化する。
+- `WbmsPostureControl` と `FullbodyIKSolver` はそれぞれmember workspaceを持つ。
+- `wbmsDebugOut` の固定indexはM5.9初回実装では原則増やさない。signature miss回数、OSQP initialize回数、update失敗回数はworkspace内部カウンタ、debug出力、一時解析で確認し、恒久出力が必要になった場合だけ別途判断する。
+
+signatureに含める候補:
+
+- task数。
+- 各taskの `toSolve`。
+- `dim`。
+- 各taskのeq行数、ineq行数。
+- ext列数。
+- ext id構成。
+- 各priority solve時の `H/A/gradient/lowerBound/upperBound` サイズ。
+
+### 固定化しないと決めた対象
+
+- self collision active set。
+- final IKのCHEST姿勢拘束有無。
+- COM/CHEST/rootのzero/nonzero weight mask。
+- root姿勢拘束の3軸固定化。
+- zero weight軸を固定行として残すconstraint変更。
+- `jointControllable` などの運用中変化を無検証で固定とみなすこと。
+
+### 速度改善見込み
+
+比較対象として、M5.8確認2回目 `072139` は以下だった。
+
+| 指標 | M5.8確認2回目 `072139` |
+|---|---:|
+| projector mean | 0.244ms |
+| projector p99 | 0.473ms |
+| projector max | 0.712ms |
+| final IK mean | 0.641ms |
+| final IK p99 | 1.057ms |
+| final IK max | 1.373ms |
+| onExecute mean | 1.175ms |
+| onExecute p99 | 1.988ms |
+| onExecute max | 2.517ms |
+
+M5.9はQP行列構築とOSQP再初期化を直接減らすため、M5.5/M5.7より効果が出る可能性はある。ただし、constraint更新やOSQP solve自体が支配的な場合は限定的である。
+
+保守的な見込み:
+
+- projector mean: `0.01〜0.04ms` 改善。
+- final IK mean: `0.03〜0.10ms` 改善。
+- onExecute p99: `0.05〜0.20ms` 改善。
+
+効果判定では平均だけでなくp99/max、OSQP再初期化回数、signature miss回数、READY到達、FAILEDなし、READY後walking API accept、final IK後COM速度/CHEST角速度/max joint deltaを確認する。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
