@@ -3226,7 +3226,7 @@ priority 4姿勢参照を既定無効化しても、このログ上ではproject
 
 ## 現行 `wbmsDebugOut` 対応表
 
-この表はM5.2ログ解析時点の `AutoStabilizer::writeOutPortData()` 実装に基づく。`ast_wbmsDebug` ログでは1列目が時刻であり、data index `i` はログ上の `i+2` 列目に対応する。
+この表はM5.4差し戻し後の `AutoStabilizer::writeOutPortData()` 実装に基づく。`ast_wbmsDebug` ログでは1列目が時刻であり、data index `i` はログ上の `i+2` 列目に対応する。
 
 | index | 内容 |
 |---:|---|
@@ -3373,6 +3373,83 @@ priority 4姿勢参照を既定無効化しても、このログ上ではproject
 - `cpViewerLog` の固定indexは変更していない。
 - debug/計測は `wbmsDebugOut` で確認でき、毎周期標準出力は行わない。
 
+## M5.4 final IK AngularMomentumConstraint切り分け 評価・差し戻し記録 2026-07-07
+
+`WBMSComputationReductionImplementationPlan.md` のM5.4として、final IKの `AngularMomentumConstraint` を無効化できる一時実装を入れ、シミュレータログで評価した。
+
+評価ログ:
+
+```text
+auto_stabilizer/log/test_start_walking202607071822.*
+```
+
+このログはM5.4評価用の一時実装で取得したもので、`ast_wbmsDebug` は126要素、追加index 125のAngularMomentumConstraint enabled flagは全周期 `0.0` だった。したがって、final IKの `AngularMomentumConstraint` 無効条件の評価ログとして扱う。
+
+比較対象:
+
+- M5.3後ログ: `auto_stabilizer/log/test_start_walking202607071608.*`
+- M5.2後ログ: `auto_stabilizer/log/test_start_walking202607071526.*`
+- 最新PASS相当baseline: `auto_stabilizer/log/test_start_walking202607061848.*`, `061851.*`, `061853.*`
+
+注意点:
+
+- M5.3後 `071608` とM5.4評価 `071822` は完全同一入力ではない。
+- `071608` では序盤にraw torso pitch指令 `0.1` が425周期残っていた。
+- `071822` ではraw COM指令、raw torso指令はいずれも全周期0だった。
+- ただし、M5.4無効条件でREADY未到達、TIMEOUT、姿勢・速度・関節差分の大幅悪化が出ており、無効化採用可否の判断には十分な退行である。
+
+主要イベント:
+
+| 項目 | M5.3 `071608` | M5.4無効 `071822` |
+|---|---:|---:|
+| `wbmsDebugOut` data length | 125 | 126 |
+| AngularMomentumConstraint enabled flag | 未出力、現行有効 | 0.0 |
+| phase遷移 | 0 -> 3 -> 4 -> 5 -> 6 | 0 -> 3 -> 4 -> 7 |
+| READY到達 | 7.772s | なし |
+| 歩行API accept | 7.820s | なし |
+| failure code | 0 | 2 (`WBMS_WALKING_PREPARATION_FAILURE_TIMEOUT`) |
+| phase 4継続時間 | 0.116s | 4.052s |
+
+計算時間:
+
+| 指標 | M5.3 `071608` | M5.4無効 `071822` |
+|---|---:|---:|
+| projector mean | 0.248ms | 0.220ms |
+| projector p99 | 0.514ms | 0.537ms |
+| projector max | 0.696ms | 0.880ms |
+| final IK mean | 0.657ms | 0.603ms |
+| final IK p99 | 1.107ms | 1.022ms |
+| final IK max | 1.468ms | 1.558ms |
+| onExecute mean | 1.202ms | 1.138ms |
+| onExecute p99 | 2.084ms | 2.013ms |
+| onExecute max | 2.913ms | 4.441ms |
+
+無効化によりfinal IK mean/p99は改善したが、maxは悪化し、制御挙動の退行が大きいため採用不可である。
+
+挙動・安全指標:
+
+| 指標 | M5.3 `071608` | M5.4無効 `071822` |
+|---|---:|---:|
+| final IK COM速度norm最大 | 0.103m/s | 2.402m/s |
+| final IK CHEST角速度norm最大 | 3.309rad/s | 9.045rad/s |
+| final IK後max joint delta最大 | 0.00663rad | 0.01805rad |
+| `el_q` 一周期最大差分 | 0.00663rad | 0.01805rad |
+| `RobotHardware0_q` 一周期最大差分 | 0.00218rad | 0.07998rad |
+| `RobotHardware0_dq` 最大 | 0.584 | 8.127 |
+| final IK後root pitch最小 | -0.091rad | -0.728rad |
+| target root pitch最小 | -0.091rad | -0.397rad |
+| COM Z offset最大 | -0.000056m | 0.0860m |
+
+`071822` ではphase 4開始時点でroot pitchが約 `-0.391rad`、target root pitchが約 `-0.397rad` まで後傾していた。その後 `stTargetRootPose.pitch` は前方へ戻る一方、target root pitchは約 `-0.385rad` に残り、root errorが `0.60rad` 程度まで増えた。READY条件では `readyChest` と `readyRoot` がほぼ成立せず、timeoutでFAILEDへ遷移した。FAILED直後にはfinal IK COM速度normが約 `2.38m/s`、final IK CHEST角速度normが約 `5.0rad/s` へ跳ねており、ユーザー観察の「歩行準備完了付近で必要以上に後ろに傾いた後、跳ねる」挙動と整合する。
+
+M5.4判断:
+
+- `AngularMomentumConstraint` 無効化は採用不可。
+- 計算時間改善はあるが、READY未到達、TIMEOUT、root姿勢過大化、final IK後速度・関節差分悪化が大きい。
+- 実機安全側の判断として、final IKの `AngularMomentumConstraint` は現行どおり有効のまま維持する。
+- M5.4で入れた一時的なIDL parameter、`GaitParam` flag、`FullbodyIKSolver` の条件分岐、`wbmsDebugOut` 末尾追加は差し戻した。
+- 差し戻し後の `wbmsDebugOut` はM5.3後と同じ125要素であり、既存indexは維持される。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
@@ -3417,7 +3494,7 @@ priority 4姿勢参照を既定無効化しても、このログ上ではproject
 - 最終IKのCOM targetは `genCog + sbpOffset`。M2のCOM/ZMP統合によりstatic WBMS中の `genCog` は投影COMへblend済みである。
 - 最終IKのreference angleはjoint mask trueの関節だけ投影Qへmode blendし、腕などmask falseの関節は従来referenceを使う。
 - `wbmsOperationModeValue` はstatic WBMS操作と通常歩行安定化を切り替える共通係数として使う。
-- `wbmsDebugOut` はM5.2評価時点で125要素。現行indexは本書の「現行 `wbmsDebugOut` 対応表」を参照する。`ast_wbmsDebug` ログでは1列目が時刻で、data index `i` はログ上の `i+2` 列目である。
+- `wbmsDebugOut` はM5.4差し戻し後の現行コードで125要素。現行indexは本書の「現行 `wbmsDebugOut` 対応表」を参照する。`ast_wbmsDebug` ログでは1列目が時刻で、data index `i` はログ上の `i+2` 列目である。
 
 ### 次のセッションで最初に確認すべきコード箇所
 
