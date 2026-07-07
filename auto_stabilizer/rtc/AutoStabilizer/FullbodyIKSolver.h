@@ -3,6 +3,7 @@
 
 #include "GaitParam.h"
 #include <ik_constraint2/PositionConstraint.h>
+#include <ik_constraint2/OrientationConstraint.h>
 #include <ik_constraint2/COMConstraint.h>
 #include <ik_constraint2/JointAngleConstraint.h>
 #include <ik_constraint2/AngularMomentumConstraint.h>
@@ -22,8 +23,8 @@ public:
   // 内部にヤコビアンの情報をキャッシュするが、クリアしなくても副作用はあまりない
   mutable std::vector<std::shared_ptr<ik_constraint2::PositionConstraint> > ikEEPositionConstraint; // 要素数と順序はeeNameと同じ.
   mutable std::vector<std::shared_ptr<ik_constraint2::JointAngleConstraint> > refJointAngleConstraint; // 要素数と順序はrobot->numJoints()と同じ
-  mutable std::shared_ptr<ik_constraint2::PositionConstraint> rootPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
-  mutable std::shared_ptr<ik_constraint2::PositionConstraint> chestPositionConstraint = std::make_shared<ik_constraint2::PositionConstraint>();
+  mutable std::shared_ptr<ik_constraint2::OrientationConstraint> rootOrientationConstraint = std::make_shared<ik_constraint2::OrientationConstraint>();
+  mutable std::shared_ptr<ik_constraint2::OrientationConstraint> chestOrientationConstraint = std::make_shared<ik_constraint2::OrientationConstraint>();
   mutable std::shared_ptr<ik_constraint2::COMConstraint> comConstraint = std::make_shared<ik_constraint2::COMConstraint>();
   mutable std::shared_ptr<ik_constraint2::AngularMomentumConstraint> angularMomentumConstraint = std::make_shared<ik_constraint2::AngularMomentumConstraint>();
   mutable std::vector<std::shared_ptr<ik_constraint2_joint_limit_table::JointLimitMinMaxTableConstraint> > jointLimitConstraint;

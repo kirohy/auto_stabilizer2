@@ -550,23 +550,21 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
 
   cnoid::LinkPtr chestLink = this->wbmsPostureRobot_->link(gaitParam.chestLinkName);
   this->chestConstraint_->A_link() = chestLink;
-  this->chestConstraint_->A_localpos() = cnoid::Isometry3::Identity();
+  this->chestConstraint_->A_localR() = cnoid::Matrix3::Identity();
   this->chestConstraint_->B_link() = nullptr;
-  this->chestConstraint_->B_localpos() = cnoid::Isometry3::Identity();
-  this->chestConstraint_->B_localpos().linear() = targetChestR;
-  this->chestConstraint_->B_localpos().translation() = chestLink->p();
-  this->chestConstraint_->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
+  this->chestConstraint_->B_localR() = targetChestR;
+  this->chestConstraint_->maxError() <<
     gaitParam.wbmsTorsoOrientationMaxError[0] * dt,
     gaitParam.wbmsTorsoOrientationMaxError[1] * dt,
     gaitParam.wbmsTorsoOrientationMaxError[2] * dt;
   if(this->isWalkingPreparationReturningTargetActive(gaitParam)){
-    this->chestConstraint_->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
+    this->chestConstraint_->maxError() <<
       gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit[0] * dt,
       gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit[1] * dt,
       gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit[2] * dt;
   }
   this->chestConstraint_->precision() = 0.0;
-  this->chestConstraint_->weight() << 0.0, 0.0, 0.0,
+  this->chestConstraint_->weight() <<
     gaitParam.wbmsTorsoOrientationWeight[0],
     gaitParam.wbmsTorsoOrientationWeight[1],
     gaitParam.wbmsTorsoOrientationWeight[2];

@@ -4,6 +4,7 @@
 #include "GaitParam.h"
 #include <cpp_filters/TwoPointInterpolator.h>
 #include <ik_constraint2/PositionConstraint.h>
+#include <ik_constraint2/OrientationConstraint.h>
 #include <ik_constraint2/COMConstraint.h>
 #include <ik_constraint2/JointAngleConstraint.h>
 #include <ik_constraint2/JointVelocityConstraint.h>
@@ -47,7 +48,7 @@ private:
   std::vector<std::shared_ptr<ik_constraint2_joint_limit_table::JointLimitMinMaxTableConstraint> > jointLimitConstraint_;
   std::vector<std::shared_ptr<ik_constraint2::ClientCollisionConstraint> > selfCollisionConstraint_;
   std::vector<std::shared_ptr<ik_constraint2::PositionConstraint> > footConstraint_;
-  std::shared_ptr<ik_constraint2::PositionConstraint> chestConstraint_ = std::make_shared<ik_constraint2::PositionConstraint>();
+  std::shared_ptr<ik_constraint2::OrientationConstraint> chestConstraint_ = std::make_shared<ik_constraint2::OrientationConstraint>();
   std::shared_ptr<ik_constraint2::COMConstraint> comConstraint_ = std::make_shared<ik_constraint2::COMConstraint>();
   bool useProjectionPostureReference_ = false;
   std::vector<std::shared_ptr<ik_constraint2::JointAngleConstraint> > postureReferenceConstraint_;

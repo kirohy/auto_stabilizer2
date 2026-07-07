@@ -147,24 +147,22 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   {
     cnoid::LinkPtr chestLink = genRobot->link(gaitParam.chestLinkName);
     if(chestLink && gaitParam.wbmsPostureReferenceValid){
-      this->chestPositionConstraint->A_link() = chestLink;
-      this->chestPositionConstraint->A_localpos() = cnoid::Isometry3::Identity();
-      this->chestPositionConstraint->B_link() = nullptr;
-      this->chestPositionConstraint->B_localpos() = cnoid::Isometry3::Identity();
-      this->chestPositionConstraint->B_localpos().linear() = gaitParam.wbmsProjectedChestR;
-      this->chestPositionConstraint->B_localpos().translation() = chestLink->p();
-      this->chestPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt,
+      this->chestOrientationConstraint->A_link() = chestLink;
+      this->chestOrientationConstraint->A_localR() = cnoid::Matrix3::Identity();
+      this->chestOrientationConstraint->B_link() = nullptr;
+      this->chestOrientationConstraint->B_localR() = gaitParam.wbmsProjectedChestR;
+      this->chestOrientationConstraint->maxError() <<
         gaitParam.wbmsTorsoOrientationMaxError[0] * dt,
         gaitParam.wbmsTorsoOrientationMaxError[1] * dt,
         gaitParam.wbmsTorsoOrientationMaxError[2] * dt;
-      this->chestPositionConstraint->precision() = 0.0;
-      this->chestPositionConstraint->weight() << 0.0, 0.0, 0.0,
+      this->chestOrientationConstraint->precision() = 0.0;
+      this->chestOrientationConstraint->weight() <<
         gaitParam.wbmsTorsoOrientationWeight[0] * wbmsOperationMode,
         gaitParam.wbmsTorsoOrientationWeight[1] * wbmsOperationMode,
         gaitParam.wbmsTorsoOrientationWeight[2] * wbmsOperationMode;
-      this->chestPositionConstraint->eval_link() = chestLink;
-      this->chestPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
-      ikConstraint3.push_back(this->chestPositionConstraint);
+      this->chestOrientationConstraint->eval_link() = chestLink;
+      this->chestOrientationConstraint->eval_localR() = cnoid::Matrix3::Identity();
+      ikConstraint3.push_back(this->chestOrientationConstraint);
     }
   }
 
@@ -190,18 +188,17 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
        gaitParam.wbmsWalkingPreparationTargetRootR.allFinite()){
       rootTargetPose.linear() = gaitParam.wbmsWalkingPreparationTargetRootR;
     }
-    this->rootPositionConstraint->A_link() = genRobot->rootLink();
-    this->rootPositionConstraint->A_localpos() = cnoid::Isometry3::Identity();
-    this->rootPositionConstraint->B_link() = nullptr;
-    this->rootPositionConstraint->B_localpos() = rootTargetPose;
-    this->rootPositionConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt, 10.0*dt;
-    this->rootPositionConstraint->precision() = 0.0;
-    // this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0, 3.0, 3.0; // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
-    //this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3e-1, 3e-1, 3e-1;
-    this->rootPositionConstraint->weight() << 0.0, 0.0, 0.0, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode;
-    this->rootPositionConstraint->eval_link() = genRobot->rootLink();
-    this->rootPositionConstraint->eval_localR() = cnoid::Matrix3::Identity();
-    ikConstraint3.push_back(this->rootPositionConstraint);
+    this->rootOrientationConstraint->A_link() = genRobot->rootLink();
+    this->rootOrientationConstraint->A_localR() = cnoid::Matrix3::Identity();
+    this->rootOrientationConstraint->B_link() = nullptr;
+    this->rootOrientationConstraint->B_localR() = rootTargetPose.linear();
+    this->rootOrientationConstraint->maxError() << 10.0*dt, 10.0*dt, 10.0*dt;
+    this->rootOrientationConstraint->precision() = 0.0;
+    // 角運動量を利用するときは重みを小さく. 通常時、胴の質量・イナーシャやマスパラ誤差の大きさや、胴を大きく動かすための出力不足などによって、二足動歩行では胴の傾きの自由度を使わない方がよい
+    this->rootOrientationConstraint->weight() << 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode, 3.0*wbmsStabilityMode;
+    this->rootOrientationConstraint->eval_link() = genRobot->rootLink();
+    this->rootOrientationConstraint->eval_localR() = cnoid::Matrix3::Identity();
+    ikConstraint3.push_back(this->rootOrientationConstraint);
   }
 
   // reference angle
