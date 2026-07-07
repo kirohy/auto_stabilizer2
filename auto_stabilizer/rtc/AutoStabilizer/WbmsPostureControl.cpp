@@ -44,7 +44,9 @@ void WbmsPostureControl::init(const cnoid::BodyPtr& genRobot, const GaitParam& g
   for(size_t i=0;i<this->projectionJointIds_.size();i++){
     this->jointVelocityConstraint_.push_back(std::make_shared<ik_constraint2::JointVelocityConstraint>());
     this->jointLimitConstraint_.push_back(std::make_shared<ik_constraint2_joint_limit_table::JointLimitMinMaxTableConstraint>());
-    this->postureReferenceConstraint_.push_back(std::make_shared<ik_constraint2::JointAngleConstraint>());
+    if(this->useProjectionPostureReference_){
+      this->postureReferenceConstraint_.push_back(std::make_shared<ik_constraint2::JointAngleConstraint>());
+    }
   }
 
   this->footConstraint_.clear();
@@ -57,12 +59,16 @@ void WbmsPostureControl::init(const cnoid::BodyPtr& genRobot, const GaitParam& g
     this->selfCollisionConstraint_.push_back(std::make_shared<ik_constraint2::ClientCollisionConstraint>());
   }
 
-  this->projectionConstraints_.resize(5);
+  // projection姿勢参照は、毎周期現在姿勢から開始するprojectorでは効果に対して
+  // 追加priority/QP solveのコストが大きい。既定で無効化する。
+  this->projectionConstraints_.resize(this->useProjectionPostureReference_ ? 5 : 4);
   this->projectionConstraints_[0].reserve(this->projectionJointIds_.size() * 2);
   this->projectionConstraints_[1].reserve(std::max<size_t>(1, gaitParam.selfCollision.size()));
   this->projectionConstraints_[2].reserve(NUM_LEGS);
   this->projectionConstraints_[3].reserve(2);
-  this->projectionConstraints_[4].reserve(this->projectionJointIds_.size());
+  if(this->useProjectionPostureReference_){
+    this->projectionConstraints_[4].reserve(this->projectionJointIds_.size());
+  }
   size_t supportVertexCapacity = 0;
   for(int i=0;i<NUM_LEGS;i++) supportVertexCapacity += gaitParam.legHull[i].size();
   supportVertexCapacity = std::max<size_t>(supportVertexCapacity, NUM_LEGS * 4);
@@ -585,15 +591,17 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   this->comConstraint_->eval_R() = cnoid::Matrix3::Identity();
   this->projectionConstraints_[3].push_back(this->comConstraint_);
 
-  for(size_t i=0;i<this->projectionJointIds_.size();i++){
-    int jointId = this->projectionJointIds_[i];
-    cnoid::LinkPtr joint = this->wbmsPostureRobot_->joint(jointId);
-    this->postureReferenceConstraint_[i]->joint() = joint;
-    this->postureReferenceConstraint_[i]->targetq() = gaitParam.genRobot->joint(jointId)->q();
-    this->postureReferenceConstraint_[i]->maxError() = 10.0 * dt;
-    this->postureReferenceConstraint_[i]->precision() = 0.0;
-    this->postureReferenceConstraint_[i]->weight() = 1e-4;
-    this->projectionConstraints_[4].push_back(this->postureReferenceConstraint_[i]);
+  if(this->useProjectionPostureReference_){
+    for(size_t i=0;i<this->projectionJointIds_.size();i++){
+      int jointId = this->projectionJointIds_[i];
+      cnoid::LinkPtr joint = this->wbmsPostureRobot_->joint(jointId);
+      this->postureReferenceConstraint_[i]->joint() = joint;
+      this->postureReferenceConstraint_[i]->targetq() = gaitParam.genRobot->joint(jointId)->q();
+      this->postureReferenceConstraint_[i]->maxError() = 10.0 * dt;
+      this->postureReferenceConstraint_[i]->precision() = 0.0;
+      this->postureReferenceConstraint_[i]->weight() = 1e-4;
+      this->projectionConstraints_[4].push_back(this->postureReferenceConstraint_[i]);
+    }
   }
 
   for(int i=0;i<6;i++) this->projectionIKParam_.dqWeight[i] = 1.0;
