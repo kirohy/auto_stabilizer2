@@ -2791,6 +2791,56 @@ optional仕様案:
 - 破綻対策としての追加修正は不要。
 - optional仕様を採用するかどうかは、「足踏み開始前にroot絶対姿勢がどの程度直立している必要があるか」という運用要件として別途判断する。
 
+## M5.1 1-iteration運用方針とIK parameter整理 実装記録
+
+M5: 500 Hz計算量削減の最初の作業として、`WBMSComputationReductionImplementationPlan.md` のM5.1を実施した。
+
+M5.1は挙動変更ではなく、後続のM5.2以降で `checkFinalState=false` やIK軽量化を安全に進めるための前提整理である。現行コードではprojector/final IKともに `maxIteration=1` で運用しており、`precision=0.0` は「反復をmax loopまで強制する」設定ではない。この誤解を招くコメントを削除し、1 iteration固定運用、戻り値、診断値の扱いをコードコメントとして明記した。
+
+### 実装した範囲
+
+- `FullbodyIKSolver.cpp` の各 `precision() = 0.0` に付いていた「強制的にIKをmax loopまで回す」という現状と合わないコメントを削除した。
+- final IKの `IKParam param` 設定箇所に、WBMS final IKは500 Hz運用のため `maxIteration=1` 固定で使うことを明記した。
+- final IKでは、`precision=0.0` は `maxIteration=1` 条件では反復数を増やさず、`solveIKLoop()` の最終満足判定だけを厳しくすることを明記した。
+- final IKでは、現状の制御判断が `solveIKLoop()` の戻り値に依存していないことを明記した。
+- `WbmsPostureControl.cpp` のprojector `projectionIKParam_.maxIteration = 1` 設定箇所に、projectorは1周期先の安全な小ステップ候補を作る用途であり、500 Hz運用では1 iteration固定で使うことを明記した。
+- projectorでは、`maxIteration>1` の収束設計は本計画の対象外で別途扱うことを明記した。
+- projectorの `solveIKLoop()` 呼び出し箇所に、`allConstraintsSatisfied` は採用判定ではなく診断値であり、候補採用可否は `validateProjectionCandidate()` で判定することを明記した。
+
+### 変更ファイル
+
+| ファイル | 変更概要 |
+|---|---|
+| `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp` | 古い `precision=0.0` コメントを削除し、final IKの1 iteration固定運用と戻り値非依存を明記 |
+| `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp` | projectorの1 iteration固定運用、`maxIteration>1` 対象外、`allConstraintsSatisfied` が診断値であることを明記 |
+
+### acceptance確認
+
+| 項目 | 結果 | 備考 |
+|---|---|---|
+| コメントが現行挙動と一致する | PASS | `precision=0.0` が反復数を増やすというコメントを削除 |
+| `maxIteration=1` 固定運用の意図が伝わる | PASS | projector/final IKそれぞれのIKParam設定箇所へ明記 |
+| projector採用判定と診断値の区別が明確 | PASS | `validateProjectionCandidate()` が採用判定、`allConstraintsSatisfied` は診断値と明記 |
+| final IK戻り値の扱いが明確 | PASS | 現状の制御判断は戻り値に依存しないと明記 |
+| 制御挙動を変更しない | PASS | コメントのみの変更 |
+| ビルド | PASS | `catkin build auto_stabilizer --no-deps` 成功、warningsなし |
+
+### コミット
+
+```text
+e25a5f5 Clarify WBMS one-iteration IK policy
+```
+
+### 後続M5への引き継ぎ
+
+- M5.1は完了済み。コードの挙動変更、IDL変更、debug index変更、シミュレータログ再取得は行っていない。
+- M5.2では、計画書どおり `prioritized_inverse_kinematics_solver2::IKParam::checkFinalState` を実装し、projector/final IKで `checkFinalState=false` を適用する。
+- M5.2で `checkFinalState=false` を適用する際も、solve後のFK/COM更新は省かない。projectorはsolve後の姿勢とCOMを `validateProjectionCandidate()` と投影結果保存で使うためである。
+- projectorは `solveIKLoop()` 戻り値に依存させず、既存どおり `validateProjectionCandidate()` による安全判定を採用条件にする。
+- final IKは現状どおり `solveIKLoop()` 戻り値を制御判断に使っていないため、M5.2で戻り値の意味が「最終満足判定未実施」相当になっても制御フローを変えない。
+- M5.2以降で計算時間を比較する場合、制御挙動baselineは `test_start_walking202607061848*`、`061851*`、`061853*` のPASS相当ログ、時間統計baselineは `061700` 記録を参照する。
+- 作業時点で未追跡の `auto_stabilizer/.cache/`、`auto_stabilizer/compile_commands.json`、`auto_stabilizer/log/` はM5.1コミット対象外として残した。後続作業でも不要に削除しない。
+
 ## コードとビルドで確認済みの事項
 
 - 旧 `wbmsTorsoTargetRpy`、`refTorsoAnglVel`、`calcWbmsPostureReference`、`wbmsPostureRootConstraint`、`WbmsTorsoControl` は `auto_stabilizer/rtc/AutoStabilizer` 配下に残っていない。
