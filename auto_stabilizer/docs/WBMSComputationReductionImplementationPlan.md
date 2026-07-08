@@ -768,6 +768,18 @@ M5.9初回実装では、`SolveWorkspace`、signature、workspace付きsolve API
 - READY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0` を維持する。
 - final IK後COM速度、CHEST角速度、max joint delta、phase4開始付近のhardware dqに安全上の悪化がない。
 
+### M5.9追加作業後の計画上の扱い
+
+M5.9追加作業後のログ評価は `WBMSFeasibleVelocityPostureControlProgress.md` に記録する。計画上の結論は以下である。
+
+- signature hit時のQP構造再利用は達成した。
+- projectorでは通常区間のstructure rebuild / fast path fallbackが0であり、計算時間も改善傾向だった。
+- final IKではsignature miss / structure rebuildはmode遷移付近の2周期だけで、通常区間のrebuild / fallbackは0だった。
+- しかしfinal IK時間はM5.8 baselineに対して明確には改善せず、mean/maxは悪化するログもあった。
+- したがって、final IKの残り支配項はQP構造再構築ではなく、constraint更新、実際のOSQP solve、priority層数またはQP規模側にある可能性が高い。
+
+このため、M5.9は「QP構造再利用の実装」としては完了扱いにする。当初acceptance criteriaのうち、構造再利用とfallbackなしは達成、計算時間改善はprojector/onExecute p99で部分達成、final IK時間改善は未達である。final IK時間の追加削減はM5.9を延長せず、M5.10として内訳profilingから再開する。
+
 ### 変更候補ファイル
 
 - `~/catkin_ws/cnoid2/src/prioritized_qp/prioritized_qp_base`
@@ -783,6 +795,80 @@ M5.9初回実装では、`SolveWorkspace`、signature、workspace付きsolve API
 - projector/final IK時間のp99/maxが改善する。
 - QP failure時のfallbackは従来どおり安全側に倒れる。
 - projector/final IKのconstraint構成、安全判定、速度limit、mode遷移、hidden goal非蓄積の仕様を変えない。
+
+## M5.10: final IK内訳profiling
+
+### 目的
+
+M5.9までで、projector側の構造再利用効果は確認できたが、final IKの計算時間改善は限定的だった。M5.10では挙動変更を入れず、final IKの残りコストを以下に分解して、次に削るべき対象が存在するかを判断する。
+
+- constraint更新。
+- priorityごとのQP行列準備。
+- priorityごとのOSQP solve。
+- priorityごとのQP変数数、制約行数、拡張変数数。
+- 必要な場合のみ、主要constraint種別ごとの更新時間。
+
+M5.10は計算量削減そのものではなく、以後の制御変更候補を選別するための診断作業である。
+
+### 背景判断
+
+M5.2の `checkFinalState=false` は、solve後constraint再評価を減らし、projector/final IK双方で明確な改善を出した。
+
+M5.4では、final IKの `AngularMomentumConstraint` を無効化するとfinal IK mean/p99は改善したが、READY未到達、TIMEOUT、root姿勢過大化、final IK後COM/CHEST速度と関節差分の大幅悪化が発生した。このため、AngularMomentumConstraintの単純削除は採用不可である。
+
+M5.5、M5.7、M5.9のfinal IK時間改善はログばらつき程度だった。M5.8では対象ログのself collision active constraint数が常に0であり、active set安定化による削減余地は確認できなかった。
+
+このため、次の大きな改善は、QP構造再利用ではなく、constraint自体、priority構成、またはOSQP solve回数・規模を変える場合に限られる可能性が高い。ただしこれらは制御意味を変えるため、profilingなしに実装しない。
+
+### 計測する項目
+
+最低限の計測:
+
+- final IK全体時間。
+- final IK内のconstraint更新合計時間。
+- priority indexごとのQP solve時間。
+- priority indexごとのQP変数数、制約行数、拡張変数数。
+- priority indexごとのsignature hit/miss、initialize、update failure、solve failure。
+
+必要に応じて追加する計測:
+
+- `AngularMomentumConstraint` のbounds/Jacobian更新時間。
+- COM constraintの更新時間。
+- 足先constraintの更新時間。
+- CHEST/root姿勢constraintの更新時間。
+- reference angle constraintの更新時間。
+
+主要constraint種別ごとの計測は、最初の粗いprofilingでconstraint更新が支配的だった場合だけ追加する。最初から全constraintに細かい計測を入れると、診断出力と計測オーバーヘッドが大きくなりすぎるため避ける。
+
+### 実装方針
+
+- constraint構成、priority構成、weight、速度limit、mode遷移、candidate validationは変更しない。
+- 通常制御値には影響しないdebug counterとして追加する。
+- `wbmsDebugOut` に恒久indexを追加するか、一時indexとして扱うかは実装前に判断する。
+- 500 Hz周期で標準出力を毎周期行わない。
+- 計測はwall clockの絶対値だけでなく、同一ログ条件の相対比較に使う。
+
+### M5.10後の分岐
+
+profiling結果に応じて、以下のように判断する。
+
+| 支配項 | 次候補 | 注意 |
+|---|---|---|
+| `AngularMomentumConstraint` 更新が支配的 | 全無効化ではなくaxis mask化、weight 0軸の行削減、または局面限定化 | M5.4で全無効化は採用不可。root姿勢、READY、final IK後速度を重点確認する |
+| final IK priority 4 reference angle solveが支配的 | 条件付きskip、hysteresis付きskip、低priority統合の実験 | 腕関節drift、nullspace姿勢、mode遷移時の不連続を重点確認する |
+| OSQP solveが全priorityで広く支配的 | priority数または制約行数の削減を検討 | strict priorityの意味を変えるため、別途小さな実験単位に分ける |
+| constraint更新が分散している | M5系の追加削減は保留 | 制御仕様を変えない範囲の大きな改善は難しい |
+| QP構造再構築やinitializeがまだ発生する | M5.9 fast pathのbugまたは構造変化要因を調査 | counterとphaseを照合して原因を特定する |
+
+### acceptance criteria
+
+M5.10自体のacceptance criteria:
+
+- final IKの内訳として、constraint更新、priority別OSQP solve、QP規模をログから確認できる。
+- 診断追加によりREADY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0` が退行しない。
+- final IK後COM速度、CHEST角速度、max joint delta、phase4開始付近hardware dqが最新PASS相当ログから大きく悪化しない。
+- 計測オーバーヘッドによりonExecute p99や2ms超過周期が大きく悪化しない。悪化する場合は一時診断として扱い、恒久出力にしない。
+- 次の実装候補を1つに絞れる、または「これ以上の低リスク削減は困難」と判断できる。
 
 ## 7. 今回は採用しない方針
 

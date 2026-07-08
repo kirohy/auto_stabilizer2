@@ -4167,6 +4167,193 @@ final IKのsignature missは以下の2周期だけだった。
 - 追加作業後は `072139`、`081541`、`081552` を比較対象として、計算時間とphase4開始付近の過渡を再評価する。
 - debug counter出力は恒久仕様ではなく、効果確認用の一時実装として扱う。恒久化する場合は別途index互換性とlogger側の扱いを判断する。
 
+### M5.9追加作業: signature hit時のQP再構築回避 実装記録 2026-07-08
+
+M5.9追加作業として、`prioritized_qp_base` のworkspace付きsolveで、signature hit時にQP構造を再利用する経路を実装した。
+
+実装した内容:
+
+- `SolveWorkspace::TaskSignature` に `A/C/A_ext/C_ext` のsparse patternを追加した。
+  - 行数・列数だけでなくnonzero配置が一致する場合だけfast pathを使う。
+  - 値はsignatureに含めず、毎周期更新対象として扱う。
+- `SolveWorkspace` にpriorityごとの構造情報 `TaskWorkspace` を追加した。
+  - 累積制約行列内の行offset、priority solve時点の列数、QP変数数、ext列の対応を保存する。
+- signature miss時は従来どおり `As/lBs/uBs/wExts/H/qpA` を全構築する。
+  - この経路を基準経路とし、構造情報をworkspaceへ保存する。
+- signature hit時は保存済みbufferのサイズを変えず、以下の値だけを更新する。
+  - `As` の既存nonzero値。
+  - `lBs/uBs`。
+  - `wExts`。
+  - `H` の既存対角値。
+  - `qpA` の既存nonzero値。
+- fast pathの構造前提が崩れた場合はslow rebuildへfallbackする。
+- QP solve failureの場合はrebuildで握りつぶさず、従来どおりsolve失敗として返す。
+- `structureRebuildCount` と `fastPathFallbackCount` をworkspace counterとして追加した。
+  - 今回は恒久 `wbmsDebugOut` indexは追加していない。
+
+変更ファイル:
+
+- `prioritized_qp_base/include/prioritized_qp_base/PrioritizedQPBaseSolver.h`
+- `prioritized_qp_base/src/PrioritizedQPBaseSolver.cpp`
+
+変更していない内容:
+
+- `prioritized_qp_base::solve(tasks, result, debuglevel)` の公開API。
+- `prioritized_inverse_kinematics_solver2` のAPIと呼び出し仕様。
+- `WbmsPostureControl` / `FullbodyIKSolver` のconstraint構成、priority構成、速度limit、mode遷移、candidate validation。
+- `wbmsDebugOut` の恒久index。
+
+ビルド・静的確認:
+
+| コマンド | 結果 | 備考 |
+|---|---|---|
+| `catkin build prioritized_qp_base prioritized_qp_osqp --no-deps` | PASS | warningsなし |
+| `catkin build prioritized_inverse_kinematics_solver2 --no-deps` | PASS | warningsなし |
+| `catkin build auto_stabilizer --no-deps` | PASS | warningsなし |
+| `git -C ../prioritized_qp diff --check` | PASS | 指摘なし |
+| `git -C ../ik_solvers2 diff --check` | PASS | 指摘なし |
+| `git diff --check` | PASS | 指摘なし |
+
+未確認事項:
+
+- シミュレータログによる計算時間評価は未実施。
+- 次のログ評価では、M5.8 baseline `072139`、M5.9初回 `081541`、M5.9+counter `081552` と比較する。
+- 特に以下を確認する。
+  - signature hit継続区間で `initialize` が発生しないこと。
+  - `fastPathFallbackCount` が増えない、または増えるphaseが説明できること。
+  - projector/final IK/onExecuteのmean/p95/p99/max。
+  - phase4開始付近のhardware dq、q 1周期差分、CHEST角速度、max joint delta。
+  - READY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0`。
+
+### M5.9追加作業後ログ評価 2026-07-08
+
+M5.9追加作業後、M5.9以前と同条件のシミュレータログ `auto_stabilizer/log/test_start_walking202607081648.*` を評価した。
+
+この時点の `wbmsDebugOut` は135要素であり、M5.9初回のQP counterは出ていたが、`structureRebuildCount` と `fastPathFallbackCount` は未出力だった。このため、計算時間と既存counterから安全性・構造変化を評価した。
+
+主な結果:
+
+| 指標 | M5.8 `072139` | M5.9追加 `081648` |
+|---|---:|---:|
+| projector mean / p99 / max | 0.244 / 0.473 / 0.712ms | 0.239 / 0.461 / 0.709ms |
+| final IK mean / p99 / max | 0.641 / 1.057 / 1.373ms | 0.651 / 1.105 / 1.544ms |
+| onExecute mean / p99 / max | 1.175 / 1.988 / 2.517ms | 1.209 / 2.088 / 3.123ms |
+| onExecute 2ms超過周期 | 35 | 55 |
+| projector QP hit / miss / initialize / update failure / solve failure | 未出力 | 3281 / 0 / 0 / 0 / 0 |
+| final IK QP hit / miss / initialize / update failure / solve failure | 未出力 | 3697 / 2 / 4 / 0 / 0 |
+
+挙動面ではREADY到達、FAILEDなし、walking API accept 1回、accept時 `wbmsOperationModeValue=0.0` を満たした。final IK後COM速度最大は `0.103316m/s`、CHEST角速度最大は `1.668263rad/s`、max joint delta最大は `0.003371rad` であり、M5.4 AngularMomentumConstraint無効化ログで見られたTIMEOUT、root姿勢過大化、final IK後速度・関節差分の大幅悪化は確認されなかった。
+
+一方、計算時間はprojectorでわずかに改善したが、final IKとonExecuteはM5.8 `072139` より悪化した。135要素ログではsignature hit時の構造再構築回避が本当に効いているかを直接確認できなかったため、`structureRebuildCount` と `fastPathFallbackCount` をdebug出力へ追加して再評価することにした。
+
+### M5.9追加作業 counter拡張 実装記録 2026-07-08
+
+M5.9追加作業の効果を直接確認するため、`wbmsDebugOut` を139要素へ拡張し、QP workspaceの構造再構築・fast path fallback counterを出力した。
+
+追加したdebug index:
+
+| index | 内容 |
+|---:|---|
+| 130 | projector QP structure rebuild delta |
+| 131 | projector QP fast path fallback delta |
+| 137 | final IK QP structure rebuild delta |
+| 138 | final IK QP fast path fallback delta |
+
+既存のprojector QP counterは125-129、final IK QP counterは132-136へ配置した。これはM5.9評価用の診断拡張であり、constraint構成、priority構成、速度limit、mode遷移、candidate validationは変更していない。
+
+変更ファイル:
+
+- `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h`
+- `auto_stabilizer/rtc/AutoStabilizer/WbmsPostureControl.cpp`
+- `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp`
+- `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp`
+
+ビルド・静的確認:
+
+| コマンド | 結果 |
+|---|---|
+| `catkin build auto_stabilizer --no-deps` | PASS |
+| `git diff --check` | PASS |
+
+### M5.9追加作業 counter拡張後ログ評価 2026-07-08
+
+counter拡張後、`auto_stabilizer/log/test_start_walking202607081655.*` を評価した。
+
+主な結果:
+
+| 指標 | M5.8 `072139` | M5.9+counter `081552` | M5.9追加+counter `081655` |
+|---|---:|---:|---:|
+| projector mean / p99 / max | 0.244 / 0.473 / 0.712ms | 0.246 / 0.507 / 0.901ms | 0.241 / 0.425 / 0.600ms |
+| final IK mean / p99 / max | 0.641 / 1.057 / 1.373ms | 0.628 / 1.079 / 1.500ms | 0.655 / 1.059 / 1.745ms |
+| onExecute mean / p99 / max | 1.175 / 1.988 / 2.517ms | 1.176 / 2.006 / 3.158ms | 1.198 / 1.880 / 3.028ms |
+| onExecute 2ms超過周期 | 35 | 56 | 21 |
+| valid ratio | 0.879 | 0.920 | 0.881 |
+
+QP counter:
+
+| 対象 | hit | miss | initialize | update failure | solve failure | structure rebuild | fast path fallback |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| projector | 3163 | 0 | 0 | 0 | 0 | 0 | 0 |
+| final IK | 3587 | 2 | 4 | 0 | 0 | 2 | 0 |
+
+final IKのsignature miss / structure rebuildは以下の2周期だけだった。
+
+| rel time[s] | phase | signature miss | structure rebuild |
+|---:|---:|---:|---:|
+| 1.002688 | 3 | 1 | 1 |
+| 7.320375 | 4 | 1 | 1 |
+
+projectorでは全有効周期でsignature hitし、structure rebuildとfast path fallbackは0だった。final IKでも通常のsignature hit継続区間でstructure rebuildは発生せず、fast path fallbackも0だった。このため、M5.9追加作業の直接目的である「signature hit時にQP構造を再利用し、再構築を避ける」は達成したと判断する。
+
+挙動面:
+
+| 指標 | `081655` |
+|---|---:|
+| READY到達 | PASS |
+| FAILED | 0 |
+| walking API accepted | 1 |
+| accept時 `wbmsOperationModeValue` | 0.0 |
+| final IK COM速度norm最大 | 0.103320m/s |
+| final IK CHEST角速度norm最大 | 3.857816rad/s |
+| final IK後max joint delta最大 | 0.007715rad |
+| final IK後root pitch範囲 | -0.032653〜0.081193rad |
+
+シミュレータ目視でも変な挙動は確認されなかった。M5.4 AngularMomentumConstraint無効化ログのようなTIMEOUT、root姿勢過大化、FAILED後の大ジャンプは再発していない。
+
+phase4開始付近では、`081655` でhardware dq最大 `1.311200rad/s`、q一周期差分最大 `0.002563rad`、CHEST角速度最大 `3.857816rad/s`、max joint delta最大 `0.007715rad` が見られた。M5.8 `072139` のphase4付近最大はhardware dq `1.327898rad/s`、q一周期差分 `0.002616rad`、CHEST角速度 `3.945582rad/s`、max joint delta `0.007888rad` であり、最大値としては同程度または小さい。ただし発生タイミングはログにより異なるため、phase4遷移付近は今後も比較対象に残す。
+
+総合判断:
+
+- M5.9追加作業は採用可能である。
+- QP構造再利用はprojectorで明確に成立し、final IKでも通常区間では成立した。
+- projector時間とonExecute p99 / 2ms超過周期は改善した。
+- final IK時間はM5.8 baselineに対して明確な改善ではなく、meanとmaxは悪化した。
+- したがって、final IKの残り支配項はQP構造再構築ではなく、constraint更新、実際のOSQP solve、priority層数・QP規模側にある可能性が高い。
+
+### M5.9までの残課題とM5.10方針 2026-07-08
+
+M5.2の `checkFinalState=false` は明確な計算時間改善を出した。一方、M5.5姿勢constraint軽量化、M5.7 1-iteration fast path、M5.9初回、M5.9追加作業のfinal IK時間改善はログばらつき程度である。
+
+過去のM5.4では、final IKの `AngularMomentumConstraint` を無効化するとfinal IK mean/p99は改善したが、READY未到達、TIMEOUT、root姿勢過大化、final IK後速度・関節差分悪化が発生した。このため、AngularMomentumConstraintを単純に削除する方針は採用不可である。
+
+また、M5.8ではself collision active constraint数が対象ログで常に0であり、active set安定化による計算時間削減効果は期待できなかった。
+
+以上から、M5.10では挙動変更を入れず、final IK内部の内訳profilingを先に行う。対象は以下である。
+
+- final IK全体のconstraint更新時間。
+- priorityごとのOSQP solve時間。
+- priorityごとのQP変数数、制約行数、拡張変数数。
+- 必要に応じて、AngularMomentumConstraint、COM、足先、CHEST/root姿勢、reference angleなど主要constraintの個別更新時間。
+
+M5.10 profiling後の分岐方針:
+
+- AngularMomentumConstraintが明確に重い場合は、全無効化ではなくaxis mask化、特に実質weight 0の軸の行削減や局面限定化を検討する。
+- final IK priority 4 reference angleのsolve時間が支配的な場合は、条件付きskip、hysteresis付きskip、または低priority統合を実験候補にする。ただしnullspace姿勢安定化、腕関節drift、mode遷移時の不連続を重点確認する。
+- OSQP solveが全priorityで広く支配的な場合は、priority数または制約行数を減らす以外の大きな改善は難しい。
+- constraint更新が分散して突出要因がない場合は、M5系の計算量削減は実質的に完了に近いと判断し、追加の制御仕様変更は行わない。
+
+M5.10は、M5.9のような恒久挙動変更ではなく、次の制御変更候補を選ぶための診断作業として扱う。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
