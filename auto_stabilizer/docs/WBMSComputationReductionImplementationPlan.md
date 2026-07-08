@@ -895,28 +895,34 @@ M5.10-A実装後、M5.9までと同条件の `auto_stabilizer/log/test_start_wal
 - priority 4は足拘束、安全系、COM/CHEST/root/AngularMomentumより低優先度であり、AngularMomentum全削除より直接的な安全退行リスクは小さい可能性が高い。
 - M5.3でprojector側priority 4姿勢参照削減は成立しており、低優先度姿勢参照は計算量削減対象として妥当である。
 
-ただし、reference angleはnullspace姿勢と腕関節drift抑制に効く可能性がある。このため、最初から恒久削除せず、条件付きskipまたは軽量化の小実験として扱う。
+ただし、reference angleはprojection IKが生成した `wbmsPostureReferenceQ` をfinal IKへ渡す経路でもあり、nullspace姿勢と腕関節drift抑制にも効く可能性がある。このため、最初から恒久削除せず、診断追加と小実験に分ける。
 
 実験方針:
 
-- priority 4をskipする条件を限定する。
-  - 例: reference errorが小さい、priority 3後のjoint deltaが小さい、WBMS operation modeが低い、歩行準備phaseが安定区間、など。
-- skip/enable切替にはhysteresisを入れる。
+- M5.11-Aでは挙動変更を入れず、reference angle constraint数、projection mask内外、腕関節相当、target clamp数、solve前後reference errorをdebug出力へ追加する。
+- M5.11-B以降は、projection IKが効いていない周期だけをskipする方針には限定しない。M5の目的はprojection IK追加後の通常運用負荷を下げることなので、projection reference有効中の削減余地を評価対象に含める。
+- 第一実験候補は、projection対象関節のreference angleを残し、projection対象外関節のpriority 4削減または軽量化を試すことである。ただし、この案ではpriority 4層自体は残るため、0.1ms級の安定削減を期待する本命ではなく、腕swivel angle拡張前の計算予算整理として扱う。
+- 比較用に、priority 4全skip、projection対象関節のみ残す案、歩行準備過渡だけ全関節referenceを戻す案、priority 3統合案を段階的に扱う。
+- skip/enable切替を行う案ではhysteresisを入れる。
 - skip時にもhidden goalを蓄積しない。
 - 腕関節span、nullspace姿勢、READY到達、phase4開始付近hardware dq、final IK後COM/CHEST速度、max joint deltaを重点確認する。
+- projection IKの主目的である体幹姿勢操縦を評価するため、前傾済み姿勢からの歩行準備復帰ログだけでなく、静止WBMSで前傾を生成するログも取得する。
+- 将来の腕swivel angle操縦を追加する場合、projection IKへ腕拘束を増やすとM5で削減してきた第一段IK負荷を再び増やす可能性が高い。このため、現時点の基本方針はswivel angleをfinal IK側、できれば既存の上半身EE拘束または腕reference angleの置換として扱い、新しいpriority層を増やさない方向で検討する。
+- swivel angleがfinal IK側へ入る場合、現在のprojection対象外arm-like reference angleは、削減するだけでなくswivel拘束へ置換する対象として再評価する。M5.11-Bで単体削減効果が小さい場合でも、その結果はswivel設計時の入力として残す。
 
 採用条件:
 
 - READY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0` を維持する。
 - final IK後COM速度、CHEST角速度、max joint delta、phase4付近hardware dqがM5.8/M5.9/M5.10-A baselineから悪化しない。
 - 腕指令なし条件で0.1 rad級腕振動や腕関節driftが出ない。
+- 静止WBMSでCHEST pitch指令に対して、`wbmsPostureReferenceValid`、realized torso angular velocity、CHEST RPY offsetが指令方向に変化する。
 - final IK mean/p99またはonExecute p99/2ms超過周期が改善する。
 
 不採用条件:
 
 - READY未到達、TIMEOUT、root姿勢過大化、final IK後速度・関節差分悪化が出る。
 - 腕driftやmode切替時の不連続が見える。
-- 改善がログばらつき程度で、制御意味変更に見合わない。
+- 改善がログばらつき程度で、制御意味変更に見合わない。ただし、将来のswivel angle追加で同じ腕冗長性領域を使う場合は、単体削減として不採用でも設計材料として残す。
 
 ### M5.12候補: AngularMomentumConstraintのaxis mask化またはweight 0軸行削減
 

@@ -4557,6 +4557,154 @@ priority別QP内訳:
 - `solveIKLoop()` 1-iteration fast path追加削減: M5.7で効果はログばらつき程度だった。
 - AngularMomentumConstraint全削除: M5.4で安全・READY面の退行が確認済みであり、再採用しない。
 
+### M5.11-A final IK reference angle診断 実装記録 2026-07-08
+
+M5.11-Aとして、final IK priority 4 reference angleの削減可否を判断するための診断を追加した。制御挙動、constraint構成、priority構成、weight、速度limit、mode遷移、candidate validationは変更していない。
+
+実装した内容:
+
+- `FullbodyIKSolver` でpriority 4 reference angle constraintの構成と誤差を計測するようにした。
+  - reference angle constraint数。
+  - `wbmsPostureReferenceJointMask` true/false別のconstraint数。
+  - 関節名に `ARM` / `Arm` / `arm` を含む腕関節相当のconstraint数。
+  - joint limitでtargetqをclampした関節数。
+  - solve前後のreference error max/RMS。
+  - solve前後のprojection mask内、mask外、腕関節相当のreference error max/RMS。
+- `wbmsDebugOut` を179要素から200要素へ拡張した。
+  - 既存index 0-178は変更せず、M5.11-A用の一時計測値を末尾へ追加した。
+
+追加したdebug index:
+
+| index | 内容 |
+|---:|---|
+| 179 | final IK reference angle constraint count |
+| 180 | final IK reference angle projection mask count |
+| 181 | final IK reference angle non-projection mask count |
+| 182 | final IK reference angle arm-like joint count |
+| 183 | final IK reference angle target clamp count |
+| 184 | reference angle pre-solve error max |
+| 185 | reference angle pre-solve error RMS |
+| 186 | projection mask pre-solve error max |
+| 187 | projection mask pre-solve error RMS |
+| 188 | non-projection mask pre-solve error max |
+| 189 | non-projection mask pre-solve error RMS |
+| 190 | arm-like joint pre-solve error max |
+| 191 | arm-like joint pre-solve error RMS |
+| 192 | reference angle post-solve error max |
+| 193 | reference angle post-solve error RMS |
+| 194 | projection mask post-solve error max |
+| 195 | projection mask post-solve error RMS |
+| 196 | non-projection mask post-solve error max |
+| 197 | non-projection mask post-solve error RMS |
+| 198 | arm-like joint post-solve error max |
+| 199 | arm-like joint post-solve error RMS |
+
+変更ファイル:
+
+- `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h`
+- `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp`
+- `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp`
+- `auto_stabilizer/docs/WBMSComputationReductionImplementationPlan.md`
+- `auto_stabilizer/docs/WBMSFeasibleVelocityPostureControlProgress.md`
+
+シミュレータ確認方針:
+
+- 第一確認は、静止WBMSでCHEST pitch前傾指令を入れ、前傾を生成する動作で行う。
+  - 今回はprojection IKの機能維持が論点であり、前傾済み姿勢からの復帰だけでは、projection IKが体幹姿勢を作る局面でreference angleがどの程度効くかを判断できないためである。
+  - `wbmsPostureReferenceValid`、realized torso angular velocity、CHEST RPY offset、projection mask内reference error、priority 4 QP timeを確認する。
+- 第二確認は、M5.8以降と同じ「前傾済み姿勢から歩行可能姿勢へ復帰して足踏み開始」の動作で行う。
+  - READY到達、FAILEDなし、walking API accept、accept時 `wbmsOperationModeValue=0.0`、phase4付近hardware dq、final IK後COM/CHEST速度、max joint deltaをbaselineと比較する。
+- 第三確認は、可能なら腕指令なしの前傾保持区間を長めに取り、arm-like joint post-solve errorと実関節spanに単調driftがないかを見る。
+
+M5.11-Bへ進む判断:
+
+- projection mask内errorが大きい、または前傾生成中にpriority 4がreference errorを大きく減らしている場合、projection対象関節のreference angle全削除は避ける。
+- non-projection maskまたは腕関節相当のerrorが小さく安定している場合、projection対象関節を残し、対象外関節だけ削る案を第一候補にする。
+- 前傾生成中でも全体のreference errorが小さくpriority 4の寄与が小さい場合だけ、priority 4全skip実験を比較用に検討する。
+
+### M5.11-A 前傾生成ログ評価 2026-07-08
+
+0.1rad/sで前傾させる動作ログ `auto_stabilizer/log/test_lean202607081936.*` を評価した。
+
+ログ概要:
+
+| 項目 | 値 |
+|---|---:|
+| samples / duration | 4533 / 10.690s |
+| `ast_wbmsDebug` data length | 200 |
+| raw pitch command有効区間 | 1.130s〜10.690s |
+| applied pitch command有効区間 | 1.155s〜9.526s |
+| applied pitch command max | 0.1rad/s |
+| realized pitch velocity max | 0.100213rad/s |
+| CHEST pitch offset増分 | 0.688148rad |
+| projection valid ratio | 0.9998 |
+| projection status | `VALID_ACTIVE` 3558周期、`VALID_IDLE` 974周期、`INVALID_JOINT_LIMIT` 1周期 |
+
+前傾生成中の制御応答:
+
+- applied pitch command積分は0.818rad、realized pitch velocity積分は0.818radでほぼ一致した。
+- CHEST pitch offsetは0.688radまで増加した。終盤はlimit到達によりapplied commandが0へ落ち、raw commandだけが残った。
+- `INVALID_JOINT_LIMIT` は1周期だけで、同周期のM5.11 reference errorは外れ値になっている。M5.11判断ではvalid周期を主対象にする。
+
+計算時間:
+
+| 指標 | all mean / p99 / max | active valid mean / p99 / max |
+|---|---:|---:|
+| projector time | 0.267 / 0.475 / 1.225ms | 0.267 / 0.462 / 0.654ms |
+| final IK time | 0.636 / 1.059 / 1.516ms | 0.639 / 1.057 / 1.516ms |
+| onExecute time | 1.203 / 2.003 / 2.950ms | 1.203 / 1.977 / 2.537ms |
+| priority 4 total | 0.153 / 0.293 / 0.506ms | 0.154 / 0.300 / 0.506ms |
+
+priority 4 reference angleは、active valid区間でfinal IK meanの約24.1%だった。M5.10-Aの歩行準備ログと同程度であり、前傾生成中でも削減対象として大きい。
+
+M5.11-A reference angle診断:
+
+| 指標 | active valid |
+|---|---:|
+| reference angle constraint count | 31 |
+| projection mask count | 15 |
+| non-projection mask count | 16 |
+| arm-like joint count | 16 |
+| target clamp count | 0 |
+| pre projection-mask error max mean / p99 / max | 0.000145 / 0.000208 / 0.000210rad |
+| post projection-mask error max mean / p99 / max | 0.000242 / 0.003719 / 0.004753rad |
+| pre arm-like error max mean / p99 / max | 0.000032 / 0.000480 / 0.000583rad |
+| post arm-like error max mean / p99 / max | 0.000032 / 0.000480 / 0.000583rad |
+
+判断:
+
+- priority 4は前傾生成中も毎周期solveされ、計算時間比は約24%で大きい。
+- projection対象関節は15本で、前傾生成中のpost errorは最大0.0048rad程度まで出る。このため、projection対象関節のreference angle全削除は最初の採用候補にしない。
+- projection対象外16本はすべてarm-like joint countと一致し、pre/post errorは最大でも0.0006rad程度で、priority 4による補正がほぼ不要に見える。
+- M5.11-Bの第一候補は、projection対象関節15本のreference angleは残し、projection対象外16本のreference angleをpriority 4から外す案とする。
+- priority 4全skipは削減上限を測る比較実験としては有用だが、projection IKの体幹姿勢実現経路を損なう可能性があるため、第一候補にはしない。
+
+削減見込み:
+
+- priority 4全体はactive valid区間でmean 0.154msであり、final IK meanの約24.1%を占める。
+- 一方、projection対象外16本だけを外す案では、priority 4のQP層そのもの、solver update、solver solveの固定的なコストは残る。削減されるのは主にpriority 4の行数が31行から15行へ減る分である。
+- このため、現実的な削減見込みはfinal IK/onExecuteで0.03〜0.08ms程度と見積もる。0.1msを安定して超える削減は厳しい可能性が高い。
+- したがって、projection対象外16本削減は「M5の大幅計算量削減の本命」ではなく、「今後の腕swivel angle拡張に向けて、現在ほぼ効いていない腕reference angleを整理し、計算予算を少し戻す作業」と位置づける。
+- 0.1ms級以上の削減を狙う場合は、priority 4層自体をなくす、またはpriority 3/4統合やreference angleの同一QP内正則化に踏み込む必要がある。ただしstrict priorityの意味を変えるため、腕swivel angle仕様と合わせて別途設計する方がよい。
+
+腕swivel angle拡張を踏まえた判断:
+
+- 将来、腕の6自由度操作に加えてswivel angle操縦を追加する計画がある。
+- swivel angleをprojection IKへ入れると、第一段IKの変数・拘束が増え、M5で削ってきたprojection IK側負荷を再び増やす可能性が高い。このため、現時点ではfinal IK側へ入れる案を基本線にする。
+- final IK側へ入れる場合も、新しいpriority層を増やすと追加QP solveになり、priority 4問題を再発させる。既存の上半身EE拘束と同じpriority 3へ入れるか、現在の腕reference angleをswivel拘束へ置換する案を優先的に検討する。
+- 今回ログではarm-like reference angle errorが非常に小さく、現状の前傾生成では腕reference angleはほぼ効いていない。このため、M5.11-Bで腕reference angle削減を試す結果は、単体削減量が小さくてもswivel angle設計時の重要な入力になる。
+
+安全・過渡指標:
+
+| 指標 | 値 |
+|---|---:|
+| final IK COM速度norm max / p99 | 0.00268 / 0.00027m/s |
+| final IK CHEST角速度norm max / p99 | 1.459 / 0.100rad/s |
+| `ast_q` 一周期最大差分 | 0.00813rad |
+| `el_q` 一周期最大差分 | 0.00800rad |
+| `RobotHardware0_q` 一周期最大差分 | 0.00257rad |
+| `RobotHardware0_dq` 最大 | 1.339rad/s |
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
