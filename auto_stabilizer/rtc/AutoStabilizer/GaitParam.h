@@ -310,11 +310,15 @@ public:
     double wbmsProjectorQpInitializeDelta = 0.0; // M5.9一時計測. projector QP solver initialize回数の周期増分
     double wbmsProjectorQpUpdateFailureDelta = 0.0; // M5.9一時計測. projector QP update失敗回数の周期増分
     double wbmsProjectorQpSolveFailureDelta = 0.0; // M5.9一時計測. projector QP solve失敗回数の周期増分
+    double wbmsProjectorQpStructureRebuildDelta = 0.0; // M5.9一時計測. projector QP構造再構築回数の周期増分
+    double wbmsProjectorQpFastPathFallbackDelta = 0.0; // M5.9一時計測. projector QP fast path fallback回数の周期増分
     double wbmsFinalIKQpSignatureHitDelta = 0.0; // M5.9一時計測. final IK QP workspace signature hit数の周期増分
     double wbmsFinalIKQpSignatureMissDelta = 0.0; // M5.9一時計測. final IK QP workspace signature miss数の周期増分
     double wbmsFinalIKQpInitializeDelta = 0.0; // M5.9一時計測. final IK QP solver initialize回数の周期増分
     double wbmsFinalIKQpUpdateFailureDelta = 0.0; // M5.9一時計測. final IK QP update失敗回数の周期増分
     double wbmsFinalIKQpSolveFailureDelta = 0.0; // M5.9一時計測. final IK QP solve失敗回数の周期増分
+    double wbmsFinalIKQpStructureRebuildDelta = 0.0; // M5.9一時計測. final IK QP構造再構築回数の周期増分
+    double wbmsFinalIKQpFastPathFallbackDelta = 0.0; // M5.9一時計測. final IK QP fast path fallback回数の周期増分
     cnoid::Vector3 wbmsFinalIKRealizedComVelocity = cnoid::Vector3::Zero(); // [m/s]. final IK後robot COMの実現速度
     cnoid::Vector3 wbmsFinalIKRealizedChestAngularVelocity = cnoid::Vector3::Zero(); // [rad/s]. final IK後CHEST姿勢の実現角速度
     cnoid::Vector3 wbmsFinalIKPreviousRobotComInFootMid = cnoid::Vector3::Zero();

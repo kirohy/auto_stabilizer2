@@ -12,6 +12,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   gaitParam.debugData.wbmsFinalIKQpInitializeDelta = 0.0;
   gaitParam.debugData.wbmsFinalIKQpUpdateFailureDelta = 0.0;
   gaitParam.debugData.wbmsFinalIKQpSolveFailureDelta = 0.0;
+  gaitParam.debugData.wbmsFinalIKQpStructureRebuildDelta = 0.0;
+  gaitParam.debugData.wbmsFinalIKQpFastPathFallbackDelta = 0.0;
   double wbmsMode = gaitParam.wbmsMode.value();
   double wbmsStabilityMode = std::max(1.0 - wbmsMode, gaitParam.wbmsWalkingStabilityModeValue);
   double wbmsOperationMode = std::min(1.0, std::max(0.0, gaitParam.wbmsOperationModeValue));
@@ -253,6 +255,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   const size_t initializeCountBefore = this->qpWorkspace.initializeCount;
   const size_t updateFailureCountBefore = this->qpWorkspace.updateFailureCount;
   const size_t solveFailureCountBefore = this->qpWorkspace.solveFailureCount;
+  const size_t structureRebuildCountBefore = this->qpWorkspace.structureRebuildCount;
+  const size_t fastPathFallbackCountBefore = this->qpWorkspace.fastPathFallbackCount;
   prioritized_inverse_kinematics_solver2::solveIKLoop(variables,
                                                      constraints,
                                                      this->tasks,
@@ -263,6 +267,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   gaitParam.debugData.wbmsFinalIKQpInitializeDelta = static_cast<double>(this->qpWorkspace.initializeCount - initializeCountBefore);
   gaitParam.debugData.wbmsFinalIKQpUpdateFailureDelta = static_cast<double>(this->qpWorkspace.updateFailureCount - updateFailureCountBefore);
   gaitParam.debugData.wbmsFinalIKQpSolveFailureDelta = static_cast<double>(this->qpWorkspace.solveFailureCount - solveFailureCountBefore);
+  gaitParam.debugData.wbmsFinalIKQpStructureRebuildDelta = static_cast<double>(this->qpWorkspace.structureRebuildCount - structureRebuildCountBefore);
+  gaitParam.debugData.wbmsFinalIKQpFastPathFallbackDelta = static_cast<double>(this->qpWorkspace.fastPathFallbackCount - fastPathFallbackCountBefore);
 
 
   // 念の為limit check

@@ -620,6 +620,8 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   const size_t initializeCountBefore = this->projectionQpWorkspace_.initializeCount;
   const size_t updateFailureCountBefore = this->projectionQpWorkspace_.updateFailureCount;
   const size_t solveFailureCountBefore = this->projectionQpWorkspace_.solveFailureCount;
+  const size_t structureRebuildCountBefore = this->projectionQpWorkspace_.structureRebuildCount;
+  const size_t fastPathFallbackCountBefore = this->projectionQpWorkspace_.fastPathFallbackCount;
   // checkFinalState=falseのためsolve後のconstraint再評価は省かれる。
   // allConstraintsSatisfiedは常にfalse相当の診断値であり、projector候補の採用可否は下の
   // validateProjectionCandidate()で判定する。
@@ -632,6 +634,8 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   gaitParam.debugData.wbmsProjectorQpInitializeDelta = static_cast<double>(this->projectionQpWorkspace_.initializeCount - initializeCountBefore);
   gaitParam.debugData.wbmsProjectorQpUpdateFailureDelta = static_cast<double>(this->projectionQpWorkspace_.updateFailureCount - updateFailureCountBefore);
   gaitParam.debugData.wbmsProjectorQpSolveFailureDelta = static_cast<double>(this->projectionQpWorkspace_.solveFailureCount - solveFailureCountBefore);
+  gaitParam.debugData.wbmsProjectorQpStructureRebuildDelta = static_cast<double>(this->projectionQpWorkspace_.structureRebuildCount - structureRebuildCountBefore);
+  gaitParam.debugData.wbmsProjectorQpFastPathFallbackDelta = static_cast<double>(this->projectionQpWorkspace_.fastPathFallbackCount - fastPathFallbackCountBefore);
   gaitParam.wbmsProjectionAllConstraintsSatisfied = allConstraintsSatisfied;
 
   this->wbmsPostureRobot_->calcForwardKinematics();
@@ -999,6 +1003,8 @@ void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning
   gaitParam.debugData.wbmsProjectorQpInitializeDelta = 0.0;
   gaitParam.debugData.wbmsProjectorQpUpdateFailureDelta = 0.0;
   gaitParam.debugData.wbmsProjectorQpSolveFailureDelta = 0.0;
+  gaitParam.debugData.wbmsProjectorQpStructureRebuildDelta = 0.0;
+  gaitParam.debugData.wbmsProjectorQpFastPathFallbackDelta = 0.0;
   if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD &&
      gaitParam.isStatic()){
     gaitParam.clearWbmsPostureCommand(true);

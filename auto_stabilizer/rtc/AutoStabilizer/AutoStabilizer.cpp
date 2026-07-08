@@ -1198,7 +1198,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       const bool wbmsReturnFinalIKChestVelocitySafe =
         wbmsFinalIKChestAngularVelocityNorm <= gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit.norm();
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(135);
+      ports.m_wbmsDebug_.data.length(139);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1301,11 +1301,15 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsProjectorQpInitializeDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsProjectorQpUpdateFailureDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsProjectorQpSolveFailureDelta);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsProjectorQpStructureRebuildDelta);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsProjectorQpFastPathFallbackDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpSignatureHitDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpSignatureMissDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpInitializeDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpUpdateFailureDelta);
       ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpSolveFailureDelta);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpStructureRebuildDelta);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKQpFastPathFallbackDelta);
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){
