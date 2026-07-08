@@ -870,6 +870,97 @@ M5.10自体のacceptance criteria:
 - 計測オーバーヘッドによりonExecute p99や2ms超過周期が大きく悪化しない。悪化する場合は一時診断として扱い、恒久出力にしない。
 - 次の実装候補を1つに絞れる、または「これ以上の低リスク削減は困難」と判断できる。
 
+### M5.10-A実装後ログ評価と判断
+
+M5.10-A実装後、M5.9までと同条件の `auto_stabilizer/log/test_start_walking202607081858.*` を評価した。詳細な数値は `WBMSFeasibleVelocityPostureControlProgress.md` のM5.10-Aログ評価に記録する。
+
+要点:
+
+- `wbmsDebugOut[139-178]` は全周期で有効に出力され、final IK内訳、priority別QP時間、QP規模を確認できた。
+- READY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0` は維持された。
+- M5.10-A計測追加後もonExecute p99と2ms超過周期に明確な悪化はなかった。
+- QP counterではprojectorの通常区間rebuild/fallbackは0、final IKのmiss/rebuildは構造変化付近の2周期だけで、M5.9のQP構造再利用は維持された。
+- final IK meanに対する内訳は、constraint update約26%、task generation約7%、prioritized QP total約60%、post FK/COM約1%だった。
+- priority別では、priority 3とpriority 4のQP update/solveが支配的だった。priority 4 reference angleはprepare込みでmean約0.151ms、final IK meanの約24%に相当した。
+
+したがって、M5.10はacceptance criteriaを満たしたと扱う。今後の削減候補は以下の優先順位で扱う。
+
+### M5.11候補: final IK priority 4 reference angle solveの条件付きskipまたは軽量化
+
+第一候補とする。
+
+理由:
+
+- M5.10-Aでpriority 4 reference angle solveがfinal IK meanの約24%を占めることが確認された。
+- priority 4は足拘束、安全系、COM/CHEST/root/AngularMomentumより低優先度であり、AngularMomentum全削除より直接的な安全退行リスクは小さい可能性が高い。
+- M5.3でprojector側priority 4姿勢参照削減は成立しており、低優先度姿勢参照は計算量削減対象として妥当である。
+
+ただし、reference angleはnullspace姿勢と腕関節drift抑制に効く可能性がある。このため、最初から恒久削除せず、条件付きskipまたは軽量化の小実験として扱う。
+
+実験方針:
+
+- priority 4をskipする条件を限定する。
+  - 例: reference errorが小さい、priority 3後のjoint deltaが小さい、WBMS operation modeが低い、歩行準備phaseが安定区間、など。
+- skip/enable切替にはhysteresisを入れる。
+- skip時にもhidden goalを蓄積しない。
+- 腕関節span、nullspace姿勢、READY到達、phase4開始付近hardware dq、final IK後COM/CHEST速度、max joint deltaを重点確認する。
+
+採用条件:
+
+- READY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0` を維持する。
+- final IK後COM速度、CHEST角速度、max joint delta、phase4付近hardware dqがM5.8/M5.9/M5.10-A baselineから悪化しない。
+- 腕指令なし条件で0.1 rad級腕振動や腕関節driftが出ない。
+- final IK mean/p99またはonExecute p99/2ms超過周期が改善する。
+
+不採用条件:
+
+- READY未到達、TIMEOUT、root姿勢過大化、final IK後速度・関節差分悪化が出る。
+- 腕driftやmode切替時の不連続が見える。
+- 改善がログばらつき程度で、制御意味変更に見合わない。
+
+### M5.12候補: AngularMomentumConstraintのaxis mask化またはweight 0軸行削減
+
+第二候補とする。
+
+理由:
+
+- M5.4でAngularMomentumConstraint全無効化は計算時間を改善したが、READY未到達、TIMEOUT、root姿勢過大化、final IK後速度・関節差分悪化が発生したため不採用である。
+- 現行weightは `[1e-4, 1e-4, 0.0]` であり、z軸は挙動寄与がない一方で、実装上は3行eqとJacobian更新が残る。
+- M5.10-Aではpriority 3が重く、AngularMomentumConstraintはpriority 3内に含まれる。
+
+方針:
+
+- 全無効化は行わない。
+- 必要ならM5.10-Bとして主要constraint種別ごとの更新時間を先に計測する。
+- AngularMomentumが明確に重い場合だけ、weight 0軸をeq行から除外するaxis mask化、またはz軸だけ削る小変更を検討する。
+- M5.4で悪化したroot姿勢、READY、final IK後COM/CHEST速度、joint deltaを重点確認する。
+
+### M5.13候補: priority 3/4統合またはreference angleの同一QP内正則化
+
+第三候補とする。
+
+理由:
+
+- M5.10-AではOSQP update/solveがpriority 3/4で広く支配的であり、priority数削減には効果見込みがある。
+- 一方、strict priorityの意味を変えるため、priority 4条件付きskipより制御影響が大きい。
+
+方針:
+
+- M5.11で効果不足または不採用になった場合だけ検討する。
+- reference angleをpriority 3へ低weightで統合する、またはQPのnullspace正則化として扱う案を別計画で設計する。
+- COM/CHEST/root/AngularMomentumとの競合、腕drift、歩行準備READY、mode切替時の不連続を重点確認する。
+
+### M5.10後に優先度を下げる方針
+
+- QP構造再構築の追加削減。
+  - M5.9追加作業とM5.10-A counterで通常区間rebuild/fallbackが0であり、追加余地が小さい。
+- self collision active set安定化。
+  - M5.8対象ログでactive constraint数が常に0で、M5.10-Aでもpriority 1 solve時間が0だった。
+- `solveIKLoop()` 1-iteration fast pathの追加削減。
+  - M5.7で効果はログばらつき程度だった。
+- AngularMomentumConstraint全削除。
+  - M5.4で安全・READY面の退行が確認済みであり、再採用しない。
+
 ## 7. 今回は採用しない方針
 
 以下は本計画では採用しない。

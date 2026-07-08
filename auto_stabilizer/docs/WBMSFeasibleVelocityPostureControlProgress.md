@@ -4354,6 +4354,209 @@ M5.10 profiling後の分岐方針:
 
 M5.10は、M5.9のような恒久挙動変更ではなく、次の制御変更候補を選ぶための診断作業として扱う。
 
+### M5.10-A final IK粗profiling 実装記録 2026-07-08
+
+M5.10-Aとして、final IKの残り支配項を切り分けるための粗profilingを実装した。制御挙動、constraint構成、priority構成、weight、速度limit、mode遷移、candidate validationは変更していない。
+
+実装した内容:
+
+- `prioritized_inverse_kinematics_solver2::IKProfile` を追加した。
+  - `constraintUpdateTime`
+  - `taskGenerationTime`
+  - `qpSolveTime`
+  - `postForwardKinematicsTime`
+- `IKParam::profile` を追加した。
+  - `nullptr` の場合は従来どおりで、既存呼び出し互換を維持する。
+  - `FullbodyIKSolver` から指定した場合だけ、`solveIKLoop()` 内訳を記録する。
+- `prioritized_qp_base::SolveWorkspace::PriorityProfile` を追加した。
+  - priorityごとのQP準備時間、solver update/initialize時間、solver solve時間を記録する。
+  - priorityごとのQP変数数、制約行数、拡張変数数、`toSolve` を記録する。
+- `FullbodyIKSolver` でM5.10 profilingを有効化し、`GaitParam::DebugData` へ周期値を保存するようにした。
+- `wbmsDebugOut` を139要素から179要素へ拡張した。
+  - 既存index 0-138は変更せず、M5.10用の一時計測値を末尾へ追加した。
+
+追加したdebug index:
+
+| index | 内容 |
+|---:|---|
+| 139 | final IK profiling valid |
+| 140 | final IK constraint update time |
+| 141 | final IK task generation time |
+| 142 | final IK prioritized QP total time |
+| 143 | final IK post FK/COM time |
+| 144-150 | priority 0: prepare / solver update / solver solve / QP variables / QP constraints / ext variables / toSolve |
+| 151-157 | priority 1: 同上 |
+| 158-164 | priority 2: 同上 |
+| 165-171 | priority 3: 同上 |
+| 172-178 | priority 4: 同上 |
+
+変更ファイル:
+
+- `prioritized_qp_base/include/prioritized_qp_base/PrioritizedQPBaseSolver.h`
+- `prioritized_qp_base/src/PrioritizedQPBaseSolver.cpp`
+- `prioritized_inverse_kinematics_solver2/include/prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h`
+- `prioritized_inverse_kinematics_solver2/src/prioritized_inverse_kinematics_solver2.cpp`
+- `auto_stabilizer/rtc/AutoStabilizer/GaitParam.h`
+- `auto_stabilizer/rtc/AutoStabilizer/FullbodyIKSolver.cpp`
+- `auto_stabilizer/rtc/AutoStabilizer/AutoStabilizer.cpp`
+
+ビルド・静的確認:
+
+| コマンド | 結果 |
+|---|---|
+| `catkin build prioritized_qp_base prioritized_qp_osqp --no-deps` | PASS |
+| `catkin build prioritized_inverse_kinematics_solver2 --no-deps` | PASS |
+| `catkin build auto_stabilizer --no-deps` | PASS |
+| `git -C ../prioritized_qp diff --check` | PASS |
+| `git -C ../ik_solvers2 diff --check` | PASS |
+| `git diff --check` | PASS |
+
+未確認事項:
+
+- シミュレータログによるM5.10-A計測値の評価は `test_start_walking202607081858.*` で実施した。
+- 粗profilingではconstraint更新単独支配ではなく、priority 3/4 のQP update/solveが支配的だった。
+- 主要constraint種別ごとの詳細profilingは、次候補をAngularMomentum系へ進める場合だけ追加する。
+
+### M5.10-A final IK粗profiling ログ評価 2026-07-08
+
+M5.9までと同条件で、M5.10-A実装後ログ `auto_stabilizer/log/test_start_walking202607081858.*` を評価した。
+
+`ast_wbmsDebug` は179 data要素で出力され、M5.10-A追加index `139-178` は全周期で有効だった。
+
+制御挙動:
+
+| 項目 | 結果 |
+|---|---:|
+| samples / duration | 3528 / 8.312s |
+| projector valid ratio | 0.882 |
+| READY到達 | 7.229s |
+| FAILED | 0 |
+| walking API accepted | 1回、7.321s |
+| accept時 `wbmsOperationModeValue` | 0.0 |
+| READY時 `wbmsWalkingStabilityModeValue` | 0.990171 |
+| accept時 `wbmsWalkingStabilityModeValue` | 0.990214 |
+
+計算時間比較:
+
+| 指標 | M5.8 `072139` | M5.9+counter `081552` | M5.9追加+counter `081655` | M5.10-A `081858` |
+|---|---:|---:|---:|---:|
+| projector mean / p99 / max | 0.244 / 0.473 / 0.712ms | 0.246 / 0.507 / 0.901ms | 0.241 / 0.425 / 0.600ms | 0.236 / 0.479 / 0.642ms |
+| final IK mean / p99 / max | 0.641 / 1.057 / 1.373ms | 0.628 / 1.079 / 1.500ms | 0.655 / 1.059 / 1.745ms | 0.637 / 1.064 / 1.621ms |
+| onExecute mean / p99 / max | 1.175 / 1.988 / 2.517ms | 1.176 / 2.006 / 3.158ms | 1.198 / 1.880 / 3.028ms | 1.190 / 1.981 / 2.465ms |
+| onExecute 2ms超過 | 35周期 | 56周期 | 21周期 | 34周期 |
+
+M5.10-A計測追加後も、計算時間はM5.8 baselineと同程度である。onExecute p99と2ms超過周期に明確な悪化はないため、M5.10-Aの計測オーバーヘッドは許容範囲と判断する。
+
+安全・過渡指標:
+
+| 指標 | M5.8 `072139` | M5.9追加 `081655` | M5.10-A `081858` |
+|---|---:|---:|---:|
+| final IK COM速度norm max | 0.103317m/s | 0.103320m/s | 0.112724m/s |
+| final IK CHEST角速度norm max | 3.945581rad/s | 3.857817rad/s | 1.232017rad/s |
+| final IK後max joint delta max | 0.007888rad | 0.007715rad | 0.002697rad |
+| phase4付近hardware dq max | 1.327898rad/s | 1.311200rad/s | 0.771172rad/s |
+| phase4付近q一周期差分max | 0.002616rad | 0.002563rad | 0.001540rad |
+| phase4付近CHEST角速度max | 3.945581rad/s | 3.857817rad/s | 1.232017rad/s |
+| phase4付近max joint delta | 0.007888rad | 0.007715rad | 0.002518rad |
+
+final IK COM速度最大は `081858` でやや増えたが、CHEST角速度、joint delta、phase4付近hardware dqは小さくなっており、退行とは判断しない。
+
+QP counter:
+
+| 対象 | hit | miss | initialize | update failure | solve failure | structure rebuild | fast path fallback |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| projector | 3112 | 0 | 0 | 0 | 0 | 0 | 0 |
+| final IK | 3526 | 2 | 4 | 0 | 0 | 2 | 0 |
+
+final IKのmiss / initialize / rebuildはM5.9追加後と同じく構造変化付近の2周期だけであり、通常区間でQP構造再構築は発生していない。したがって、M5.9のQP構造再利用はM5.10-Aでも維持されている。
+
+M5.10-A内訳:
+
+| 内訳 | mean | p99 | max | final IK mean比 |
+|---|---:|---:|---:|---:|
+| constraint update | 0.164ms | 0.324ms | 0.444ms | 25.8% |
+| task generation | 0.045ms | 0.098ms | 0.166ms | 7.1% |
+| prioritized QP total | 0.381ms | 0.638ms | 0.848ms | 59.7% |
+| post FK/COM | 0.004ms | 0.016ms | 0.039ms | 0.6% |
+
+priority別QP内訳:
+
+| priority | prepare mean | solver update/init mean | solver solve mean | QP variables mean | QP constraints mean | toSolve |
+|---|---:|---:|---:|---:|---:|---:|
+| 0 | 0.000ms | 0.000ms | 0.000ms | 99.0 | 62.0 | 0.0 |
+| 1 | 0.000ms | 0.000ms | 0.000ms | 37.0 | 62.0 | 1.0 |
+| 2 | 0.003ms | 0.034ms | 0.031ms | 49.0 | 74.0 | 1.0 |
+| 3 | 0.010ms | 0.071ms | 0.064ms | 60.2 | 97.2 | 1.0 |
+| 4 | 0.009ms | 0.071ms | 0.071ms | 68.0 | 128.2 | 1.0 |
+
+判断:
+
+- M5.10-Aのacceptance criteriaは満たした。
+- final IK残りコストの支配項は、constraint更新単独ではなく、priority 3/4 のQP update/solveとQP規模である。
+- priority 4 reference angle solveは、単独でupdate/solve/prepare合計がmean約0.151msあり、final IK meanの約24%に相当する。
+- priority 3も同程度に重いが、COM、CHEST、AngularMomentum、root姿勢、上半身EEを含む主タスクであり、単純な削減は制御意味の変更が大きい。
+- M5.4でAngularMomentumConstraint全無効化は安全・READY面で不採用になっているため、AngularMomentum系を触る場合は全削除ではなくaxis mask化やweight 0軸行削減に限定し、詳細profilingまたは小実験を先に行う。
+
+### M5.10後の計算量削減候補 2026-07-08
+
+過去作業とM5.10-Aの結果から、今後の見込みは以下の順で評価する。
+
+#### 第一候補: final IK priority 4 reference angle solveの条件付きskipまたは軽量化
+
+根拠:
+
+- M5.10-Aでpriority 4のQP update/solveがmean約0.142ms、prepare込みで約0.151msだった。
+- priority 4はreference angle専用で、足拘束、安全系、COM/CHEST/root/AngularMomentumより低優先度である。
+- M5.3でprojector側priority 4姿勢参照削減は採用済みで、hidden goal非蓄積と安全validationを維持したままprojector側の低優先度姿勢参照を削れた。
+- M5.4のようなAngularMomentum全削除より、安全系・READY・root姿勢への直接影響が小さい可能性が高い。
+
+方針案:
+
+- 最初は恒久仕様変更ではなく実験単位にする。
+- `wbmsPostureReferenceValid`、WBMS operation mode、歩行準備phase、priority 3解後のjoint delta、reference errorなどを条件に、priority 4をskipできる周期を限定する。
+- hysteresisを入れ、skip/enableの切替で姿勢が不連続にならないようにする。
+- 腕関節drift、nullspace姿勢、READY到達、phase4付近hardware dq、final IK後COM/CHEST速度を重点確認する。
+
+採用可否:
+
+- priority 4 skipでREADY到達、FAILEDなし、accept時 `wbmsOperationModeValue=0.0`、final IK後速度・joint delta、腕関節spanが維持され、final IK mean/p99が改善する場合だけ採用する。
+- 腕driftやmode遷移時の不連続が見える場合は不採用、またはskip条件を狭める。
+
+#### 第二候補: AngularMomentumConstraintのaxis mask化またはweight 0軸行削減
+
+根拠:
+
+- M5.4でAngularMomentumConstraint全無効化はfinal IK時間を改善したが、READY未到達、TIMEOUT、root姿勢過大化、final IK後速度・関節差分悪化が発生したため不採用だった。
+- 現行weightは `[1e-4, 1e-4, 0.0]` であり、z軸は挙動寄与がない一方で、実装上は3行eqとJacobian更新が残る。
+- M5.10-Aではpriority 3が重く、AngularMomentumはpriority 3内に含まれる。
+
+方針案:
+
+- 全無効化は行わない。
+- まずM5.10-Bとして、AngularMomentum、COM、足先、CHEST/root姿勢、reference angleのconstraint個別更新時間を確認する。
+- AngularMomentumが明確に重い場合だけ、weight 0軸をeq行から落とすaxis mask化、またはz軸だけ削る小変更を試す。
+- root姿勢、READY、final IK後COM/CHEST速度、joint deltaをM5.4不採用ログと同じ観点で確認する。
+
+#### 第三候補: priority 3/4統合またはreference angleの同一QP内正則化
+
+根拠:
+
+- M5.10-AではOSQP solveがpriority 3/4で広く支配的であり、priority数削減には効果見込みがある。
+- ただしstrict priorityの意味を変えるため、第一候補より制御影響が大きい。
+
+方針案:
+
+- priority 4の単純skip実験が不採用または効果不足だった場合だけ検討する。
+- reference angleをpriority 3へ低weightで統合する、またはQPのnullspace正則化として扱う案を別計画で設計する。
+- COM/CHEST/root/AngularMomentumとの競合、腕drift、歩行準備READY、mode切替時の不連続を重点確認する。
+
+現時点で見込みが低い方針:
+
+- QP構造再構築の追加削減: M5.9追加作業とM5.10-A counterで通常区間rebuild/fallbackが0のため、追加余地は小さい。
+- self collision active set安定化: M5.8対象ログでactive constraint数が常に0であり、今回もpriority 1 solve時間は0だった。
+- `solveIKLoop()` 1-iteration fast path追加削減: M5.7で効果はログばらつき程度だった。
+- AngularMomentumConstraint全削除: M5.4で安全・READY面の退行が確認済みであり、再採用しない。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。
