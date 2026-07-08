@@ -3,6 +3,7 @@
 
 #include <sys/time.h>
 #include <cnoid/EigenTypes>
+#include <algorithm>
 #include <vector>
 #include <limits>
 #include <cpp_filters/TwoPointInterpolator.h>
@@ -319,6 +320,18 @@ public:
     double wbmsFinalIKQpSolveFailureDelta = 0.0; // M5.9一時計測. final IK QP solve失敗回数の周期増分
     double wbmsFinalIKQpStructureRebuildDelta = 0.0; // M5.9一時計測. final IK QP構造再構築回数の周期増分
     double wbmsFinalIKQpFastPathFallbackDelta = 0.0; // M5.9一時計測. final IK QP fast path fallback回数の周期増分
+    double wbmsFinalIKProfileValid = 0.0; // M5.10一時計測. final IK内訳profilingが有効なら1
+    double wbmsFinalIKConstraintUpdateTime = 0.0; // [s]. M5.10一時計測. constraint更新合計
+    double wbmsFinalIKTaskGenerationTime = 0.0; // [s]. M5.10一時計測. IK task生成
+    double wbmsFinalIKQpSolveTime = 0.0; // [s]. M5.10一時計測. prioritized QP全体
+    double wbmsFinalIKPostForwardKinematicsTime = 0.0; // [s]. M5.10一時計測. solve後FK/COM
+    std::vector<double> wbmsFinalIKPriorityPrepareTime = std::vector<double>(5, 0.0); // [s]. M5.10一時計測
+    std::vector<double> wbmsFinalIKPrioritySolverUpdateTime = std::vector<double>(5, 0.0); // [s]. M5.10一時計測
+    std::vector<double> wbmsFinalIKPrioritySolverSolveTime = std::vector<double>(5, 0.0); // [s]. M5.10一時計測
+    std::vector<double> wbmsFinalIKPriorityQpVariables = std::vector<double>(5, 0.0); // M5.10一時計測
+    std::vector<double> wbmsFinalIKPriorityQpConstraints = std::vector<double>(5, 0.0); // M5.10一時計測
+    std::vector<double> wbmsFinalIKPriorityExtVariables = std::vector<double>(5, 0.0); // M5.10一時計測
+    std::vector<double> wbmsFinalIKPriorityToSolve = std::vector<double>(5, 0.0); // M5.10一時計測
     cnoid::Vector3 wbmsFinalIKRealizedComVelocity = cnoid::Vector3::Zero(); // [m/s]. final IK後robot COMの実現速度
     cnoid::Vector3 wbmsFinalIKRealizedChestAngularVelocity = cnoid::Vector3::Zero(); // [rad/s]. final IK後CHEST姿勢の実現角速度
     cnoid::Vector3 wbmsFinalIKPreviousRobotComInFootMid = cnoid::Vector3::Zero();
@@ -337,6 +350,21 @@ public:
       wbmsFinalIKRealizedChestAngularVelocity.setZero();
       wbmsFinalIKMaxJointDelta = 0.0;
       wbmsFinalIKPreviousValid = false;
+    }
+
+    void resetWbmsFinalIKProfiling(){
+      wbmsFinalIKProfileValid = 0.0;
+      wbmsFinalIKConstraintUpdateTime = 0.0;
+      wbmsFinalIKTaskGenerationTime = 0.0;
+      wbmsFinalIKQpSolveTime = 0.0;
+      wbmsFinalIKPostForwardKinematicsTime = 0.0;
+      std::fill(wbmsFinalIKPriorityPrepareTime.begin(), wbmsFinalIKPriorityPrepareTime.end(), 0.0);
+      std::fill(wbmsFinalIKPrioritySolverUpdateTime.begin(), wbmsFinalIKPrioritySolverUpdateTime.end(), 0.0);
+      std::fill(wbmsFinalIKPrioritySolverSolveTime.begin(), wbmsFinalIKPrioritySolverSolveTime.end(), 0.0);
+      std::fill(wbmsFinalIKPriorityQpVariables.begin(), wbmsFinalIKPriorityQpVariables.end(), 0.0);
+      std::fill(wbmsFinalIKPriorityQpConstraints.begin(), wbmsFinalIKPriorityQpConstraints.end(), 0.0);
+      std::fill(wbmsFinalIKPriorityExtVariables.begin(), wbmsFinalIKPriorityExtVariables.end(), 0.0);
+      std::fill(wbmsFinalIKPriorityToSolve.begin(), wbmsFinalIKPriorityToSolve.end(), 0.0);
     }
 
     void clearWbmsWalkingPreparationEvents(){

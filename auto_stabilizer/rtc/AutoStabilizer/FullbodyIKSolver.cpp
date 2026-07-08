@@ -14,6 +14,7 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   gaitParam.debugData.wbmsFinalIKQpSolveFailureDelta = 0.0;
   gaitParam.debugData.wbmsFinalIKQpStructureRebuildDelta = 0.0;
   gaitParam.debugData.wbmsFinalIKQpFastPathFallbackDelta = 0.0;
+  gaitParam.debugData.resetWbmsFinalIKProfiling();
   double wbmsMode = gaitParam.wbmsMode.value();
   double wbmsStabilityMode = std::max(1.0 - wbmsMode, gaitParam.wbmsWalkingStabilityModeValue);
   double wbmsOperationMode = std::min(1.0, std::max(0.0, gaitParam.wbmsOperationModeValue));
@@ -250,6 +251,8 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   param.debugLevel = 0;
   param.dt = dt;
   param.qpWorkspace = &this->qpWorkspace;
+  prioritized_inverse_kinematics_solver2::IKProfile ikProfile;
+  param.profile = &ikProfile;
   const size_t signatureHitCountBefore = this->qpWorkspace.signatureHitCount;
   const size_t signatureMissCountBefore = this->qpWorkspace.signatureMissCount;
   const size_t initializeCountBefore = this->qpWorkspace.initializeCount;
@@ -269,6 +272,23 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   gaitParam.debugData.wbmsFinalIKQpSolveFailureDelta = static_cast<double>(this->qpWorkspace.solveFailureCount - solveFailureCountBefore);
   gaitParam.debugData.wbmsFinalIKQpStructureRebuildDelta = static_cast<double>(this->qpWorkspace.structureRebuildCount - structureRebuildCountBefore);
   gaitParam.debugData.wbmsFinalIKQpFastPathFallbackDelta = static_cast<double>(this->qpWorkspace.fastPathFallbackCount - fastPathFallbackCountBefore);
+  gaitParam.debugData.wbmsFinalIKProfileValid = 1.0;
+  gaitParam.debugData.wbmsFinalIKConstraintUpdateTime = ikProfile.constraintUpdateTime;
+  gaitParam.debugData.wbmsFinalIKTaskGenerationTime = ikProfile.taskGenerationTime;
+  gaitParam.debugData.wbmsFinalIKQpSolveTime = ikProfile.qpSolveTime;
+  gaitParam.debugData.wbmsFinalIKPostForwardKinematicsTime = ikProfile.postForwardKinematicsTime;
+  const size_t priorityProfileSize = std::min(this->qpWorkspace.priorityProfiles.size(),
+                                              gaitParam.debugData.wbmsFinalIKPriorityPrepareTime.size());
+  for(size_t i=0;i<priorityProfileSize;i++){
+    const prioritized_qp_base::SolveWorkspace::PriorityProfile& profile = this->qpWorkspace.priorityProfiles[i];
+    gaitParam.debugData.wbmsFinalIKPriorityPrepareTime[i] = profile.prepareTime;
+    gaitParam.debugData.wbmsFinalIKPrioritySolverUpdateTime[i] = profile.solverUpdateTime;
+    gaitParam.debugData.wbmsFinalIKPrioritySolverSolveTime[i] = profile.solverSolveTime;
+    gaitParam.debugData.wbmsFinalIKPriorityQpVariables[i] = static_cast<double>(profile.qpVariables);
+    gaitParam.debugData.wbmsFinalIKPriorityQpConstraints[i] = static_cast<double>(profile.qpConstraints);
+    gaitParam.debugData.wbmsFinalIKPriorityExtVariables[i] = static_cast<double>(profile.extVariables);
+    gaitParam.debugData.wbmsFinalIKPriorityToSolve[i] = profile.toSolve ? 1.0 : 0.0;
+  }
 
 
   // 念の為limit check
