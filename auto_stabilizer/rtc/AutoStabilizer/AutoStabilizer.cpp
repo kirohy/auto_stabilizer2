@@ -1198,7 +1198,7 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
       const bool wbmsReturnFinalIKChestVelocitySafe =
         wbmsFinalIKChestAngularVelocityNorm <= gaitParam.wbmsWalkingPreparationTorsoAngularVelocityLimit.norm();
       ports.m_wbmsDebug_.tm = ports.m_qRef_.tm;
-      ports.m_wbmsDebug_.data.length(179);
+      ports.m_wbmsDebug_.data.length(200);
       int index = 0;
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsRawComVelocityCommand[i];
       for(int i=0;i<3;i++) ports.m_wbmsDebug_.data[index++] = gaitParam.wbmsAppliedComVelocityCommand[i];
@@ -1324,6 +1324,27 @@ bool AutoStabilizer::writeOutPortData(AutoStabilizer::Ports& ports, const AutoSt
         ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKPriorityExtVariables[i]);
         ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKPriorityToSolve[i]);
       }
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAngleConstraintCount);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAngleProjectionMaskCount);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAngleNonProjectionMaskCount);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAngleArmCount);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAngleClampCount);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreProjectionMaskErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreProjectionMaskErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreArmErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePreArmErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostProjectionMaskErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostProjectionMaskErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorRms);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostArmErrorMax);
+      ports.m_wbmsDebug_.data[index++] = finiteOrZero(gaitParam.debugData.wbmsFinalIKReferenceAnglePostArmErrorRms);
       ports.m_wbmsDebugOut_.write();
     }
     for(int i=0;i<gaitParam.eeName.size();i++){

@@ -332,6 +332,27 @@ public:
     std::vector<double> wbmsFinalIKPriorityQpConstraints = std::vector<double>(5, 0.0); // M5.10一時計測
     std::vector<double> wbmsFinalIKPriorityExtVariables = std::vector<double>(5, 0.0); // M5.10一時計測
     std::vector<double> wbmsFinalIKPriorityToSolve = std::vector<double>(5, 0.0); // M5.10一時計測
+    double wbmsFinalIKReferenceAngleConstraintCount = 0.0; // M5.11一時計測. priority 4 reference angle constraint数
+    double wbmsFinalIKReferenceAngleProjectionMaskCount = 0.0; // M5.11一時計測. projection対象関節数
+    double wbmsFinalIKReferenceAngleNonProjectionMaskCount = 0.0; // M5.11一時計測. projection対象外関節数
+    double wbmsFinalIKReferenceAngleArmCount = 0.0; // M5.11一時計測. 名前上ARMを含む関節数
+    double wbmsFinalIKReferenceAngleClampCount = 0.0; // M5.11一時計測. targetqをlimitでclampした関節数
+    double wbmsFinalIKReferenceAnglePreErrorMax = 0.0; // [rad or m]. M5.11一時計測. solve前reference error最大値
+    double wbmsFinalIKReferenceAnglePreErrorRms = 0.0; // [rad or m]. M5.11一時計測. solve前reference error RMS
+    double wbmsFinalIKReferenceAnglePreProjectionMaskErrorMax = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePreProjectionMaskErrorRms = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorMax = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorRms = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePreArmErrorMax = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePreArmErrorRms = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePostErrorMax = 0.0; // [rad or m]. M5.11一時計測. solve後reference error最大値
+    double wbmsFinalIKReferenceAnglePostErrorRms = 0.0; // [rad or m]. M5.11一時計測. solve後reference error RMS
+    double wbmsFinalIKReferenceAnglePostProjectionMaskErrorMax = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePostProjectionMaskErrorRms = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorMax = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorRms = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePostArmErrorMax = 0.0; // [rad or m]. M5.11一時計測
+    double wbmsFinalIKReferenceAnglePostArmErrorRms = 0.0; // [rad or m]. M5.11一時計測
     cnoid::Vector3 wbmsFinalIKRealizedComVelocity = cnoid::Vector3::Zero(); // [m/s]. final IK後robot COMの実現速度
     cnoid::Vector3 wbmsFinalIKRealizedChestAngularVelocity = cnoid::Vector3::Zero(); // [rad/s]. final IK後CHEST姿勢の実現角速度
     cnoid::Vector3 wbmsFinalIKPreviousRobotComInFootMid = cnoid::Vector3::Zero();
@@ -365,6 +386,27 @@ public:
       std::fill(wbmsFinalIKPriorityQpConstraints.begin(), wbmsFinalIKPriorityQpConstraints.end(), 0.0);
       std::fill(wbmsFinalIKPriorityExtVariables.begin(), wbmsFinalIKPriorityExtVariables.end(), 0.0);
       std::fill(wbmsFinalIKPriorityToSolve.begin(), wbmsFinalIKPriorityToSolve.end(), 0.0);
+      wbmsFinalIKReferenceAngleConstraintCount = 0.0;
+      wbmsFinalIKReferenceAngleProjectionMaskCount = 0.0;
+      wbmsFinalIKReferenceAngleNonProjectionMaskCount = 0.0;
+      wbmsFinalIKReferenceAngleArmCount = 0.0;
+      wbmsFinalIKReferenceAngleClampCount = 0.0;
+      wbmsFinalIKReferenceAnglePreErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePreErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePreProjectionMaskErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePreProjectionMaskErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePreArmErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePreArmErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePostErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePostErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePostProjectionMaskErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePostProjectionMaskErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorRms = 0.0;
+      wbmsFinalIKReferenceAnglePostArmErrorMax = 0.0;
+      wbmsFinalIKReferenceAnglePostArmErrorRms = 0.0;
     }
 
     void clearWbmsWalkingPreparationEvents(){

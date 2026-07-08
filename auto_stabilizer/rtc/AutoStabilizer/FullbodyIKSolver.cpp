@@ -4,6 +4,33 @@
 #include <chrono>
 #include <cmath>
 
+namespace {
+class ReferenceAngleErrorStats {
+public:
+  double count = 0.0;
+  double maxError = 0.0;
+  double squaredErrorSum = 0.0;
+
+  void add(double error){
+    if(!std::isfinite(error)) return;
+    double absError = std::abs(error);
+    this->count += 1.0;
+    this->maxError = std::max(this->maxError, absError);
+    this->squaredErrorSum += absError * absError;
+  }
+
+  double rms() const{
+    return this->count > 0.0 ? std::sqrt(this->squaredErrorSum / this->count) : 0.0;
+  }
+};
+
+bool isArmJointName(const std::string& name){
+  return name.find("ARM") != std::string::npos ||
+    name.find("Arm") != std::string::npos ||
+    name.find("arm") != std::string::npos;
+}
+}
+
 bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
                                        cnoid::BodyPtr& genRobot) const{
   std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
@@ -21,6 +48,10 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
   bool wbmsActive = (gaitParam.wbmsMode.value() > 0.0 || gaitParam.wbmsMode.getGoal() > 0.0);
   std::vector<double> refq;
   refq.resize(genRobot->numJoints());
+  std::vector<double> referenceAngleTargetq(genRobot->numJoints(), 0.0);
+  std::vector<bool> referenceAngleTargetValid(genRobot->numJoints(), false);
+  std::vector<bool> referenceAngleProjectionMask(genRobot->numJoints(), false);
+  std::vector<bool> referenceAngleArmMask(genRobot->numJoints(), false);
   for(int i=0;i<genRobot->numJoints();i++){
     refq[i] = gaitParam.refRobot->joint(i)->q();
     if(gaitParam.wbmsPostureReferenceValid &&
@@ -211,6 +242,10 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
 
   // reference angle
   {
+    ReferenceAngleErrorStats preAllStats;
+    ReferenceAngleErrorStats preProjectionMaskStats;
+    ReferenceAngleErrorStats preNonProjectionMaskStats;
+    ReferenceAngleErrorStats preArmStats;
     for(size_t i=0;i<genRobot->numJoints();i++){
       if(!gaitParam.jointControllable[i]) continue;
       this->refJointAngleConstraint[i]->joint() = genRobot->joint(i);
@@ -223,10 +258,40 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
         u = std::min(u,gaitParam.jointLimitTables[i][j]->getUlimit());
         l = std::max(l,gaitParam.jointLimitTables[i][j]->getLlimit());
       }
-      this->refJointAngleConstraint[i]->targetq() = std::min(u, std::max(l, refq[i]));
+      double targetq = std::min(u, std::max(l, refq[i]));
+      if(std::abs(targetq - refq[i]) > 1e-12) gaitParam.debugData.wbmsFinalIKReferenceAngleClampCount += 1.0;
+      this->refJointAngleConstraint[i]->targetq() = targetq;
       this->refJointAngleConstraint[i]->precision() = 0.0;
       ikConstraint4.push_back(this->refJointAngleConstraint[i]);
+      referenceAngleTargetq[i] = targetq;
+      referenceAngleTargetValid[i] = true;
+      bool projectionMask =
+        gaitParam.wbmsPostureReferenceValid &&
+        i < gaitParam.wbmsPostureReferenceJointMask.size() &&
+        gaitParam.wbmsPostureReferenceJointMask[i];
+      bool armMask = genRobot->joint(i) && isArmJointName(genRobot->joint(i)->name());
+      referenceAngleProjectionMask[i] = projectionMask;
+      referenceAngleArmMask[i] = armMask;
+
+      gaitParam.debugData.wbmsFinalIKReferenceAngleConstraintCount += 1.0;
+      if(projectionMask) gaitParam.debugData.wbmsFinalIKReferenceAngleProjectionMaskCount += 1.0;
+      else gaitParam.debugData.wbmsFinalIKReferenceAngleNonProjectionMaskCount += 1.0;
+      if(armMask) gaitParam.debugData.wbmsFinalIKReferenceAngleArmCount += 1.0;
+
+      double preError = genRobot->joint(i)->q() - targetq;
+      preAllStats.add(preError);
+      if(projectionMask) preProjectionMaskStats.add(preError);
+      else preNonProjectionMaskStats.add(preError);
+      if(armMask) preArmStats.add(preError);
     }
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreErrorMax = preAllStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreErrorRms = preAllStats.rms();
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreProjectionMaskErrorMax = preProjectionMaskStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreProjectionMaskErrorRms = preProjectionMaskStats.rms();
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorMax = preNonProjectionMaskStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreNonProjectionMaskErrorRms = preNonProjectionMaskStats.rms();
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreArmErrorMax = preArmStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePreArmErrorRms = preArmStats.rms();
   }
 
   // 特異点近傍で振動するようなことは起こりにくいが、歩行動作中の一瞬だけIKがときにくい姿勢があってすぐに解ける姿勢に戻るといった場合に、その一瞬の間だけIKを解くために頑張って姿勢が大きく変化するので、危険.
@@ -265,6 +330,28 @@ bool FullbodyIKSolver::solveFullbodyIK(double dt, GaitParam& gaitParam,
                                                      this->tasks,
                                                      param
                                                      );
+  {
+    ReferenceAngleErrorStats postAllStats;
+    ReferenceAngleErrorStats postProjectionMaskStats;
+    ReferenceAngleErrorStats postNonProjectionMaskStats;
+    ReferenceAngleErrorStats postArmStats;
+    for(size_t i=0;i<genRobot->numJoints();i++){
+      if(!referenceAngleTargetValid[i]) continue;
+      double postError = genRobot->joint(i)->q() - referenceAngleTargetq[i];
+      postAllStats.add(postError);
+      if(referenceAngleProjectionMask[i]) postProjectionMaskStats.add(postError);
+      else postNonProjectionMaskStats.add(postError);
+      if(referenceAngleArmMask[i]) postArmStats.add(postError);
+    }
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostErrorMax = postAllStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostErrorRms = postAllStats.rms();
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostProjectionMaskErrorMax = postProjectionMaskStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostProjectionMaskErrorRms = postProjectionMaskStats.rms();
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorMax = postNonProjectionMaskStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostNonProjectionMaskErrorRms = postNonProjectionMaskStats.rms();
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostArmErrorMax = postArmStats.maxError;
+    gaitParam.debugData.wbmsFinalIKReferenceAnglePostArmErrorRms = postArmStats.rms();
+  }
   gaitParam.debugData.wbmsFinalIKQpSignatureHitDelta = static_cast<double>(this->qpWorkspace.signatureHitCount - signatureHitCountBefore);
   gaitParam.debugData.wbmsFinalIKQpSignatureMissDelta = static_cast<double>(this->qpWorkspace.signatureMissCount - signatureMissCountBefore);
   gaitParam.debugData.wbmsFinalIKQpInitializeDelta = static_cast<double>(this->qpWorkspace.initializeCount - initializeCountBefore);
