@@ -3930,6 +3930,243 @@ M5.9はQP行列構築とOSQP再初期化を直接減らすため、M5.5/M5.7よ�
 
 効果判定では平均だけでなくp99/max、OSQP再初期化回数、signature miss回数、READY到達、FAILEDなし、READY後walking API accept、final IK後COM速度/CHEST角速度/max joint deltaを確認する。
 
+### M5.9 Unit 1: prioritized_qp workspace API 実装記録 2026-07-08
+
+作業単位ごとの自動commitは行わない方針にした。M5.9は `prioritized_qp`、`ik_solvers2`、`auto_stabilizer2` の3層にまたがるため、各単位でビルド可能な状態を確認し、最終差分を見てからcommit粒度を判断する。
+
+Unit 1では `prioritized_qp_base` にworkspace付きsolve APIを追加した。
+
+- 既存 `prioritized_qp_base::solve(tasks, result, debuglevel)` は残し、内部で一時workspaceを使う互換APIにした。
+- 新API `prioritized_qp_base::solve(tasks, result, workspace, debuglevel)` を追加した。
+- `SolveWorkspace` は直近signature、累積制約buffer、QP行列buffer、signature hit/miss、OSQP initialize回数、update失敗回数、solve失敗回数を保持する。
+- signatureにはtask数相当のvectorとして、各taskの `toSolve`、`dim`、eq/ineq行数、ext列数、ext id、priority solve時のQP変数数/制約数を入れる。
+- `prioritized_qp_osqp` のAPI変更は不要だった。
+
+Unit 1ビルド確認:
+
+| コマンド | 結果 | 備考 |
+|---|---|---|
+| `catkin build prioritized_qp_base prioritized_qp_osqp --no-deps` | PASS | warningsなし |
+
+Unit 1完了時の状態:
+
+- `prioritized_qp` の変更ファイルは `prioritized_qp_base/include/prioritized_qp_base/PrioritizedQPBaseSolver.h` と `prioritized_qp_base/src/PrioritizedQPBaseSolver.cpp` の2ファイル。
+- `auto_stabilizer2` 側はこの時点ではProgress文書のみ変更。
+- 残課題は、Unit 2で `prioritized_inverse_kinematics_solver2::IKParam` からこのworkspaceを渡せるようにすること。
+
+### M5.9 Unit 2: prioritized_inverse_kinematics_solver2 接続 実装記録 2026-07-08
+
+Unit 2では、IK層からUnit 1のworkspace付きQP APIを選択できるようにした。
+
+- `prioritized_inverse_kinematics_solver2::IKParam` に非所有pointer `prioritized_qp_base::SolveWorkspace* qpWorkspace = nullptr` を追加した。
+- `qpWorkspace == nullptr` の場合は従来どおり `prioritized_qp_base::solve(tasks, result, debuglevel)` を呼ぶ。
+- `qpWorkspace != nullptr` の場合だけ `prioritized_qp_base::solve(tasks, result, *qpWorkspace, debuglevel)` を呼ぶ。
+- `solveIKLoop()` の既存API、fast path条件、`checkFinalState=false` の意味は変更していない。
+
+Unit 2ビルド確認:
+
+| コマンド | 結果 | 備考 |
+|---|---|---|
+| `catkin build prioritized_inverse_kinematics_solver2 --no-deps` | PASS | warningsなし |
+
+Unit 2完了時の状態:
+
+- `ik_solvers2` のtracked変更ファイルは `prioritized_inverse_kinematics_solver2/include/prioritized_inverse_kinematics_solver2/prioritized_inverse_kinematics_solver2.h` と `prioritized_inverse_kinematics_solver2/src/prioritized_inverse_kinematics_solver2.cpp` の2ファイル。
+- `ik_solvers2` には作業前からの未追跡 `.cache`、`compile_commands.json`、および別constraintファイルが残っているが、本作業では触れていない。
+- 残課題は、Unit 3で `WbmsPostureControl` と `FullbodyIKSolver` にmember workspaceを追加し、WBMS projector/final IKの通常経路で `IKParam::qpWorkspace` に渡すこと。
+
+### M5.9 Unit 3: WBMS projector/final IK 適用 実装記録 2026-07-08
+
+Unit 3では、WBMSの2段IKからUnit 2のworkspace接続を使うようにした。
+
+- `WbmsPostureControl` にprojector用 `prioritized_qp_base::SolveWorkspace projectionQpWorkspace_` を追加した。
+- `projectionIKParam_.qpWorkspace` をprojector用workspaceへ接続した。初期化時に設定し、solve直前にも再設定する。
+- `FullbodyIKSolver` にfinal IK用 `mutable prioritized_qp_base::SolveWorkspace qpWorkspace` を追加した。
+- final IKのローカル `IKParam` で `param.qpWorkspace = &this->qpWorkspace` を設定した。
+- constraint構成、priority構成、`wbmsDebugOut` のindex、速度limit、mode遷移、candidate validationは変更していない。
+
+Unit 3ビルド確認:
+
+| コマンド | 結果 | 備考 |
+|---|---|---|
+| `catkin build auto_stabilizer --no-deps` | PASS | warningsなし |
+
+M5.9実装後の静的確認:
+
+| 確認 | 結果 | 備考 |
+|---|---|---|
+| `git diff --check` in `auto_stabilizer2` | PASS | 指摘なし |
+| `git -C ../prioritized_qp diff --check` | PASS | 指摘なし |
+| `git -C ../ik_solvers2 diff --check` | PASS | 指摘なし |
+
+M5.9実装後の変更状態:
+
+- `prioritized_qp`: `prioritized_qp_base` のheader/source 2ファイル。
+- `ik_solvers2`: `prioritized_inverse_kinematics_solver2` のheader/source 2ファイル。
+- `auto_stabilizer2`: `WbmsPostureControl`、`FullbodyIKSolver`、本Progress文書。
+- `auto_stabilizer2` の未追跡 `.cache`、`compile_commands.json`、`log/` は作業前からの状態であり、本作業では触れていない。
+- `ik_solvers2` の未追跡 `.cache`、`compile_commands.json`、別constraintファイルも作業前からの状態であり、本作業では触れていない。
+
+残課題:
+
+- M5.9初回実装は、workspace接続とcounter導入までは完了したが、ログ評価では計算時間削減効果を確認できなかった。
+- 次に進む場合は、`WBMSComputationReductionImplementationPlan.md` の「M5.9追加作業: signature hit時の再構築回避」に従い、signature hit時に実際に行列再構築を避ける実装を行う。
+
+### M5.9 実装後ログ評価 2026-07-08
+
+M5.9初回実装後、M5.8確認2回目 `auto_stabilizer/log/test_start_walking202607072139.*` をbaselineとして、`auto_stabilizer/log/test_start_walking202607081541.*` を評価した。
+
+挙動確認:
+
+- phaseは `0 -> 3 -> 4 -> 5 -> 6` と進行した。
+- failure codeは全周期 `0`。
+- READY後walking API accept相当のphase遷移は確認された。
+- projection valid ratioは `0.881` で、M5.8 baseline `0.879` と同程度。
+- self collision candidateは216個、`distance < 0.05` のactive candidateは全周期0個。最小距離は `RLEG_JOINT5-LLEG_JOINT5` の約 `0.0602m` で、M5.8 baselineと同程度。
+
+安全指標:
+
+| 指標 | M5.8 `072139` | M5.9 `081541` |
+|---|---:|---:|
+| COM velocity max | 0.103 | 0.103 |
+| CHEST angular velocity max | 3.946 | 3.897 |
+| max joint delta | 0.007888 | 0.007815 |
+| root pitch range | -0.030..0.122 | -0.066..0.130 |
+
+計算時間:
+
+| 指標 | M5.8 `072139` | M5.9 `081541` |
+|---|---:|---:|
+| projector mean | 0.244ms | 0.241ms |
+| projector p99 | 0.473ms | 0.549ms |
+| projector max | 0.712ms | 0.944ms |
+| final IK mean | 0.641ms | 0.642ms |
+| final IK p99 | 1.057ms | 1.159ms |
+| final IK max | 1.373ms | 2.432ms |
+| onExecute mean | 1.175ms | 1.195ms |
+| onExecute p99 | 1.988ms | 2.221ms |
+| onExecute max | 2.517ms | 4.422ms |
+| onExecute 2ms超過 | 35周期 | 77周期 |
+
+判断:
+
+- 明確な制御破綻は確認されない。
+- しかし、M5.9の目的である計算時間削減は確認できない。
+- projector meanのみ僅かに改善しているが、p99/maxは悪化した。
+- final IKとonExecuteはmean/p99/maxの多くが悪化している。
+- 初回数サンプルを除外してもp99悪化は残ったため、単純な初期化外れ値だけでは説明できない。
+
+### M5.9 QP counter付きログ評価 2026-07-08
+
+M5.9の効果確認のため、一時的に `wbmsDebugOut` を125要素から135要素へ拡張し、QP workspace counterの周期差分を出力した。
+
+追加した一時debug index:
+
+| data index | 意味 |
+|---:|---|
+| 125 | projector QP signature hit delta |
+| 126 | projector QP signature miss delta |
+| 127 | projector QP initialize delta |
+| 128 | projector QP update failure delta |
+| 129 | projector QP solve failure delta |
+| 130 | final IK QP signature hit delta |
+| 131 | final IK QP signature miss delta |
+| 132 | final IK QP initialize delta |
+| 133 | final IK QP update failure delta |
+| 134 | final IK QP solve failure delta |
+
+ログファイルでは1列目が時刻、data index `i` はログ上の `i+2` 列目である。
+
+この一時debug出力を使い、`auto_stabilizer/log/test_start_walking202607081552.*` を解析した。
+
+QP counter結果:
+
+| 対象 | signature hit | signature miss | initialize | update failure | solve failure |
+|---|---:|---:|---:|---:|---:|
+| projector | 4979 | 0 | 0 | 0 | 0 |
+| final IK | 5408 | 2 | 4 | 0 | 0 |
+
+final IKのsignature missは以下の2周期だけだった。
+
+| rel time | phase | miss | initialize | 備考 |
+|---:|---:|---:|---:|---|
+| 1.001s | 3 | 1 | 2 | WBMS有効化付近 |
+| 11.461s | 4 | 1 | 2 | 歩行開始遅延phase開始付近 |
+
+この結果から、通常運用中のQP構造はほぼ固定であり、M5.9のsignature方式自体は妥当である。一方で、計算時間は以下の通りで、M5.8 baselineに対する明確な高速化ではなかった。
+
+| 指標 | M5.8 `072139` | M5.9 `081541` | M5.9+counter `081552` |
+|---|---:|---:|---:|
+| samples | 3525 | 3529 | 5410 |
+| duration | 8.214s | 8.416s | 12.637s |
+| projector mean | 0.244ms | 0.241ms | 0.246ms |
+| projector p99 | 0.473ms | 0.549ms | 0.507ms |
+| projector max | 0.712ms | 0.944ms | 0.901ms |
+| final IK mean | 0.641ms | 0.642ms | 0.628ms |
+| final IK p99 | 1.057ms | 1.159ms | 1.079ms |
+| final IK max | 1.373ms | 2.432ms | 1.500ms |
+| onExecute mean | 1.175ms | 1.195ms | 1.176ms |
+| onExecute p99 | 1.988ms | 2.221ms | 2.006ms |
+| onExecute max | 2.517ms | 4.422ms | 3.158ms |
+| onExecute 2ms超過 | 35周期 | 77周期 | 56周期 |
+
+判断:
+
+- QP構造はほぼ全周期でhitしている。
+- OSQP initializeはfinal IKの構造変化時だけであり、通常区間では発生していない。
+- update failureとsolve failureは0で、workspace接続自体の異常は見えない。
+- それにもかかわらず計算時間削減は確認できない。
+- 原因は、初回M5.9実装がsignature hit時にも `As/lBs/uBs`、`H/A/gradient/lowerBound/upperBound`、sparse matrixをresize/rebuildしており、実際には重い行列構築を十分に避けられていないためと判断する。
+
+### M5.9後ログで見えたphase4開始付近の過渡 2026-07-08
+
+ユーザー目視では、`test_start_walking202607081552.*` で足踏み開始直前に腰が少し振動しているように見えた。
+
+ログ上では、root pitch自体はphase4開始前後で大きく振動していない。一方、`RobotHardware0_dq` / `RobotHardware0_q` ではphase4開始直後の短い過渡が見える。
+
+`081552` のphase4開始付近:
+
+- phase4開始: `rel=11.458s`
+- hardware dq最大: `1.3745` at `rel=11.471s`
+- q 1周期差分最大: `0.002712` at `rel=11.471s`
+- WBMS debug max joint delta: `0.005076`
+- CHEST angular velocity max: `2.537rad/s`
+
+前回M5.9ログ `081541` でも類似の過渡があった。
+
+- phase4開始: `rel=7.199s`
+- hardware dq最大: `1.353`
+- WBMS debug max joint delta: `0.007815`
+- CHEST angular velocity max: `3.897rad/s`
+
+一方、M5.8 baseline `072139` のphase4開始付近では、同程度のhardware dq spikeは見えず、最大dqは概ね `0.05〜0.06` 程度だった。
+
+この過渡はQP signature miss / initializeと直接対応しない。`081552` のphase4開始時にfinal IKのsignature missとinitializeは発生しているが、最大dqはその数ms後で、QP counter上はhitになっている。このため、現時点では「OSQP再初期化が原因」とは判断しない。
+
+判断:
+
+- M5.9後の2本のログでphase4開始付近の短い過渡が見える。
+- M5.8 baselineでは同等の過渡が見えない。
+- ただし、原因はQP再初期化ではなく、M5.9実装による数値経路差、phase4 handoff付近の解軌道差、またはログ条件差の可能性がある。
+- 次回M5.9追加作業後も、計算時間だけでなくphase4開始付近のhardware dq、q差分、CHEST角速度、max joint deltaを比較する。
+
+### M5.9 現時点の総合判断と次方針 2026-07-08
+
+現時点のM5.9初回実装について、以下のように判断する。
+
+- API設計、workspace接続、signature counterは有用であり、通常運用中にQP構造がほぼ固定であることを確認できた。
+- しかし、計算時間削減効果は確認できない。
+- したがって、M5.9を完了扱いにはしない。
+- 次は `WBMSComputationReductionImplementationPlan.md` に追記した「M5.9追加作業: signature hit時の再構築回避」へ進む。
+
+次作業で行うべきこと:
+
+- signature miss時は従来どおり全構築し、workspaceへ構造を保存する。
+- signature hit時はサイズ変更とsparse構造再挿入を避け、既存bufferの値更新に限定する。
+- pattern再利用が安全に保証できない箇所は明示的fallbackにし、fallback回数をcounterで確認する。
+- 追加作業後は `072139`、`081541`、`081552` を比較対象として、計算時間とphase4開始付近の過渡を再評価する。
+- debug counter出力は恒久仕様ではなく、効果確認用の一時実装として扱う。恒久化する場合は別途index互換性とlogger側の扱いを判断する。
+
 ## 未解決事項
 
 - M4.2.2 review対応として、READY後のpending releaseより前にtimeoutを判定するよう修正した。timeout超過時は `FAILED/TIMEOUT` へ遷移し、pending commandはreleaseしない。

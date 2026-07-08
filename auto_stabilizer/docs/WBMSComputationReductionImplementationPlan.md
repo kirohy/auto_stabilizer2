@@ -723,6 +723,51 @@ M5.9はQP行列構築とOSQP再初期化を直接減らすため、M5.5/M5.7よ�
 
 効果判定では平均だけでなくp99/max、OSQP再初期化回数、signature miss回数を確認する。
 
+### M5.9初回実装後に分かった不足
+
+M5.9初回実装では、`SolveWorkspace`、signature、workspace付きsolve API、WBMS projector/final IKからのworkspace接続を追加した。これにより、同一signature継続区間を検出し、OSQP再初期化回数を観測できるようになった。
+
+一方、ログ解析では計算時間削減効果は確認できなかった。詳細な数値と判断は `WBMSFeasibleVelocityPostureControlProgress.md` のM5.9実装後評価に記録する。
+
+初回実装の不足は、signature hit時でも以下の再構築処理が残っている点である。
+
+- `As/lBs/uBs` の `resize()` / `conservativeResize()`。
+- priority solveごとの `H/A/gradient/lowerBound/upperBound` の `resize()`。
+- sparse matrixの `setZero()` と係数再挿入。
+- `qpA` など累積制約行列の構築。
+
+このため、カウンタ上はsignature hitしていても、M5.9の本来目的である「同一構造時に行列構造を再利用し、値だけ更新する」状態にはまだ到達していない。
+
+### M5.9追加作業: signature hit時の再構築回避
+
+次に進む場合は、M5.9を完了扱いにせず、追加作業としてsignature hit時にQP行列再構築を避ける実装へ進む。
+
+方針:
+
+- signature miss時は従来どおり全bufferを構築し、workspaceに構造とサイズを保存する。
+- signature hit時は保存済みbufferのサイズを変えない。
+- signature hit時は `resize()`、`conservativeResize()`、sparse matrixの構造再挿入を避け、既存nonzero patternの値更新だけを行う。
+- 既存nonzero patternを安全に再利用できない箇所が残る場合は、その箇所だけ従来構築へ戻す。ただしfallback回数をcounterで観測できるようにする。
+- OSQP側はproblem sizeが同じ場合に `updateSolver()` 経路を使い、`initializeSolver()` を避ける。
+- update失敗、非finite、solve失敗時は従来どおり安全側にfallbackする。
+
+実装上の注意:
+
+- sparse matrixのnonzero patternが変化する可能性を無検証で固定しない。
+- signatureには行数・列数だけでなく、pattern再利用に必要な情報を含める。少なくとも各priorityの `H/A` の行列サイズ、制約構成、ext列構成を含める。
+- `prioritized_qp_base` の既存API互換性を維持する。
+- WBMS以外の呼び出しに副作用を出さない。
+- debug出力の恒久index追加は必要性を再判断する。効果確認だけなら一時的なcounter出力でよい。
+
+追加作業後のacceptance criteria:
+
+- signature hit継続区間で `initializeSolver()` が発生しない。
+- signature hit継続区間でQP matrix bufferのサイズ変更回数が0、または明示的に許容したfallback箇所だけに限定される。
+- projector/final IK/onExecuteのmean/p95/p99がM5.8 baseline `072139` またはM5.9初回 `081541` / `081552` に対して改善する。
+- p99/maxが悪化する場合は、発生phaseとQP counterを併記して採否を判断する。
+- READY到達、FAILEDなし、READY後walking API accept、accept時 `wbmsOperationModeValue=0.0` を維持する。
+- final IK後COM速度、CHEST角速度、max joint delta、phase4開始付近のhardware dqに安全上の悪化がない。
+
 ### 変更候補ファイル
 
 - `~/catkin_ws/cnoid2/src/prioritized_qp/prioritized_qp_base`
