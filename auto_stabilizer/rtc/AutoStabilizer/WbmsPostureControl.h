@@ -54,6 +54,7 @@ private:
   std::vector<std::shared_ptr<ik_constraint2::JointAngleConstraint> > postureReferenceConstraint_;
   std::vector<std::vector<std::shared_ptr<ik_constraint2::IKConstraint> > > projectionConstraints_;
   std::vector<std::shared_ptr<prioritized_qp_base::Task> > projectionTasks_;
+  prioritized_qp_base::SolveWorkspace projectionQpWorkspace_;
   prioritized_inverse_kinematics_solver2::IKParam projectionIKParam_;
   std::vector<cnoid::Vector3> supportVerticesInFootMid_;
   std::vector<cnoid::Vector3> supportHullTmp_;

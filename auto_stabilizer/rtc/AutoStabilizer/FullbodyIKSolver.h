@@ -34,6 +34,7 @@ protected:
   // クリアしなくても副作用はあまりない
   mutable cnoid::VectorX jlim_avoid_weight;
   mutable std::vector<std::shared_ptr<prioritized_qp_base::Task> > tasks;
+  mutable prioritized_qp_base::SolveWorkspace qpWorkspace;
 public:
   // 初期化時に一回呼ばれる
   void init(const cnoid::BodyPtr& genRobot, const GaitParam& gaitParam){

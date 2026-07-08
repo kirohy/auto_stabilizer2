@@ -37,6 +37,7 @@ void WbmsPostureControl::init(const cnoid::BodyPtr& genRobot, const GaitParam& g
   this->projectionIKParam_.we = 1e2;
   this->projectionIKParam_.debugLevel = 0;
   this->projectionIKParam_.checkFinalState = false;
+  this->projectionIKParam_.qpWorkspace = &this->projectionQpWorkspace_;
 
   this->jointVelocityConstraint_.clear();
   this->jointLimitConstraint_.clear();
@@ -613,6 +614,12 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
   }
 
   this->projectionIKParam_.dt = dt;
+  this->projectionIKParam_.qpWorkspace = &this->projectionQpWorkspace_;
+  const size_t signatureHitCountBefore = this->projectionQpWorkspace_.signatureHitCount;
+  const size_t signatureMissCountBefore = this->projectionQpWorkspace_.signatureMissCount;
+  const size_t initializeCountBefore = this->projectionQpWorkspace_.initializeCount;
+  const size_t updateFailureCountBefore = this->projectionQpWorkspace_.updateFailureCount;
+  const size_t solveFailureCountBefore = this->projectionQpWorkspace_.solveFailureCount;
   // checkFinalState=falseのためsolve後のconstraint再評価は省かれる。
   // allConstraintsSatisfiedは常にfalse相当の診断値であり、projector候補の採用可否は下の
   // validateProjectionCandidate()で判定する。
@@ -620,6 +627,11 @@ bool WbmsPostureControl::solveProjection(GaitParam& gaitParam, double dt, const 
                                                                                     this->projectionConstraints_,
                                                                                     this->projectionTasks_,
                                                                                     this->projectionIKParam_);
+  gaitParam.debugData.wbmsProjectorQpSignatureHitDelta = static_cast<double>(this->projectionQpWorkspace_.signatureHitCount - signatureHitCountBefore);
+  gaitParam.debugData.wbmsProjectorQpSignatureMissDelta = static_cast<double>(this->projectionQpWorkspace_.signatureMissCount - signatureMissCountBefore);
+  gaitParam.debugData.wbmsProjectorQpInitializeDelta = static_cast<double>(this->projectionQpWorkspace_.initializeCount - initializeCountBefore);
+  gaitParam.debugData.wbmsProjectorQpUpdateFailureDelta = static_cast<double>(this->projectionQpWorkspace_.updateFailureCount - updateFailureCountBefore);
+  gaitParam.debugData.wbmsProjectorQpSolveFailureDelta = static_cast<double>(this->projectionQpWorkspace_.solveFailureCount - solveFailureCountBefore);
   gaitParam.wbmsProjectionAllConstraintsSatisfied = allConstraintsSatisfied;
 
   this->wbmsPostureRobot_->calcForwardKinematics();
@@ -982,6 +994,11 @@ void WbmsPostureControl::updateWalkingPreparationReadiness(GaitParam& gaitParam,
 
 void WbmsPostureControl::proc(GaitParam& gaitParam, double dt, bool isABCRunning, const std::vector<cpp_filters::TwoPointInterpolator<double> >& referenceDqWeight){
   std::chrono::steady_clock::time_point startTime = std::chrono::steady_clock::now();
+  gaitParam.debugData.wbmsProjectorQpSignatureHitDelta = 0.0;
+  gaitParam.debugData.wbmsProjectorQpSignatureMissDelta = 0.0;
+  gaitParam.debugData.wbmsProjectorQpInitializeDelta = 0.0;
+  gaitParam.debugData.wbmsProjectorQpUpdateFailureDelta = 0.0;
+  gaitParam.debugData.wbmsProjectorQpSolveFailureDelta = 0.0;
   if(gaitParam.wbmsWalkingPreparationPhase == GaitParam::WBMS_WALKING_PREPARATION_WALKING_HOLD &&
      gaitParam.isStatic()){
     gaitParam.clearWbmsPostureCommand(true);
