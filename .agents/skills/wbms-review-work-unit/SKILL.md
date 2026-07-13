@@ -1,6 +1,6 @@
 ---
 name: wbms-review-work-unit
-description: Perform a read-only, dedicated code review of one WBMS external whole-body teleoperation Work Unit. Use for an uncommitted diff, exact commit, or branch diff after implementation. Report prioritized P0-P3 findings with evidence and do not modify files, apply fixes, stage, commit, push, merge, or open a PR.
+description: 実装済みのWBMS外部whole-body操縦Work Unitを1つだけ、実装taskから独立してread-only reviewする。uncommitted diff、exact commit、branch diffを対象に、根拠付きのP0-P3 findingを返す。file修正、findingの自動修正、stage、commit、push、merge、PR作成には使用しない。
 ---
 
 # WBMS Work Unit専用レビュー
