@@ -14,6 +14,10 @@
 4. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
 5. `WBMSExternalWholeBodyTeleoperationProgress.md`。
 6. 対象Work Unit Contract。
+7. `WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision1.md`。
+8. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
+9. `WBMSExternalWholeBodyTeleoperationCodexOperatorGuide.md`。
+10. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
 
 ### 1.1 Workspace pathの定義
 
@@ -187,7 +191,7 @@ schema未確定のproducer、bridge、consumerを並行実装しない。
 - Codex launch directory
 
 ## Repository access
-| repository | path | branch | base SHA | access |
+| repository | path | branch | base SHA | current SHA | access |
 
 ## Active instructions
 - source-root AGENTS.md
@@ -209,7 +213,7 @@ schema未確定のproducer、bridge、consumerを並行実装しない。
 - central Progress sync requirement
 
 ## Package verification
-| package | command | dependency scope |
+| package | command | execution directory | dependency scope |
 
 ## Cross-repository acceptance
 ```
@@ -360,22 +364,43 @@ M0-B acceptanceへ追加する。
 
 ---
 
-## 11. 既存文書への適用
+## 11. 既存文書・Skillへの適用
 
-次の文書・Skillは本RevisionとMultiRepositoryOperationsを読むよう更新する。
+### 11.1 直接更新したもの
 
 - `auto_stabilizer/AGENTS.md`。
-- `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
-- `WBMSExternalWholeBodyTeleoperationCodexOperatorGuide.md`。
-- `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
 - 4つのWork Unit Skill。
 - `WBMSExternalWholeBodyTeleoperationProgress.md`。
+
+### 11.2 Revisionで上書きするもの
+
+- `WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision1.md`を追加し、元Operator Guideの複数repository部分を上書きする。
+- `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`と`WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`の一般原則は維持する。
+- Workflow/Official Guidanceに残る起動directory、Skill配置、workspace一括buildに関する古い例は、本書とMultiRepositoryOperationsへ読み替える。
 
 既存文書に残る`${CATKIN_WS}/src`またはworkspace一括buildの例は、本Revisionの`${CATKIN_WORKSPACE}`、`${CATKIN_SOURCE_ROOT}`、package-specific buildへ読み替える。
 
 ---
 
-## 12. 禁止事項
+## 12. Bootstrap template
+
+M0-B用の正本templateを`auto_stabilizer2/tools/codex_workspace/`へ置く。
+
+含むもの:
+
+- source-root `AGENTS.md` template。
+- `whole_body_teleop` `AGENTS.md` template。
+- `rtmros_msg_bridge` `AGENTS.md` template。
+- `ik_solvers2` `AGENTS.md` template。
+- `prioritized_qp` `AGENTS.md` template。
+- repository Project Context template。
+- workspace manifest template。
+
+実際の他repository配置とbootstrap script実装はM0-B sub-unitで行う。
+
+---
+
+## 13. 禁止事項
 
 - `catkin_ws/src`を固定layoutとして扱わない。
 - cross-repository implementationを一つの巨大taskで行わない。
