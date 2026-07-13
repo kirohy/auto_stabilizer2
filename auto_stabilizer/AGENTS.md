@@ -10,8 +10,9 @@ WBMS外部whole-body操縦に関するtaskでは、作業開始前に次をこ�
 2. `docs/WBMSExternalWholeBodyTeleoperationProgress.md`
 3. 対象Work Unit Contract
 4. `docs/WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`
-5. `docs/WBMSWalkingPreparationDesignRevisionPlan.md`
-6. 必要な過去文書
+5. `docs/WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`
+6. `docs/WBMSWalkingPreparationDesignRevisionPlan.md`
+7. 必要な過去文書
 
 古い文書や旧projection IKの実験記録を、新しい正式計画より優先してはならない。
 
