@@ -1,0 +1,88 @@
+project_id: WBMS_EXTERNAL_WHOLE_BODY_TELEOP
+
+# ${CATKIN_WORKSPACE} is the absolute path of catkin_ws/<workspace_name>.
+# ${CATKIN_SOURCE_ROOT} is ${CATKIN_WORKSPACE}/src.
+workspace:
+  catkin_workspace: "${CATKIN_WORKSPACE}"
+  source_root: "${CATKIN_SOURCE_ROOT}"
+
+central_documents:
+  repository: kirohy/auto_stabilizer2
+  branch: <planning-or-implementation-branch>
+  commit: <sha>
+  paths:
+    implementation_plan_revision_2: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md
+    multi_repository_operations: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md
+    implementation_plan_revision_1: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md
+    implementation_plan: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md
+    progress: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md
+
+repositories:
+  auto_stabilizer2:
+    path: "${CATKIN_SOURCE_ROOT}/auto_stabilizer2"
+    remote: kirohy/auto_stabilizer2
+    role: realtime_consumer_and_central_docs
+    required: true
+    expected_branch: <branch>
+
+  whole_body_teleop:
+    path: "${CATKIN_SOURCE_ROOT}/whole_body_teleop"
+    remote: kirohy/whole_body_teleop
+    role: ros_reference_generator
+    required: true
+    expected_branch: <branch>
+
+  rtmros_msg_bridge:
+    path: "${CATKIN_SOURCE_ROOT}/rtmros_msg_bridge"
+    remote: kirohy/rtmros_msg_bridge
+    role: ros_rtm_transport_bridge
+    required: true
+    expected_branch: <branch>
+
+  ik_solvers2:
+    path: "${CATKIN_SOURCE_ROOT}/ik_solvers2"
+    remote: <owner>/ik_solvers2
+    role: ik_library
+    required: true
+    expected_branch: teleop-dev
+
+  prioritized_qp:
+    path: "${CATKIN_SOURCE_ROOT}/prioritized_qp"
+    remote: <owner>/prioritized_qp
+    role: qp_backend
+    required: true
+    expected_branch: teleop-dev
+
+common_skills:
+  canonical_root: "${CATKIN_SOURCE_ROOT}/auto_stabilizer2/.agents/skills"
+  user_install_root: "${HOME}/.agents/skills"
+  names:
+    - wbms-plan-work-unit
+    - wbms-implement-work-unit
+    - wbms-review-work-unit
+    - wbms-close-work-unit
+
+source_root_agents:
+  target: "${CATKIN_SOURCE_ROOT}/AGENTS.md"
+  template: "${CATKIN_SOURCE_ROOT}/auto_stabilizer2/tools/codex_workspace/templates/AGENTS.source-root.md"
+
+package_builds:
+  auto_stabilizer:
+    normal: catkin build auto_stabilizer --no-deps
+    dependency_check: catkin build auto_stabilizer
+    force_cmake: catkin build auto_stabilizer --no-deps --force-cmake
+
+  whole_body_teleop_msgs:
+    normal: catkin build whole_body_teleop_msgs --no-deps
+    dependency_check: catkin build whole_body_teleop_msgs
+
+  whole_body_teleop_reference_generator:
+    normal: catkin build whole_body_teleop_reference_generator --no-deps
+    dependency_check: catkin build whole_body_teleop_reference_generator
+
+  whole_body_teleop_rtmros_bridge:
+    normal: catkin build whole_body_teleop_rtmros_bridge --no-deps
+    dependency_check: catkin build whole_body_teleop_rtmros_bridge
+
+# Exact compatible SHAs are recorded in Central Progress, not permanently fixed here.
+compatible_set: {}
