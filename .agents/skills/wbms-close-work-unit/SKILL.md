@@ -1,6 +1,6 @@
 ---
 name: wbms-close-work-unit
-description: Close one implemented and reviewed WBMS external whole-body teleoperation Work Unit by checking review status, verification evidence, repository state, Progress completeness, compatible dependency SHAs, and commit readiness. Use after fresh review. Do not implement features or commit unless the user explicitly authorizes the exact commit; never push, merge, create a PR, or run real hardware without separate authorization.
+description: 実装とfresh reviewが完了したWBMS外部whole-body操縦Work Unitを1つだけ完了処理する。review・verification・repository状態・Progress・compatible SHA・commit readinessを確認し、明示許可されたexact commitだけを作成できる。機能実装、push、merge、PR作成、別途許可のない実機実行には使用しない。
 ---
 
 # WBMS Work Unit完了処理
