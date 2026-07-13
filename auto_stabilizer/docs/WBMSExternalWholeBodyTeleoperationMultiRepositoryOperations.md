@@ -4,10 +4,31 @@
 
 本書は、WBMS外部whole-body操縦プロジェクトを、同一catkin workspace内の複数Git repositoryに分割して実装・review・検証・commitするための正式運用仕様である。
 
+### 1.1 Workspace path
+
+本書では次を用いる。
+
+```text
+${CATKIN_WORKSPACE}
+  = catkin_ws/<workspace_name> の絶対パス
+
+${CATKIN_SOURCE_ROOT}
+  = ${CATKIN_WORKSPACE}/src
+```
+
+例:
+
+```text
+/home/user/catkin_ws/jaxon_ws
+/home/user/catkin_ws/jaxon_ws/src
+```
+
+`catkin_ws/src`を固定layoutとして仮定しない。
+
 対象repositoryは次を基本とする。
 
 ```text
-${CATKIN_WS}/src/
+${CATKIN_SOURCE_ROOT}/
   auto_stabilizer2/
   whole_body_teleop/
   rtmros_msg_bridge/
@@ -16,8 +37,6 @@ ${CATKIN_WS}/src/
 ```
 
 新規ROS nodeは`whole_body_teleop`で管理する。ROS/RTM変換は`rtmros_msg_bridge`、500 Hzのconsumerと安全制御は`auto_stabilizer2`、IK/QP基盤は`ik_solvers2`と`prioritized_qp`で管理する。
-
-本書は、複数repositoryの起動directory、`AGENTS.md`、Skill、Work Unit、build、Progress、compatible SHA、commit、worktree、simulation gateを定義する。
 
 参照順は次とする。
 
@@ -36,134 +55,171 @@ ${CATKIN_WS}/src/
 
 ---
 
-## 2. 基本原則
+## 2. Repository責務
 
-### 2.1 一つのimplementation taskが書き換えるrepositoryは一つ
+| repository | role | final safety responsibility |
+|---|---|---|
+| `auto_stabilizer2` | external reference consumer、500 Hz制御、walking preparation、final IK、中央計画・Progress | あり |
+| `whole_body_teleop` | ROS message、入力baseline、手差分、HMD、external IK、reference generator | なし |
+| `rtmros_msg_bridge` | ROS/RTM message変換、latest-only transport | なし |
+| `ik_solvers2` | generic IK library | library contractのみ |
+| `prioritized_qp` | QP backend | solver contractのみ |
 
-原則は次とする。
+重いexternal IK、device mapping、HMD処理を`auto_stabilizer2`へ置かない。bridgeへIK、mode判断、stale policyを置かない。
+
+---
+
+## 3. 基本原則
+
+### 3.1 One-write-repository rule
 
 ```text
 一つのimplementation task
-  = 一つのwrite repository
+  = 一つのWRITE repository
   = 一つのrepository sub-unit
   = 原則一つのatomic commit
 ```
 
-同一taskで複数repositoryを同時に書き換えない。
+同一implementation taskで複数repositoryを同時に書き換えない。
 
 理由:
 
-- repositoryごとの`AGENTS.md`、build、review、commitを明確にできる。
+- repositoryごとのinstruction、build、review、commitを明確にできる。
 - schema、producer、bridge、consumerの責務を分離できる。
 - compatible SHAを追跡できる。
-- review findingの修正範囲を限定できる。
+- finding修正範囲を限定できる。
 - userの未commit変更を別repositoryまで巻き込まない。
 
-複数repositoryを同時に書き換える例外は、repository移動自体が目的である場合などに限定し、Parent Contractとユーザーの明示承認を必要とする。
+複数repositoryを同時に変更する例外は、repository移動自体が目的である場合等に限定し、Parent Contractとユーザーの明示承認を必要とする。
 
-### 2.2 Cross-repository taskは原則read-only
+### 3.2 Cross-repository taskは原則read-only
 
-次は`${CATKIN_WS}/src`から行う。
+次をcross-repository taskとする。
 
-- cross-repository planning
 - branch archaeology
-- Parent Work Unit Contract作成
+- Parent Work Unit planning
 - protocol全体設計
 - compatible-set review
-- cross-repository interface review
+- interface整合review
 - package build結果の統合確認
-- simulation計画とlog解析
+- simulation計画
+- 複数repository log解析
 
-これらのtaskは原則read-onlyであり、source修正が必要になった場合は対象repositoryのsub-unitへ分離する。
+source修正が必要になった場合、対象repositoryのsub-unitへ分離する。
 
-### 2.3 Repository taskは対象repository rootから行う
+### 3.3 中央正本
 
-次は対象repository rootから行う。
+当面の正本:
 
-- repository sub-unitの実装
-- repository単位のreview
-- finding修正
-- repository単位のclosure
-- atomic commit
+```text
+auto_stabilizer2/auto_stabilizer/docs/
+```
+
+含むもの:
+
+- Implementation PlanとRevision。
+- MultiRepositoryOperations。
+- Codex Workflow、Operator Guide、Official Guidance。
+- 中央Progress。
+
+各repositoryへ計画全文を複製しない。
+
+---
+
+## 4. Codex起動directory
+
+### 4.1 Cross-repository task
+
+起動directory:
+
+```text
+${CATKIN_SOURCE_ROOT}
+```
 
 例:
 
 ```sh
-codex -C ${CATKIN_WS}/src/auto_stabilizer2
-codex -C ${CATKIN_WS}/src/whole_body_teleop
-codex -C ${CATKIN_WS}/src/rtmros_msg_bridge
+codex -C ${CATKIN_SOURCE_ROOT}
 ```
 
-対象repository rootから起動することで、そのrepositoryのroot `AGENTS.md`とpackage/module固有`AGENTS.md`を適用しやすくする。
+対象:
 
----
+- cross-repository planning。
+- branch archaeology。
+- Parent Contract。
+- protocol全体review。
+- compatible-set review。
+- package build結果の統合確認。
+- simulation計画、log解析。
 
-## 3. Codex起動directory
+原則read-onlyとする。
 
-### 3.1 Source root
+### 4.2 Repository task
 
-cross-repository taskの共通起点は次とする。
+対象repository rootから起動する。
 
-```text
-${CATKIN_WS}/src
+```sh
+codex -C ${CATKIN_SOURCE_ROOT}/auto_stabilizer2
+codex -C ${CATKIN_SOURCE_ROOT}/whole_body_teleop
+codex -C ${CATKIN_SOURCE_ROOT}/rtmros_msg_bridge
+codex -C ${CATKIN_SOURCE_ROOT}/ik_solvers2
+codex -C ${CATKIN_SOURCE_ROOT}/prioritized_qp
 ```
 
-catkin workspace rootではなくsource rootを使用する理由:
+対象:
 
-- 対象Git repositoryが全て直下にある。
-- `build`、`devel`、`install`、`logs`等を通常のsource探索対象から外せる。
-- cross-repositoryのpathを一定にできる。
-- package buildは任意のworkspace内directoryから実行可能であり、workspace rootを起点にする必要がない。
+- implementation。
+- repository review。
+- finding修正。
+- closure。
+- commit。
 
-### 3.2 起動directory表
+### 4.3 起動directory表
 
-| task | Codex起動directory | write可能範囲 |
+| task | Codex launch directory | write access |
 |---|---|---|
-| cross-repo planning | `${CATKIN_WS}/src` | なし |
-| branch archaeology | `${CATKIN_WS}/src` | なし |
-| Parent Contract | `${CATKIN_WS}/src` | 原則なし |
-| protocol全体review | `${CATKIN_WS}/src` | なし |
-| compatible-set review | `${CATKIN_WS}/src` | なし |
-| package build統合確認 | `${CATKIN_WS}/src`または任意のworkspace内directory | source変更なし |
-| simulation計画・log解析 | `${CATKIN_WS}/src` | 明示されたlog/文書だけ |
+| cross-repo planning | `${CATKIN_SOURCE_ROOT}` | なし |
+| branch archaeology | `${CATKIN_SOURCE_ROOT}` | なし |
+| Parent Contract | `${CATKIN_SOURCE_ROOT}` | 原則なし |
+| compatible-set review | `${CATKIN_SOURCE_ROOT}` | なし |
+| package build integration check | `${CATKIN_SOURCE_ROOT}`または任意のworkspace内directory | source変更なし |
+| simulation計画・log解析 | `${CATKIN_SOURCE_ROOT}` | 明示文書・logだけ |
 | repository implementation | 対象repository root | 対象repositoryのみ |
 | repository review | 対象repository root | なし |
-| repository finding修正 | 対象repository root | 対象repositoryのみ |
-| repository commit | 対象repository root | 対象repositoryのみ |
+| finding修正 | 対象repository root | 対象repositoryのみ |
+| commit | 対象repository root | 対象repositoryのみ |
 
-### 3.3 `src`からのimplementationは禁止しないが既定にしない
-
-`${CATKIN_WS}/src`から起動したCodexに特定repositoryだけを書かせることは技術的には可能である。しかし、instruction chain、write範囲、dirty state、commit対象を誤りやすいため、通常のimplementationはrepository rootから起動する。
+`${CATKIN_SOURCE_ROOT}`から特定repositoryを実装することは可能だが、instruction、write範囲、commit対象を誤りやすいため既定にしない。
 
 ---
 
-## 4. `AGENTS.md`の三層構成
+## 5. `AGENTS.md`の三層構成
 
-### 4.1 Source-root `AGENTS.md`
+### 5.1 Source-root `AGENTS.md`
 
 配置:
 
 ```text
-${CATKIN_WS}/src/AGENTS.md
+${CATKIN_SOURCE_ROOT}/AGENTS.md
 ```
 
-これはlocal workspace用であり、通常は単独のGit repositoryに属さない。`auto_stabilizer2`内のtemplateからbootstrapする。
+通常はGit repository外のlocal fileである。`auto_stabilizer2`内のtemplateからbootstrapする。
 
 責務:
 
 - 対象repository一覧とpath。
 - cross-repository taskは原則read-only。
-- implementation taskのwrite repositoryは一つ。
-- 各repositoryを扱う前に、そのrootとnearest `AGENTS.md`を明示的に読む。
+- implementationのWRITE repositoryは一つ。
+- repositoryを扱う前にrootとnearest `AGENTS.md`を明示的に読む。
 - 全repositoryのbranch、HEAD、dirty stateを確認する。
 - user変更をreset、stash、cleanしない。
 - `build`、`devel`、`install`、`logs`をsource変更として扱わない。
-- package単位buildを用いる。
+- package-specific buildを用いる。
 - simulationと実機は明示許可を必要とする。
 
-Codexを`${CATKIN_WS}/src`から起動しても、子repository内の`AGENTS.md`が自動的に全て適用されるとは仮定しない。source-root `AGENTS.md`は、対象repositoryのinstructionを明示的に読むよう指示する。
+`${CATKIN_SOURCE_ROOT}`から起動した場合、子repositoryの`AGENTS.md`が自動で全て適用されたと仮定しない。
 
-### 4.2 Repository-root `AGENTS.md`
+### 5.2 Repository-root `AGENTS.md`
 
 各repositoryへ配置する。
 
@@ -189,7 +245,7 @@ prioritized_qp/AGENTS.md
 
 - 標準ROS入力、session baseline、手差分scale。
 - CHEST/COM局所target。
-- HMD、head recenter。
+- HMDとhead recenter。
 - external whole-body IK。
 - `q_nominal`とcustom bundle。
 - RobotHardwareへ直接出力しない。
@@ -220,11 +276,9 @@ prioritized_qp/AGENTS.md
 - 既存consumerの数値挙動を暗黙に変更しない。
 - performance regressionとdependent build。
 
-### 4.3 Package/module-level `AGENTS.md`
+### 5.3 Package/module-level `AGENTS.md`
 
 必要な場合だけ追加する。
-
-例:
 
 ```text
 auto_stabilizer2/auto_stabilizer/AGENTS.md
@@ -233,15 +287,11 @@ whole_body_teleop/whole_body_teleop_reference_generator/AGENTS.md
 rtmros_msg_bridge/<bridge-package>/AGENTS.md
 ```
 
-message packageと制御nodeの規約が異なる場合は分離する。
-
 ---
 
-## 5. 共通Skillの配置
+## 6. 共通Skill
 
-### 5.1 共通Skill
-
-プロジェクト共通Skillは次である。
+### 6.1 対象Skill
 
 ```text
 wbms-plan-work-unit
@@ -250,48 +300,38 @@ wbms-review-work-unit
 wbms-close-work-unit
 ```
 
-これらを各repositoryへコピーして複製管理しない。
+各repositoryへcopyして別version化しない。
 
-### 5.2 正本
-
-当面の正本は次とする。
+### 6.2 正本
 
 ```text
-${CATKIN_WS}/src/auto_stabilizer2/.agents/skills/
+${CATKIN_SOURCE_ROOT}/auto_stabilizer2/.agents/skills/
 ```
 
-Skillの意味は`auto_stabilizer2`専用ではなく、本プロジェクトの全repository共通とする。
+Skillの意味は`auto_stabilizer2`専用ではなく、本プロジェクト共通である。
 
-### 5.3 user-level installation
+### 6.3 User-level installation
 
-repository rootから起動したtaskでも共通Skillを利用できるよう、bootstrap時にuser-levelへsymlinkする。
+bootstrap時に次へsymlinkする。
 
 ```text
 ${HOME}/.agents/skills/wbms-plan-work-unit
-  -> ${CATKIN_WS}/src/auto_stabilizer2/.agents/skills/wbms-plan-work-unit
+  -> ${CATKIN_SOURCE_ROOT}/auto_stabilizer2/.agents/skills/wbms-plan-work-unit
 ```
 
 同様に4 Skillをlinkする。
 
-理由:
+目的:
 
-- `whole_body_teleop`や`rtmros_msg_bridge`から起動しても認識できる。
-- Skill本文の正本を一つにできる。
-- repositoryごとのcopy driftを防げる。
+- 各repository rootから同じSkillを利用する。
+- Skill正本を一つにする。
+- copy driftを防ぐ。
 
-新PCではbootstrapが必要である。Skill認識はM0-Bで確認する。
+同名Skillをsource-rootとuser-levelへ重複配置することは既定にしない。
 
-### 5.4 Source-root Skill
-
-`${CATKIN_WS}/src/.agents/skills`へ同名Skillを重複配置することは既定にしない。user-levelで認識できない環境のみ、同じ正本へのsymlinkを使用する。
-
-同名Skillが複数scopeに存在する構成は、どのSkillが選択されたか分かりにくくなるため避ける。
-
-### 5.5 Repository固有Skill
+### 6.4 Repository固有Skill
 
 repository固有の反復作業だけを各repositoryへ置いてよい。
-
-例:
 
 ```text
 whole_body_teleop/.agents/skills/wbms-build-teleop-package/
@@ -299,53 +339,43 @@ rtmros_msg_bridge/.agents/skills/wbms-check-bridge-roundtrip/
 auto_stabilizer2/.agents/skills/wbms-analyze-stabilizer-log/
 ```
 
-共通Work Unit lifecycleをrepo固有Skillへ複製しない。
+共通Work Unit lifecycleを複製しない。
 
 ---
 
-## 6. Workspace bootstrap
+## 7. Workspace bootstrap
 
-### 6.1 Bootstrapの目的
+M0-Bで次を用意する。
 
-M0-Bで、source rootと各repositoryのCodex運用を初期化する。
+1. `${CATKIN_SOURCE_ROOT}/AGENTS.md`。
+2. user-level共通Skill symlink。
+3. 実装対象repositoryのroot `AGENTS.md`。
+4. repository Project Context。
+5. repository path/role manifest。
+6. Skillとinstruction chainの認識確認。
 
-必須成果物:
-
-1. `${CATKIN_WS}/src/AGENTS.md`
-2. user-level共通Skill symlink
-3. 各repositoryのroot `AGENTS.md`
-4. 各repositoryのProject Context
-5. repository path/role manifest
-6. Skillとinstruction chainの認識確認
-
-### 6.2 Bootstrap script
-
-後続の独立Work Unitで、次のscriptを作成してよい。
+後続Work Unitで作成可能なscript:
 
 ```text
 auto_stabilizer2/tools/codex_workspace/bootstrap_codex_workspace.sh
 auto_stabilizer2/tools/codex_workspace/verify_codex_workspace.sh
 ```
 
-bootstrapは次を守る。
+scriptは次を守る。
 
-- workspace pathを引数で受ける。
-- 既存fileを無断で上書きしない。
+- `${CATKIN_WORKSPACE}`を引数で受ける。
+- `${CATKIN_SOURCE_ROOT}`を導出する。
+- 既存fileを無断上書きしない。
 - symlink先を表示する。
-- repositoryの存在を確認する。
-- branch、HEAD、dirty stateを表示する。
+- repositoryの存在、branch、HEAD、dirty stateを確認する。
 - 不一致を修正せず報告する。
-- source codeを変更しない。
-
-script作成は本書追加と同じWork Unitへ混ぜない。
+- control sourceを変更しない。
 
 ---
 
-## 7. Project Context
+## 8. Project Context
 
-各repositoryへ短い文書を置く。
-
-推奨path:
+各repositoryに短い文書を置く。
 
 ```text
 docs/WBMSExternalTeleopProjectContext.md
@@ -354,24 +384,23 @@ docs/WBMSExternalTeleopProjectContext.md
 内容:
 
 - project ID。
-- 当該repositoryのrole。
-- 正式計画のrepository、branch、commit、path。
-- 中央Progressのrepository、branch、commit、path。
+- repository role。
+- 正式計画、Revision、中央Progressのrepository/branch/SHA/path。
 - 関連repository一覧。
-- 現在のParent Work Unitとsub-unit。
+- current Parent Work Unitとsub-unit。
 - current compatible set。
-- repository固有build command。
+- package build command。
 - repository固有invariant。
 
-正式Implementation Plan全文を複製しない。参照先と固定SHAを記録する。
+正式Implementation Plan全文を複製しない。
 
 ---
 
-## 8. Parent Work UnitとRepository Sub-Unit
+## 9. Parent Work UnitとRepository Sub-unit
 
-### 8.1 Parent Work Unit
+### 9.1 Parent Work Unit
 
-複数repositoryへ影響する論理機能は、source rootからread-onlyでParent Contractを作る。
+複数repositoryへ影響する論理機能は、`${CATKIN_SOURCE_ROOT}`からread-only Parent Contractを作る。
 
 例:
 
@@ -379,7 +408,7 @@ docs/WBMSExternalTeleopProjectContext.md
 M1-P: WBMS external teleoperation protocol
 ```
 
-Parent Contractで固定する。
+固定する項目:
 
 - schema version。
 - 論理field。
@@ -391,9 +420,7 @@ Parent Contractで固定する。
 - dependency順。
 - cross-repository acceptance。
 
-### 8.2 Repository Sub-Unit
-
-例:
+### 9.2 Repository Sub-unit
 
 ```text
 M1-A: whole_body_teleop ROS message
@@ -403,21 +430,21 @@ M1-D: compatible-set review
 M1-E: package build integration check
 ```
 
-M1-A、M1-B、M1-Cはそれぞれ対象repository rootから実装する。
+M1-A、M1-B、M1-Cは各repository rootから実装する。
 
-M1-DとM1-Eはsource rootからread-onlyで行う。
+M1-D、M1-Eはsource rootからread-onlyで行う。
 
-### 8.3 Sub-unitのdependency
+### 9.3 Dependency
 
-後続sub-unitは、依存sub-unitのcommit SHAまたは明示的なuncommitted compatible stateをContractへ記録する。
+後続sub-unitは依存sub-unitのcommit SHAをContractへ記録する。
 
-schema未確定のままproducer、bridge、consumerを並行実装しない。
+schema未確定のproducer、bridge、consumerを並行実装しない。
 
 ---
 
-## 9. Work Unit Contract拡張
+## 10. Work Unit Contract拡張
 
-複数repositoryが関係するContractには次を追加する。
+複数repositoryに関係するContractへ次を追加する。
 
 ```markdown
 ## Workspace context
@@ -426,7 +453,7 @@ schema未確定のままproducer、bridge、consumerを並行実装しない。
 - Codex launch directory
 
 ## Repository access
-| repository | path | branch | base SHA | access |
+| repository | path | branch | base SHA | current SHA | access |
 
 ## Active instructions
 - source-root AGENTS.md
@@ -448,32 +475,28 @@ schema未確定のままproducer、bridge、consumerを並行実装しない。
 - central Progress sync requirement
 
 ## Package verification
-| package | command | dependency scope |
+| package | command | execution directory | dependency scope |
 
 ## Cross-repository acceptance
 ```
 
-`access`は`READ`、`WRITE`、`NONE`を明示する。
-
-implementation Contractでは`WRITE` repositoryを原則一つだけにする。
+`access`は`READ`、`WRITE`、`NONE`を使う。implementation Contractの`WRITE` repositoryは原則一つ。
 
 ---
 
-## 10. Build方針
+## 11. Build方針
 
-### 10.1 Workspace一括buildは行わない
+### 11.1 Workspace一括buildは行わない
 
-本プロジェクトでは、引数なしのworkspace全体buildを標準手順にしない。
+次を通常の受入条件にしない。
 
 ```sh
 catkin build
 ```
 
-を受入条件として要求しない。
+### 11.2 対象package build
 
-### 10.2 対象packageだけをbuildする
-
-通常は次を使う。
+通常:
 
 ```sh
 catkin build <package-name> --no-deps
@@ -488,127 +511,110 @@ catkin build whole_body_teleop_reference_generator --no-deps
 catkin build whole_body_teleop_rtmros_bridge --no-deps
 ```
 
-### 10.3 依存関係まで確認する場合
+### 11.3 Dependency確認
 
-依存関係のsource/API互換性までbuildで確認する必要がある場合だけ`--no-deps`を外す。
+依存関係のsource/API互換性まで確認する場合だけ`--no-deps`を外す。
 
 ```sh
 catkin build <package-name>
 ```
 
-どのdependencyを確認する目的かContractへ記載する。
+目的と対象dependencyをContractとProgressへ記録する。
 
-### 10.4 IDL/CMake生成変更
+### 11.4 IDL/CMake変更
 
-`auto_stabilizer`のIDL変更後の初回buildは次を使う。
+`auto_stabilizer`のIDL変更後の初回:
 
 ```sh
 catkin build auto_stabilizer --no-deps --force-cmake
 ```
 
-他packageでもmessage/IDL/CMake生成の再構成が必要な場合は、そのpackageのContractで`--force-cmake`を指定する。
+他packageでも必要ならContractで`--force-cmake`を指定する。
 
-### 10.5 実行directory
+### 11.5 実行directory
 
 `catkin build`の実行directoryは固定しない。catkin workspace内でworkspaceを解決できる場所から実行してよい。
 
-ただしProgressには次を記録する。
+Progressへ記録する。
 
 - exact command。
-- commandを実行したdirectory。
+- execution directory。
 - package名。
 - `--no-deps`の有無。
 - `--force-cmake`の有無。
 - result。
 
-### 10.6 Cross-repository integration build
+### 11.6 Integration build
 
-integration buildは、必要なpackage-specific commandを順に実行することを意味する。workspace一括buildを意味しない。
+integration buildは、関連packageのpackage-specific buildを順に実行することを意味する。workspace一括buildを意味しない。
 
-例:
-
-```text
-1. catkin build whole_body_teleop_msgs --no-deps
-2. catkin build whole_body_teleop_reference_generator --no-deps
-3. catkin build whole_body_teleop_rtmros_bridge --no-deps
-4. catkin build auto_stabilizer --no-deps --force-cmake
-```
-
-dependency compatibilityを確認する場合だけ、対象packageについて`--no-deps`を外した追加buildを行う。
-
-### 10.7 Build failureの扱い
-
-cross-repository build taskは、その場で複数repositoryを修正しない。
+build failureをcross-repository task内で複数repository同時修正しない。
 
 ```text
 build failure
-  -> errorとroot cause候補を記録
-  -> 対象repositoryを特定
-  -> repository-specific fix sub-unitを作成
+  -> root cause候補と対象repositoryを記録
+  -> repository-specific fix sub-unit
   -> 対象repository rootから修正
-  -> package buildを再実行
+  -> package build再実行
 ```
 
 ---
 
-## 11. Review構成
+## 12. Review
 
-### 11.1 Repository review
+### 12.1 Repository review
 
 対象repository rootから行う。
 
 - 当該repositoryのdiff。
-- 当該repositoryのAGENTS。
+- repositoryのAGENTS。
 - Parent/Sub-unit Contract。
 - sibling repositoryはcompatible inputとしてread-only参照。
 
-### 11.2 Cross-repository review
+### 12.2 Cross-repository review
 
-`${CATKIN_WS}/src`からread-onlyで行う。
+`${CATKIN_SOURCE_ROOT}`からread-onlyで行う。
 
 重点:
 
 - message、IDL、bridge mapping。
 - field、型、単位、frame、quaternion順序。
-- enum/task mask/schema version。
+- enum、task mask、schema version。
 - session、epoch、sequence。
 - producer/consumer compatible SHA。
-- package build順。
-- central ProgressとProject Contextの一致。
+- package build結果。
+- Project Contextと中央Progress。
 
-cross-repository reviewerはsourceを修正しない。findingは対象repository sub-unitへ割り当てる。
+reviewerはsourceを修正しない。findingは対象repository sub-unitへ割り当てる。
 
 ---
 
-## 12. Commitと中央Progress
+## 13. Commitと中央Progress
 
-### 12.1 Repository単位commit
+### 13.1 Repository commit
 
-commitは対象repository rootで行う。
+対象repository rootで行う。
 
 - 一つの主要目的。
 - 対象repositoryだけstage。
 - `git add -A`を既定にしない。
 - push、merge、PRは別許可。
 
-### 12.2 中央Progress
+### 13.2 中央Progress
 
-正式な全体Progressの正本は当面次とする。
+正本:
 
 ```text
 auto_stabilizer2/auto_stabilizer/docs/
   WBMSExternalWholeBodyTeleoperationProgress.md
 ```
 
-### 12.3 他repository commit後の同期
+### 13.3 他repository commit後
 
-`whole_body_teleop`、`rtmros_msg_bridge`、`ik_solvers2`、`prioritized_qp`でcommitした後、依存する次sub-unitへ進む前に中央Progressへcommit SHAを記録する。
-
-流れ:
+`whole_body_teleop`、`rtmros_msg_bridge`、`ik_solvers2`、`prioritized_qp`でcommitした後、依存する次sub-unit前に中央ProgressへSHAを記録する。
 
 ```text
-repository sub-unit実装・review・commit
-  -> repository commit SHA取得
+repository sub-unit commit
   -> central Progress sync sub-unit
   -> compatible set更新
   -> dependent sub-unit開始
@@ -616,22 +622,9 @@ repository sub-unit実装・review・commit
 
 central Progress syncはdocument-onlyの独立commitとしてよい。
 
-### 12.4 Repository内の一時記録
+### 13.4 Compatible set
 
-他repositoryのcommit前は、Project ContextまたはWork Unit reportへ次を記録する。
-
-- Work Unit ID。
-- branch/base/current SHA。
-- changed files。
-- build/check。
-- review。
-- unverified。
-- expected commit subject。
-- central Progress sync pending。
-
-### 12.5 Compatible set
-
-Milestoneごとに名前付きcompatible setを記録する。
+Milestoneごとに名前を付ける。
 
 ```text
 M1-compatible-set
@@ -639,8 +632,6 @@ M3-compatible-set
 M8-compatible-set
 M11-release-candidate-set
 ```
-
-形式:
 
 ```yaml
 compatible_set:
@@ -655,40 +646,30 @@ compatible_set:
 
 ---
 
-## 13. Worktree
+## 14. Worktree
 
-### 13.1 catkin source root内へ同一packageを重複配置しない
+`${CATKIN_SOURCE_ROOT}`内へ同一packageを持つ複数worktreeを配置しない。
 
-次を避ける。
+悪い例:
 
 ```text
-${CATKIN_WS}/src/auto_stabilizer2
-${CATKIN_WS}/src/auto_stabilizer2-review
+${CATKIN_SOURCE_ROOT}/auto_stabilizer2
+${CATKIN_SOURCE_ROOT}/auto_stabilizer2-review
 ```
 
-同名packageが複数発見される可能性がある。
-
-### 13.2 Review worktree
-
-read-only review用worktreeはworkspace外へ置く。
+read-only review worktreeはworkspace外へ置く。
 
 ```text
 ${HOME}/codex_worktrees/auto_stabilizer2-review
 ```
 
-### 13.3 Buildが必要な別branch
-
-buildが必要な比較branchは、専用catkin workspaceまたはpackage重複が起きない構成を使う。
-
-`1.0`、pre-M5、新branchを比較する場合、同一source rootへ同名packageを複数置かない。
+buildが必要な別branchは、専用catkin workspaceまたはpackage重複がない構成を使う。
 
 ---
 
-## 14. Simulationと実機
+## 15. Simulationと実機
 
-### 14.1 Simulation gate
-
-simulationはsource rootから計画できるが、起動・command送信・log取得はユーザーの明示許可を必要とする。
+simulationはsource rootから計画できるが、起動、command送信、log取得はユーザーの明示許可を必要とする。
 
 初期は人間が既存runbookで実行し、Codexへ次を渡す。
 
@@ -700,23 +681,17 @@ simulationはsource rootから計画できるが、起動・command送信・log�
 - log path。
 - 目視所見。
 
-### 14.2 自動化
-
 同じscenarioを反復する場合、別Work Unitでrunbook、script、timeout、abort、log収集を実装する。
 
-simulation Skillと実機Skillは分離する。
-
-### 14.3 実機
-
-実機実行は常に別の明示許可を必要とする。build成功やsimulation成功から自動的に実機実行へ進まない。
+実機は常に別の明示許可を必要とする。
 
 ---
 
-## 15. Repository bootstrap要件
+## 16. Repository bootstrap
 
-### 15.1 `whole_body_teleop`
+### 16.1 `whole_body_teleop`
 
-新規repository作成時に最低限追加する。
+新規repository作成時に追加する。
 
 - root `AGENTS.md`。
 - `docs/WBMSExternalTeleopProjectContext.md`。
@@ -725,7 +700,7 @@ simulation Skillと実機Skillは分離する。
 - package-specific build説明。
 - central plan/Progressの固定参照。
 
-### 15.2 `rtmros_msg_bridge`
+### 16.2 `rtmros_msg_bridge`
 
 実装branch作成時に追加する。
 
@@ -734,7 +709,7 @@ simulation Skillと実機Skillは分離する。
 - bridge責務と非責務。
 - message/IDL mapping review規約。
 
-### 15.3 `ik_solvers2`、`prioritized_qp`
+### 16.3 `ik_solvers2`、`prioritized_qp`
 
 変更が必要になった時点で、実装前に追加する。
 
@@ -742,13 +717,11 @@ simulation Skillと実機Skillは分離する。
 - Project Context。
 - backward compatibilityとdependent build規約。
 
-変更不要の場合、bootstrapのためだけに既存repositoryへcommitする必要はない。ただしcross-repository taskでは現在のbranch/SHAを記録する。
+変更不要の場合、bootstrapだけを目的に既存repositoryへcommitする必要はない。cross-repository taskではbranch/SHAを記録する。
 
 ---
 
-## 16. M0-Bへ追加する作業
-
-M0-Bを次のsub-unitへ分割する。
+## 17. M0-B再構成
 
 ```text
 M0-B1: source-root workspace operation contract
@@ -761,29 +734,29 @@ M0-B7: package-specific baseline builds
 M0-B8: cross-repository instruction/Skill review
 ```
 
-M0-B acceptance:
+Acceptance:
 
-- source-root `AGENTS.md`が存在する。
-- 全対象repository pathが記録されている。
+- `${CATKIN_SOURCE_ROOT}/AGENTS.md`が存在する。
+- repository pathとroleが記録される。
 - 実装対象repositoryにroot/nearest `AGENTS.md`がある。
-- 共通4 Skillが各repository rootから認識される。
+- 4 Skillが各repository rootから認識される。
 - one-write-repository ruleがContractへ反映される。
-- Parent/Sub-unit形式が使用できる。
-- package-specific build commandが記録されている。
+- Parent/Sub-unit形式が利用できる。
+- package-specific build commandが記録される。
 - workspace一括buildを要求していない。
 - central ProgressとProject Contextの同期方法が確認される。
 
 ---
 
-## 17. 標準prompt
+## 18. 標準prompt
 
-### 17.1 Cross-repository planning
+### Cross-repository planning
 
 ```text
 $wbms-plan-work-unit を使用してください。
 
 Work Unit: <Parent IDとtitle>
-Codex起動directory: ${CATKIN_WS}/src
+Codex起動directory: ${CATKIN_SOURCE_ROOT}
 
 このtaskはcross-repository read-only planningです。
 全対象repositoryのbranch、HEAD、dirty stateを確認し、各repositoryのAGENTS.mdを明示的に読んでください。
@@ -793,60 +766,61 @@ Parent Contractとrepository sub-unit一覧を作成してください。
 各sub-unitのWRITE repositoryは一つにしてください。
 ```
 
-### 17.2 Repository implementation
+### Repository implementation
 
 ```text
 $wbms-implement-work-unit を使用してください。
 
 Work Unit: <Sub-unit IDとtitle>
-Codex起動directory: ${CATKIN_WS}/src/<repository>
+Codex起動directory: ${CATKIN_SOURCE_ROOT}/<repository>
 WRITE repository: <repository>
 READ-ONLY sibling repositories: <list>
 
 承認済みContractの範囲だけを実装してください。
 他repositoryを変更しないでください。
-指定されたpackage-specific buildを実行してください。
+指定package buildを実行してください。
 commitは行わないでください。
 ```
 
-### 17.3 Cross-repository compatible-set review
+### Compatible-set review
 
 ```text
 $wbms-review-work-unit を使用してください。
 
 Review type: cross-repository compatible set
-Codex起動directory: ${CATKIN_WS}/src
+Codex起動directory: ${CATKIN_SOURCE_ROOT}
 Parent Work Unit: <ID>
 Compatible set: <repository SHA table>
 
 全repositoryはread-onlyです。
-message、IDL、bridge、producer、consumer、frame、unit、enum、schema、build結果、Project Context、中央Progressを照合してください。
+message、IDL、bridge、producer、consumer、frame、unit、enum、schema、package build結果、Project Context、中央Progressを照合してください。
 sourceは変更しないでください。
 ```
 
 ---
 
-## 18. 禁止事項
+## 19. 禁止事項
 
+- `catkin_ws/src`を固定layoutとして扱わない。
 - cross-repository implementationを一つの巨大taskで行わない。
-- source rootから複数repositoryを同時編集しない。
+- `${CATKIN_SOURCE_ROOT}`から複数repositoryを同時編集しない。
 - repository固有`AGENTS.md`を読まずにcross-repo判断しない。
-- 共通Skillを各repositoryへ手動コピーして別version化しない。
+- 共通Skillを各repositoryへcopyして別version化しない。
 - schema未確定でproducer、bridge、consumerを並行実装しない。
 - workspace一括buildを暗黙の受入条件にしない。
 - build failureをcross-repo task内で複数repository同時修正しない。
 - 他repository commit SHAを中央Progressへ記録せず依存sub-unitへ進まない。
-- catkin source root内へ同一packageの複数worktreeを置かない。
+- source root内へ同一packageの複数worktreeを置かない。
 - simulationまたは実機を無許可で開始しない。
 
 ---
 
-## 19. 変更管理
+## 20. 変更管理
 
 本書を変更する場合:
 
 1. 変更理由を中央Progressへ追記する。
-2. `ImplementationPlanRevision2`との整合を確認する。
+2. Revision 2との整合を確認する。
 3. package `AGENTS.md`と4 Skillを確認する。
 4. workspace templateとProject Context templateを確認する。
 5. workflow変更だけの独立commitとする。
