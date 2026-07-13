@@ -2,25 +2,52 @@
 
 ## 1. 文書の位置づけ
 
-本書は、`WBMSExternalWholeBodyTeleoperationImplementationPlan.md`に基づく作業を時系列で記録するappend-onlyの進捗文書である。
+本書は、WBMS外部whole-body操縦プロジェクトの中央Progressである。
 
-別task、別担当、context圧縮後でも作業を再開できることを目的とする。
+別task、別担当、context圧縮後でも作業を再開できる粒度で、実施済み作業、判断、変更、検証、review、compatible SHA、next entry pointを時系列に記録する。
 
 参照順:
 
-1. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`: 初回計画reviewで確定した修正。
-2. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`: 正式仕様とMilestone。
-3. 本書: 実施済み作業、検証結果、未確認事項、compatible SHA。
-4. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`: Codex作業手順。
-5. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`: 現行OpenAI公式Codex情報への対応。
-6. `WBMSWalkingPreparationDesignRevisionPlan.md`: walking preparationの既存正式仕様。
-7. `WBMSFeasibleVelocityPostureControlProgress.md`: 旧構成の履歴。
+1. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`: 複数repository運用を含む最新計画修正。
+2. `WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`: 起動directory、AGENTS、Skill、Parent/Sub-unit、build、Progress同期。
+3. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`: branch基点、heartbeat等の初回修正。
+4. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`: 制御仕様とMilestone。
+5. 本書: 実施済み作業、検証結果、compatible SHA。
+6. 対象Work Unit Contract。
+7. `WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision1.md`: 複数repositoryの実操作。
+8. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`: Work Unit lifecycle。
+9. `WBMSExternalWholeBodyTeleoperationCodexOperatorGuide.md`: 初期operator guide。
+10. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`: OpenAI公式Codex情報への対応。
+11. `WBMSWalkingPreparationDesignRevisionPlan.md`: walking preparationの既存正式仕様。
+12. `WBMSFeasibleVelocityPostureControlProgress.md`: 旧projection IK構成の履歴。
 
 過去entryの誤りを静かに書き換えない。訂正は新しいentryとして追記する。
 
+### 1.1 2026-07-13 planning branch内再構成
+
+PLAN-0Cで、まだformal detached review前のplanning branchにあったPLAN-0とPLAN-0Bを、複数repository仕様と新しい参照順へ合わせて本書へ再構成した。
+
+- 過去の主要判断、unverified、next entry point、commit SHAを保持した。
+- control sourceは変更していない。
+- PLAN-0C以後はappend-onlyとする。
+
 ---
 
-## 2. Status一覧
+## 2. Workspace path
+
+```text
+${CATKIN_WORKSPACE}
+  = catkin_ws/<workspace_name> の絶対パス
+
+${CATKIN_SOURCE_ROOT}
+  = ${CATKIN_WORKSPACE}/src
+```
+
+`catkin_ws/src`を固定layoutとして仮定しない。
+
+---
+
+## 3. Status一覧
 
 | Status | 意味 |
 |---|---|
@@ -34,15 +61,20 @@
 
 ---
 
-## 3. Work Unit entry template
+## 4. Work Unit entry template
 
 ```markdown
 ## YYYY-MM-DD <Work Unit ID> <title>
 
 ### Status
 
+### Workspace context
+- catkin workspace root
+- source root
+- Codex launch directory
+
 ### Repository state
-| repository | branch | base SHA | current SHA | dirty |
+| repository | branch | base SHA | current SHA | access | dirty |
 
 ### Goal
 
@@ -51,14 +83,14 @@
 ### Code investigation
 
 ### Decisions
+- adopted
+- rejected and reason
 
 ### Changes
-| file | change | reason |
+| repository | file | change | reason |
 
 ### Commands and results
-```sh
-<exact command>
-```
+| execution directory | command | result | evidence |
 
 ### Simulation / log evidence
 
@@ -75,9 +107,16 @@
 ### Compatible dependency set
 | repository | SHA |
 
+### Central Progress sync
+- required / completed / pending
+
 ### Next entry point
 
 ### Commit
+- repository
+- SHA
+- subject
+- cherry-pick notes
 ```
 
 ---
@@ -88,15 +127,19 @@
 
 COMMITTED
 
+### Workspace context
+
+未確定。GitHub connector上でplanning branchを作成した。
+
 ### Repository state
 
-| repository | branch | base SHA | current SHA | dirty |
-|---|---|---|---|---|
-| `kirohy/auto_stabilizer2` | `wbms-external-teleop-plan` | `wbms-dev` HEAD `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | 文書commit群 | GitHub API上で作成 |
-| `kirohy/rtmros_msg_bridge` | 未作成 | default `master` | 未変更 | 未確認 |
-| `kirohy/ik_solvers2` | 想定`teleop-dev` | 未記録 | 未変更 | 未確認 |
-| `kirohy/prioritized_qp` | 想定`teleop-dev` | 未記録 | 未変更 | 未確認 |
-| `whole_body_teleop` | 未作成 | - | - | - |
+| repository | branch | base SHA | current SHA | access | dirty |
+|---|---|---|---|---|---|
+| `kirohy/auto_stabilizer2` | `wbms-external-teleop-plan` | `wbms-dev` HEAD `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | 文書commit群 | WRITE | local未確認 |
+| `kirohy/rtmros_msg_bridge` | 未作成 | `master`想定 | 未変更 | NONE | 未確認 |
+| `kirohy/ik_solvers2` | `teleop-dev`想定 | 未記録 | 未変更 | READ | 未確認 |
+| `kirohy/prioritized_qp` | `teleop-dev`想定 | 未記録 | 未変更 | READ | 未確認 |
+| `whole_body_teleop` | 未作成 | - | - | NONE | - |
 
 ### Goal
 
@@ -122,13 +165,11 @@ COMMITTED
 
 ### Code investigation
 
-確認した現行要点:
-
-- `auto_stabilizer`は`jointControllable=false`の関節をfinal IK変数から外し、出力時には`refRobotRaw`の値を用いる。
+- `jointControllable=false`関節はfinal IK変数から外れ、出力時に`refRobotRaw`が用いられる。
 - `qRef`は`refRobotRaw`へ読み込まれ、その後FK/COM計算とframe変換が行われる。
-- このため首・将来の指関節は、`qRef`読込後・FK前に許可付きoverrideを適用することで、final IK変数を増やさずモデルと出力を整合できる。
-- 現行WBMS腕差分操縦はmaster/slave開始poseを保存し、並進差分だけをscaleし、CHEST相対hand targetを生成している。
-- M4.2.2 walking preparationは、COM高さ保持、RETURNING/HANDOFF、READY、歩行API gate、歩行中腕継続を担当するためauto_stabilizer内部へ残す。
+- 首・将来指関節は、qRef読込後・FK前の許可付きoverrideでfinal IK変数を増やさずモデルと出力を整合できる。
+- 現行腕差分操縦はmaster/slave開始poseを保存し、並進差分だけをscaleし、CHEST相対hand targetを生成する。
+- M4.2.2 walking preparationはCOM高さ保持、RETURNING/HANDOFF、READY、歩行API gate、歩行中腕継続を担当するためauto_stabilizer内部へ残す。
 - 既存`rtmros_msg_bridge`はROS callbackとRTM port変換を行う。新bridgeも変換責務に限定し、独立processとする。
 
 ### Decisions
@@ -163,40 +204,20 @@ COMMITTED
 
 ### Changes
 
-| file | change | reason |
-|---|---|---|
-| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md` | 正式実装計画を追加 | 新アーキテクチャの仕様・Milestoneを固定 |
-| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflow.md` | Codex作業標準を追加 | 長期・複数repo作業を小さくreview可能に進める |
-| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | 本進捗文書を追加 | 別taskへの引き継ぎ |
-| `.agents/skills/*` | Work Unit用Skillを追加予定 | 定型反復の標準化 |
-| `AGENTS.md` | 恒久workflowルールを追加予定 | repository全体の安全運用 |
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `WBMSExternalWholeBodyTeleoperationImplementationPlan.md` | 正式実装計画を追加 | 新アーキテクチャ仕様 |
+| `auto_stabilizer2` | `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md` | Codex作業標準を追加 | Work Unit反復 |
+| `auto_stabilizer2` | 本Progress | 進捗文書を追加 | 引き継ぎ |
 
 ### Commands and results
 
-GitHub connectorで以下を実施した。
-
-```text
-create branch wbms-external-teleop-plan from wbms-dev
-```
-
-PASS。
-
-```text
-create implementation plan
-create Codex workflow
-create Progress
-```
-
-PASS。
-
-Local checkoutでの以下は未実行。
-
-```sh
-git diff --check
-catkin build auto_stabilizer --no-deps
-```
-
-NOT RUN。本entryは文書作成のみであり、Local checkoutとbuild環境を使用していない。
+| execution directory | command | result | evidence |
+|---|---|---|---|
+| GitHub connector | create branch `wbms-external-teleop-plan` from `wbms-dev` | PASS | branch作成 |
+| GitHub connector | create implementation plan / workflow / Progress | PASS | commit SHA取得 |
+| local | `git diff --check` | NOT RUN | local checkoutなし |
+| local | `catkin build auto_stabilizer --no-deps` | NOT RUN | source変更なし、local環境未使用 |
 
 ### Simulation / log evidence
 
@@ -206,94 +227,81 @@ NOT RUN。本entryは文書作成のみであり、Local checkoutとbuild環境�
 
 | round | reviewer/task | findings | resolution |
 |---|---|---|---|
-| 0 | 仕様対話 | interface、stale、head、branch、priorityに多数の未確定点 | ユーザー回答により解消 |
-| 1 | 文書自己点検 | 実装branchと計画branchを分ける必要 | plan branchを作成し、pre-M5 branchへ文書だけcherry-pickする方針を採用 |
+| 0 | 仕様対話 | interface、stale、head、branch、priorityの未確定点 | ユーザー回答により解消 |
+| 1 | 文書自己点検 | 実装branchと計画branchの分離 | plan branchを作成し、pre-M5 branchへ文書だけ移植する方針 |
 
-正式なdetached `/review`は文書群作成後に実施する。
+formal detached reviewは未実施。
 
 ### Acceptance
 
 | criterion | result | evidence |
 |---|---|---|
-| 主要仕様のユーザー判断が確定 | PASS | 手、CHEST、COM、head、stale、branch、legacy、priorityを確定 |
-| 新アーキテクチャ計画がある | PASS | ImplementationPlan |
-| Codex反復workflowがある | PASS | CodexWorkflow |
-| source codeを変更していない | PASS | 文書・Skill・AGENTSのみのplanning branch |
-| exact pre-M5 base SHA | PENDING | M0-Aで確定 |
-| performance threshold | PENDING | M0 baseline後に追記 |
+| 主要仕様のユーザー判断が確定 | PASS | 手、CHEST、COM、head、stale、branch、legacy、priority |
+| 新アーキテクチャ計画 | PASS | Implementation Plan |
+| Codex反復workflow | PASS | Codex Workflow |
+| control source未変更 | PASS | 文書のみ |
+| exact pre-M5 base SHA | PENDING | M0-A |
+| performance threshold | PENDING | baseline後 |
 
 ### Unverified
 
-- M4.2.2全review修正を含む最後のpre-M5 commit SHA。
-- `ik_solvers2`、`prioritized_qp`の実装開始時HEAD SHA。
-- pre-M5 baselineのcurrent build状態。
-- new message/IDLで使用する具体的package名と生成手順。
-- external generator 100 Hzでのsolve時間。
-- 実機のactual hand tracking error。
+- M4.2.2全review修正を含むpre-M5またはsynthetic baseline SHA。
+- dependency repository HEAD。
+- pre-M5 baseline build。
+- external generator solve時間。
+- actual hand tracking error。
 
 ### Open issues
 
-- M0でbranch archaeologyを行う。
-- performance acceptanceの数値はM0 baselineに基づいて追記する。
-- external node用新repositoryを作成する。
-- planning文書をpre-M5実装branchへcherry-pickする手順を確定する。
+- M0-A branch archaeology。
+- external node用repository作成。
+- planning文書の実装branch移植。
 
 ### Compatible dependency set
 
-未確定。M0で記録する。
+未確定。
+
+### Central Progress sync
+
+本repository内で完了。
 
 ### Next entry point
 
-次Work Unit:
-
-```text
-M0-A: branch archaeology and exact baseline selection
-```
-
-最初に読むもの:
-
-1. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`
-2. 本ProgressのPLAN-0 entry
-3. `WBMSWalkingPreparationDesignRevisionPlan.md`
-4. `WBMSFeasibleVelocityPostureControlProgress.md`後方のM4.2.2完了記録と最初のM5記録
-5. Git historyの該当commit群
-
-注意:
-
-- 現在の`wbms-dev` HEADを実装baseにしない。
-- M5コードを無条件cherry-pickしない。
-- walking preparation review修正を落とさない。
+PLAN-0B: Codex運用文書、Skill、公式情報照合。
 
 ### Commit
 
-| SHA | subject |
-|---|---|
-| `8261114e9fe7bcd61fde14e12a6f5eda50b767d4` | `Add external whole-body teleoperation implementation plan` |
-| `e568de33d9e74bea686433c9a0fa8f38daecbc75` | `Add Codex workflow for external teleoperation project` |
-
-本Progress、Skill、AGENTS変更のSHAは後続entryへ追記する。
+| repository | SHA | subject |
+|---|---|---|
+| `auto_stabilizer2` | `8261114e9fe7bcd61fde14e12a6f5eda50b767d4` | `Add external whole-body teleoperation implementation plan` |
+| `auto_stabilizer2` | `e568de33d9e74bea686433c9a0fa8f38daecbc75` | `Add Codex workflow for external teleoperation project` |
+| `auto_stabilizer2` | `f8108e8d65586754bf5754f5746f04b50e0ba899` | `Add progress log for external teleoperation project` |
 
 ---
 
-## 2026-07-13 PLAN-0B Codex運用文書・Skill完成と文書review
+## 2026-07-13 PLAN-0B Codex運用文書・Skill完成と初回文書review
 
 ### Status
 
 COMMITTED
 
+### Workspace context
+
+GitHub connector上で実施。local workspace path未確定。
+
 ### Repository state
 
-| repository | branch | base SHA | current SHA | dirty |
-|---|---|---|---|---|
-| `kirohy/auto_stabilizer2` | `wbms-external-teleop-plan` | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | `6fb17c38a4c7c37a208514260b4580f1957d85ee`時点までの文書・Skill群 | GitHub connector上で変更、local status未確認 |
-| `kirohy/rtmros_msg_bridge` | 未作成 | `master`想定 | 未変更 | 未確認 |
-| `kirohy/ik_solvers2` | `teleop-dev`想定 | 未記録 | 未変更 | 未確認 |
-| `kirohy/prioritized_qp` | `teleop-dev`想定 | 未記録 | 未変更 | 未確認 |
-| `whole_body_teleop` | 未作成 | - | - | - |
+| repository | branch | base SHA | current SHA | access | dirty |
+|---|---|---|---|---|---|
+| `kirohy/auto_stabilizer2` | `wbms-external-teleop-plan` | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | PLAN-0B文書・Skill群 | WRITE | local未確認 |
+| `rtmros_msg_bridge` | 未作成 | `master`想定 | 未変更 | READ | 未確認 |
+| `ik_solvers2` | `teleop-dev`想定 | 未記録 | 未変更 | READ | 未確認 |
+| `prioritized_qp` | `teleop-dev`想定 | 未記録 | 未変更 | READ | 未確認 |
+| `whole_body_teleop` | 未作成 | - | - | NONE | - |
 
 ### Goal
 
-長期・複数repository・安全重要projectをCodexで小さく実装、review、引き継ぎ、commitできる運用文書とrepository-local Skillを完成させ、初回計画の文書矛盾を修正する。
+長期・複数repository・安全重要projectをCodexで小さく実装、review、引き継ぎ、commitできる初期運用文書とrepository-local Skillを用意し、初回計画のbranch/heartbeat曖昧点を修正する。
 
 ### Scope and out-of-scope
 
@@ -302,205 +310,375 @@ COMMITTED
 - package-level `AGENTS.md`。
 - Plan、Implement、Review、Closeの4 Skill。
 - OpenAI公式Codex情報への対応指針。
-- 初回Implementation Planのbranch/heartbeat修正。
-- review、Progress、commit templateと禁止事項。
+- branch基点とheartbeat条件のRevision 1。
+- review、Progress、commit template。
 
 含まない:
 
-- source code実装。
-- exact pre-M5 base SHA調査。
+- control source実装。
+- exact pre-M5 base調査。
 - local build、simulation、実機確認。
-- planning branchのpush/merge/PR。
+- planning branch publish。
 
 ### Code investigation
 
-- OpenAI公式AGENTS.md資料では、Codexがproject rootからcurrent directoryへinstructionを連結し、近いdirectoryのinstructionを後段で適用することを確認した。
-- OpenAI公式Skill資料では、`.agents/skills/<name>/SKILL.md`、`name`/`description`、progressive disclosure、明示呼出しを確認した。
-- OpenAI公式code review資料では、`/review`がworking treeを変更せずprioritized findingを返し、detached reviewを選択できることを確認した。
-- OpenAI公式long-running work資料では、clear outcome、constraints、definition of done、CLIの`/goal`、independent taskの別chatを確認した。
-- OpenAI公式model資料では、GPT-5.6 Sol/Terra/Luna、reasoning level、Max/Ultra、Ultraのsubagent利用を確認した。
-- 元計画19.1はexternal source未使用時にもgenerator/bridge heartbeatを必須と読め、legacy-only運用と矛盾していた。
-- 「全M4.2.2修正完了かつM5前」の単一commitが履歴上存在することを暗黙に仮定していた。
+- Codex instructionはproject rootからcurrent directoryへ`AGENTS.md` chainを構成する。
+- Skillは`.agents/skills/<name>/SKILL.md`を用い、明示呼出しできる。
+- dedicated reviewはworking treeを変更せずfindingを返す。
+- long-running workにはclear outcome、constraints、definition of doneが必要。
+- external未使用時にもheartbeat必須と読める初回仕様がlegacy-onlyと矛盾した。
+- M4.2.2 review修正とM5が交錯する場合、単一pre-M5 commitが存在しない可能性がある。
 
 ### Decisions
 
 採用:
 
-- Work Unitをdistinct outcomeの単位とする。
-- read-only planning、承認済みContract implementation、detached review、fresh review、closureの順で進める。
-- implementation/review/closureを別Skillへ分離する。
-- source変更とcommitを分離し、commitは明示許可時だけ行う。
-- planning phaseは特定UI名へ固定せず、clientにplan capabilityがあれば使用する。
-- long-running implementationはGoalとdefinition of doneを明示する。
-- safety-critical/branch archaeologyはGPT-5.6 Sol High/Extra Highを基本とする。
-- schema固定後の通常実装はTerra、明確な反復変換はLunaを候補とする。
-- Ultraは分割可能な独立taskだけに使用する。
-- external sourceを一つでも選択した場合だけgenerator/bridge heartbeatをWBMS開始条件にする。
+- Work Unitをdistinct outcome単位とする。
+- read-only plan、Contract承認、implementation、detached review、fresh review、closureの順。
+- commitは明示許可時だけ。
+- safety-critical/branch archaeologyは強いreasoning modelを使用する。
+- schema固定後の通常実装と機械的変換を分ける。
+- external sourceを選択した場合だけgenerator/bridge heartbeatを開始条件にする。
 - legacy-onlyではexternal heartbeatを要求しない。
-- 単一pre-M5 baseが無い場合は、pre-M5 commitへ必要なM4.2.2 review修正だけを選択的にcherry-pickしたsynthetic baselineを作る。
+- 単一pre-M5 baseが無ければsynthetic baselineを構築する。
 
 不採用:
 
-- 全projectを一つの巨大Goalで実装する。
-- implementation task自身だけのreviewで完了とする。
-- review finding修正後にincremental部分だけを見る。
+- project全体を一つの巨大Goalで実装する。
+- implementation task自身だけのreviewで完了する。
+- finding修正後にincremental部分だけreviewする。
 - same sourceへ複数taskのwrite accessを与える。
-- model名やplan mode名を恒久仕様として固定する。
-- current `wbms-dev` HEADから大量削除するだけで実装baseを作る。
+- current `wbms-dev` HEADから大量削除してbaseとする。
 
 ### Changes
 
-| file | change | reason |
-|---|---|---|
-| `auto_stabilizer/AGENTS.md` | 500 Hz、安全、interface、review、commitのpackage規約を追加 | 各taskで安定した制約を自動適用 |
-| `.agents/skills/wbms-plan-work-unit/SKILL.md` | read-only調査とContract作成 | 実装前のscope freeze |
-| `.agents/skills/wbms-implement-work-unit/SKILL.md` | Contract内実装とverification、commit禁止 | 実装scopeと安全制約の固定 |
-| `.agents/skills/wbms-review-work-unit/SKILL.md` | P0-P3 read-only review | 実装者から独立したfinding |
-| `.agents/skills/wbms-close-work-unit/SKILL.md` | Progress、checklist、commit readiness | 未確認事項を隠さないatomic closure |
-| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md` | 現行公式Codex機能、model、mode、environment適用 | UI更新と安定原則を分離 |
-| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md` | branch基点、heartbeat、Codex mode、Skill完成条件を修正 | 初回計画review findingの解消 |
-| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | PLAN-0B entryを追記 | 別taskへの引き継ぎ |
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `auto_stabilizer/AGENTS.md` | package安全規約 | 恒久instruction |
+| `auto_stabilizer2` | 4 Work Unit Skill | plan/implement/review/close分離 | 定型workflow |
+| `auto_stabilizer2` | Codex Official Guidance | 公式情報対応 | UIと原則の分離 |
+| `auto_stabilizer2` | Implementation Plan Revision 1 | branch/heartbeat修正 | 初回review finding |
+| `auto_stabilizer2` | Operator Guide | 実用prompt | 人間向け運用 |
 
 ### Commands and results
 
-GitHub connector:
-
-```text
-create auto_stabilizer/AGENTS.md
-create four .agents/skills/*/SKILL.md
-create CodexOfficialGuidance
-create ImplementationPlanRevision1
-compare wbms-dev...wbms-external-teleop-plan
-```
-
-PASS。compare時点ではplanning branchは`wbms-dev`より13 commit先行し、source code変更はなく、文書・AGENTS・Skillの10 fileだけが追加されていた。
-
-OpenAI公式web資料:
-
-```text
-open AGENTS.md / Skills / Code review / Long-running work / Projects / Environments / Worktrees / Models
-```
-
-PASS。2026-07-13時点の現行説明を確認した。
-
-Local checkoutでの以下は未実行。
-
-```sh
-git status --short
-git diff --check
-codex --ask-for-approval never "Summarize the current instructions."
-catkin build auto_stabilizer --no-deps
-```
-
-NOT RUN。containerからGitHubへのcloneはDNS制約で失敗し、GitHub connectorで文書を作成した。
+| execution directory | command | result | evidence |
+|---|---|---|---|
+| GitHub connector | create AGENTS / 4 Skills / Official Guidance / Revision 1 / Operator Guide | PASS | commit SHA取得 |
+| local | `git status --short` | NOT RUN | local checkoutなし |
+| local | `git diff --check` | NOT RUN | local checkoutなし |
+| local | Skill/AGENTS discovery | NOT RUN | M0-Bで確認 |
+| local | `catkin build auto_stabilizer --no-deps` | NOT RUN | control source未変更 |
 
 ### Simulation / log evidence
 
-なし。control sourceは変更していない。
+なし。
 
 ### Review
 
 | round | reviewer/task | findings | resolution |
 |---|---|---|---|
-| 2 | 文書・workflow自己review | external未使用でもheartbeat必須と読める | Revision 1でexternal source選択時だけ必須へ修正 |
-| 2 | 文書・workflow自己review | 必要なM4.2.2修正とM5が交錯した場合のbase構築が未定義 | synthetic baseline手順をRevision 1へ追加 |
-| 2 | 公式情報照合 | workflowが特定のplan mode名と旧URLへ依存し得る | CodexOfficialGuidanceでread-only planning phase、`/goal`、現行公式URLへ整理 |
-| 2 | Skill構成review | Plan Skillしか存在せずworkflow記載と不一致 | Implement、Review、Close Skillを追加 |
-| 2 | instruction hierarchy review | main planだけを最優先にするとRevisionが読まれない | package `AGENTS.md`の参照順をRevision 1優先へ更新 |
+| 2 | 文書自己review | external未使用でもheartbeat必須 | Revision 1でexternal source選択時だけ必須化 |
+| 2 | 文書自己review | 単一pre-M5 base暗黙仮定 | synthetic baseline手順追加 |
+| 2 | 公式情報照合 | 特定UI名への依存 | read-only planning、Goal、Reviewへ整理 |
+| 2 | Skill review | Plan Skillしかない | Implement、Review、Close追加 |
+| 2 | instruction hierarchy | Revisionが優先されない | AGENTS参照順修正 |
 
-正式なCodex detached `/review`はlocal project/worktreeで未実行。
+formal detached reviewは未実施。
 
 ### Acceptance
 
 | criterion | result | evidence |
 |---|---|---|
-| 正式Implementation Planがある | PASS | ImplementationPlan + Revision 1 |
-| M0-M12の段階的Milestoneがある | PASS | ImplementationPlan |
-| Codex Work Unit workflowがある | PASS | CodexWorkflow |
-| 現行OpenAI公式情報への対応がある | PASS | CodexOfficialGuidance |
-| package-level safety instructionがある | PASS | `auto_stabilizer/AGENTS.md` |
-| Plan/Implement/Review/Close Skillがある | PASS | `.agents/skills/`の4 Skill |
-| review重点・非finding指定がある | PASS | CodexWorkflowとReview Skill |
-| append-only Progress templateがある | PASS | 本書 |
-| commit checklistと明示許可条件がある | PASS | CodexWorkflowとClose Skill |
-| source codeを変更していない | PASS | branch compareは文書、AGENTS、Skillのみ |
+| Implementation Plan + Revision 1 | PASS | 文書存在 |
+| M0-M12 Milestone | PASS | Implementation Plan |
+| Work Unit workflow | PASS | Workflow |
+| package safety instruction | PASS | AGENTS |
+| 4 Skill | PASS | `.agents/skills` |
+| review重点と非finding指定 | PASS | Workflow/Review Skill |
+| commit checklist | PASS | Workflow/Close Skill |
+| control source未変更 | PASS | 文書のみ |
 | local `git diff --check` | UNVERIFIED | local checkoutなし |
-| CodexによるSkill/AGENTS discovery | UNVERIFIED | M0でlocal確認 |
-| formal detached document review | UNVERIFIED | M0開始前またはplanning PRで実施 |
+| Skill/AGENTS discovery | UNVERIFIED | M0-B |
+| formal detached document review | UNVERIFIED | planning review待ち |
 
 ### Unverified
 
-- exact pre-M5またはsynthetic baseline SHA。
-- planning branchのlocal `git diff --check`。
-- Codexがroot/package `AGENTS.md`と4 Skillを正しく検出すること。
-- formal detached `/review`のfinding。
-- package build。source変更はないがlocal build環境未使用。
-- dependency branch/HEAD SHA。
+- exact pre-M5/synthetic baseline。
+- local diff check。
+- Skill/AGENTS discovery。
+- formal detached review。
+- dependency branch/HEAD。
 
 ### Open issues
 
-- M0-Aでcommit履歴、コード、正式文書を照合する。
-- M0でactive AGENTS chainとSkill一覧をCodexに出力させる。
-- planning branch文書を実装baseへcherry-pickする単位を決定する。
-- formal document reviewのP0/P1/P2を解消してからM0-Bへ進む。
+- M0-Aで履歴・コード・正式文書を照合する。
+- active AGENTS chainとSkillをlocal確認する。
+- planning文書の実装branch移植単位を決定する。
 
 ### Compatible dependency set
 
 | repository | SHA |
 |---|---|
 | `auto_stabilizer2` planning source base | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` |
-| `auto_stabilizer2` planning docs | `6fb17c38a4c7c37a208514260b4580f1957d85ee`以降、本entry commitまで |
 | `rtmros_msg_bridge` | 未記録 |
 | `ik_solvers2` | 未記録 |
 | `prioritized_qp` | 未記録 |
 | `whole_body_teleop` | 未作成 |
 
+### Central Progress sync
+
+本repository内で完了。
+
 ### Next entry point
 
-次Work Unit:
-
-```text
-M0-A: branch archaeology and exact baseline selection
-```
-
-開始task:
-
-```text
-$wbms-plan-work-unit M0-A
-```
-
-最初に読む順:
-
-1. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`。
-2. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
-3. 本ProgressのPLAN-0B。
-4. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
-5. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
-6. `WBMSWalkingPreparationDesignRevisionPlan.md`。
-7. 旧Progress後方のM4.2.2/M5記録。
-8. git history。
-
-注意:
-
-- 単一base commitの存在を仮定しない。
-- synthetic baselineが必要なら、walking preparation修正とM5変更をcommit単位・diff単位で分類する。
-- current `wbms-dev` HEADを実装baseにしない。
-- source変更を行わずContractを作成する。
+PLAN-0C: 複数repository運用仕様の正式化。
 
 ### Commit
 
-| SHA | subject |
-|---|---|
-| `f8108e8d65586754bf5754f5746f04b50e0ba899` | `Add progress log for external teleoperation project` |
-| `eaa45c961f5b15e1fdcedf9ac37fdb9e4880cd7d` | `Add package instructions for external teleoperation work` |
-| `3413fc82c5de5488024212da26577e747a8121d0` | `Add WBMS work unit planning skill` |
-| `a39ed803f2baeda9b1db3326fabd6a8f0442e9f9` | `Add WBMS work unit implementation skill` |
-| `ce106f15e3547eb9ee7e5fae6b3a02a650ea48fe` | `Add WBMS work unit review skill` |
-| `9b345225584ce672445f6dea9bfdee7ffef65c04` | `Add WBMS work unit closure skill` |
-| `5bb65793c603d06a9c0b481ad4adc8173ddc43de` | `Add official Codex guidance for WBMS workflow` |
-| `59d5f26fa516cd3caf39e35a0e8360049dc61bcb` | `Reference official Codex guidance in package instructions` |
-| `2458371b1c6adff4f6f5d358ecfd8eabfc19b531` | `Clarify external teleoperation implementation plan` |
-| `1491662239a2aedbd482e46afbd193e9674a468e` | `Prioritize external teleoperation plan revision` |
-| `6fb17c38a4c7c37a208514260b4580f1957d85ee` | `Align WBMS planning skill with revised plan` |
+| repository | SHA | subject |
+|---|---|---|
+| `auto_stabilizer2` | `eaa45c961f5b15e1fdcedf9ac37fdb9e4880cd7d` | `Add package instructions for external teleoperation work` |
+| `auto_stabilizer2` | `3413fc82c5de5488024212da26577e747a8121d0` | `Add WBMS work unit planning skill` |
+| `auto_stabilizer2` | `a39ed803f2baeda9b1db3326fabd6a8f0442e9f9` | `Add WBMS work unit implementation skill` |
+| `auto_stabilizer2` | `ce106f15e3547eb9ee7e5fae6b3a02a650ea48fe` | `Add WBMS work unit review skill` |
+| `auto_stabilizer2` | `9b345225584ce672445f6dea9bfdee7ffef65c04` | `Add WBMS work unit closure skill` |
+| `auto_stabilizer2` | `5bb65793c603d06a9c0b481ad4adc8173ddc43de` | `Add official Codex guidance for WBMS workflow` |
+| `auto_stabilizer2` | `2458371b1c6adff4f6f5d358ecfd8eabfc19b531` | `Clarify external teleoperation implementation plan` |
+| `auto_stabilizer2` | `1491662239a2aedbd482e46afbd193e9674a468e` | `Prioritize external teleoperation plan revision` |
+| `auto_stabilizer2` | `6fb17c38a4c7c37a208514260b4580f1957d85ee` | `Align WBMS planning skill with revised plan` |
+| `auto_stabilizer2` | `0331f23b385b32e44d49966e54b162ac7856e1bd` | `Add Codex operator guide for external teleoperation` |
 
-本PLAN-0B entryを追加したcommit SHAは、次entryのRepository stateで記録する。
+---
+
+## 2026-07-13 PLAN-0C 複数repository運用仕様策定
+
+### Status
+
+COMMITTED
+
+### Workspace context
+
+```text
+CATKIN_WORKSPACE = catkin_ws/<workspace_name> の絶対パス
+CATKIN_SOURCE_ROOT = CATKIN_WORKSPACE/src
+```
+
+実際のlocal absolute pathはM0-Bで記録する。
+
+### Repository state
+
+| repository | branch | base SHA | current SHA | access | dirty |
+|---|---|---|---|---|---|
+| `kirohy/auto_stabilizer2` | `wbms-external-teleop-plan` | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | 本entry直前HEAD `a630e4c9cc8b0674ff5a78103a6c5945eb94a8ca` | WRITE | GitHub connector、local未確認 |
+| `whole_body_teleop` | 未作成 | - | - | NONE | - |
+| `kirohy/rtmros_msg_bridge` | 未作成 | `master`想定 | 未変更 | READ | 未確認 |
+| `kirohy/ik_solvers2` | `teleop-dev`想定 | 未記録 | 未変更 | READ | 未確認 |
+| `kirohy/prioritized_qp` | `teleop-dev`想定 | 未記録 | 未変更 | READ | 未確認 |
+
+### Goal
+
+複数repositoryにまたがる本プロジェクトについて、Codex起動directory、AGENTS三層構成、共通Skill、one-write-repository rule、Parent/Sub-unit、package build、中央Progress同期、worktree、bootstrapを正式化する。
+
+### Scope and out-of-scope
+
+含む:
+
+- Revision 2。
+- MultiRepositoryOperations。
+- package `AGENTS.md`更新。
+- 4 Work Unit Skill更新。
+- source-root/repository AGENTS template。
+- Project Context template。
+- workspace manifest template。
+- multi-repository Operator Guide Revision 1。
+- 中央Progress再構成とPLAN-0C記録。
+
+含まない:
+
+- 他repositoryへの実配置。
+- `whole_body_teleop` repository作成。
+- bootstrap script実装。
+- source code実装。
+- local build、simulation、実機確認。
+
+### Code investigation
+
+- 実際のworkspace layoutは`catkin_ws/<workspace_name>/src`であり、`catkin_ws/src`固定ではない。
+- 複数repositoryをsource rootから見渡す必要がある。
+- 子repositoryの`AGENTS.md`がsource-root taskへ自動適用されるとは仮定できないため、明示readが必要。
+- repository-local Skillだけでは他repository rootから利用できないため、共通Skillのuser-level symlinkが必要。
+- repository実装とcross-repository planning/reviewを分ける必要がある。
+- package buildは通常`catkin build <package> --no-deps`で十分であり、workspace一括buildは不要。
+
+### Decisions
+
+採用:
+
+- `${CATKIN_WORKSPACE}`と`${CATKIN_SOURCE_ROOT}`を正式変数とする。
+- cross-repository taskは`${CATKIN_SOURCE_ROOT}`から原則read-only。
+- implementation/repository review/commitは対象repository rootから行う。
+- 一つのimplementation taskがWRITEするrepositoryは原則一つ。
+- 複数repository機能はParent Work Unitとrepository sub-unitへ分割。
+- source-root、repository-root、package/moduleの三層`AGENTS.md`。
+- 共通4 Skillの正本は`auto_stabilizer2/.agents/skills`、user-levelへsymlink。
+- 各repositoryへProject Contextを置き、中央計画全文は複製しない。
+- 他repository commit後、依存sub-unit前に中央ProgressへSHAを同期。
+- workspace一括buildを標準にしない。
+- 通常は対象packageの`--no-deps` build。
+- dependency確認時だけ`--no-deps`を外す。
+- `catkin build`の実行directoryは固定しない。
+- source root内へ同一packageの複数worktreeを置かない。
+
+不採用:
+
+- 全repositoryを一つのimplementation taskで変更する。
+- 共通Skillを各repositoryへcopyする。
+- `catkin_ws/src`固定表記。
+- workspace一括buildをacceptanceへ入れる。
+- integration build failure時にcross-repo task内で複数repositoryを修正する。
+
+### Changes
+
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md` | 複数repo修正を追加 | 最新計画 |
+| `auto_stabilizer2` | `WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md` | 正式運用仕様を追加・修正 | 起動、AGENTS、Skill、build、Progress |
+| `auto_stabilizer2` | `WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision1.md` | 実操作promptを追加 | 人間向け |
+| `auto_stabilizer2` | `auto_stabilizer/AGENTS.md` | Revision 2とmulti-repo規約 | package instruction |
+| `auto_stabilizer2` | 4 Work Unit Skill | workspace/access/Parent/Sub-unit/buildを追加 | 全repo共通workflow |
+| `auto_stabilizer2` | `tools/codex_workspace/templates/*` | source-root/repository/Project Context/manifest template | M0-B bootstrap |
+| `auto_stabilizer2` | 本Progress | PLAN-0Cと参照順を記録 | 中央引き継ぎ |
+
+### Commands and results
+
+| execution directory | command | result | evidence |
+|---|---|---|---|
+| GitHub connector | create/update Revision 2、MultiRepositoryOperations、Operator Guide Revision 1、AGENTS、Skills、templates | PASS | commit SHA取得 |
+| GitHub connector | compare `wbms-dev...wbms-external-teleop-plan` | PASS | 文書・AGENTS・Skill・templateのみ |
+| local | `git status --short` | NOT RUN | local checkoutなし |
+| local | `git diff --check` | NOT RUN | local checkoutなし |
+| local | Skill/AGENTS discovery | NOT RUN | M0-B |
+| local | package-specific baseline build | NOT RUN | M0-B |
+
+### Simulation / log evidence
+
+なし。control source未変更。
+
+### Review
+
+| round | reviewer/task | findings | resolution |
+|---|---|---|---|
+| 3 | 仕様対話 | 新ROS nodeだけでなく全repositoryのinstruction/Skill配置が未定義 | MultiRepositoryOperationsとRevision 2で定義 |
+| 3 | 仕様対話 | Codex起動directoryが不明 | source rootとrepository rootへ分離 |
+| 3 | 仕様対話 | workspace layoutを`catkin_ws/src`と誤認 | `${CATKIN_WORKSPACE}=catkin_ws/<workspace_name>`へ修正 |
+| 3 | 仕様対話 | workspace一括buildを想定 | package-specific buildへ修正 |
+| 3 | 自己review | common Skillのcopy drift | user-level symlinkを採用 |
+| 3 | 自己review | 他repo commitと中央Progressの順序 | central Progress sync sub-unitを追加 |
+
+formal detached reviewは未実施。
+
+### Acceptance
+
+| criterion | result | evidence |
+|---|---|---|
+| workspace pathが実配置を表す | PASS | Revision 2 / MultiRepositoryOperations |
+| task別起動directory | PASS | source root / repository root |
+| one-write-repository rule | PASS | formal spec、Skills |
+| Parent/Sub-unit | PASS | formal spec、Plan Skill |
+| AGENTS三層構成 | PASS | formal spec、templates |
+| 共通Skill配布 | PASS | user-level symlink仕様 |
+| repository Project Context | PASS | template |
+| package-specific build | PASS | `catkin build <package> --no-deps` |
+| dependency build | PASS | 必要時だけ`--no-deps`除外 |
+| central Progress sync | PASS | MultiRepositoryOperations / Close Skill |
+| source code未変更 | PASS | planning assetsのみ |
+| local diff check | UNVERIFIED | local checkoutなし |
+| formal detached review | UNVERIFIED | local task待ち |
+| Skill/AGENTS認識 | UNVERIFIED | M0-B |
+
+### Unverified
+
+- `${CATKIN_WORKSPACE}`の実際のabsolute path。
+- source-root `AGENTS.md`の配置。
+- user-level Skill symlink。
+- 各repository rootから4 Skillが認識されること。
+- repository Project Contextの実配置。
+- `whole_body_teleop` repository作成。
+- `rtmros_msg_bridge`等へのAGENTS配置。
+- package-specific baseline build。
+- formal detached document review。
+
+### Open issues
+
+- planning branchをlocalへ取得し`git diff --check`。
+- planning文書群のformal detached review。
+- M0-A branch archaeology。
+- M0-Bでworkspace/repository bootstrap。
+- bootstrap/verify scriptは別Work Unitで実装。
+
+### Compatible dependency set
+
+| repository | SHA |
+|---|---|
+| `auto_stabilizer2` planning source base | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` |
+| `auto_stabilizer2` planning docs before this entry | `a630e4c9cc8b0674ff5a78103a6c5945eb94a8ca` plus PLAN-0C commits |
+| `whole_body_teleop` | 未作成 |
+| `rtmros_msg_bridge` | 未記録 |
+| `ik_solvers2` | 未記録 |
+| `prioritized_qp` | 未記録 |
+
+### Central Progress sync
+
+本entryで完了。
+
+### Next entry point
+
+1. planning branchをlocalへ取得。
+2. `git diff --check`。
+3. active AGENTS chainと4 Skillの認識確認。
+4. planning文書群のformal detached review。
+5. P0/P1/P2解消。
+6. `${CATKIN_SOURCE_ROOT}`からM0-A Parent planning。
+
+開始prompt:
+
+```text
+$wbms-plan-work-unit を使用してください。
+
+Work Unit: M0-A branch archaeology and exact baseline selection
+Task type: cross-repository Parent Work Unit
+CATKIN_WORKSPACE: <absolute path to catkin_ws/<workspace_name>>
+CATKIN_SOURCE_ROOT: <CATKIN_WORKSPACE>/src
+Codex launch directory: <CATKIN_SOURCE_ROOT>
+
+Revision 2、MultiRepositoryOperations、Revision 1、Implementation Plan、最新Progress、walking preparation正式文書、旧Progress後方、git history、対象sourceをread-onlyで調査してください。
+
+source、branch、index、working treeを変更せず、Parent Contractだけを作成してください。
+```
+
+### Commit
+
+本entryを追加したcommit SHAは次entryで記録する。
+
+PLAN-0Cで作成・更新した主要commit:
+
+| repository | SHA | subject |
+|---|---|---|
+| `auto_stabilizer2` | `a434d81ab9dc1d3ec731a15a6d149517b91e6540` | `Add multi-repository operations specification` |
+| `auto_stabilizer2` | `6beaca0e50f1c8baf4218c5f2e5088174a519a27` | `Define multi-repository implementation operations` |
+| `auto_stabilizer2` | `e8f68a8892905233113bfd445a593b3ad44d734d` | `Correct and consolidate multi-repository operations` |
+| `auto_stabilizer2` | `a630e4c9cc8b0674ff5a78103a6c5945eb94a8ca` | `Reference multi-repository operator guide` |
+| `auto_stabilizer2` | `6f3b4dc3b8d86c3f9cdb2cbe54c513cb6e37752a` | `Extend WBMS planning skill for multiple repositories` |
+| `auto_stabilizer2` | `33ad35d123ec9c02a057ff37cde24eb745a6b602` | `Restrict WBMS implementation skill to one repository` |
+| `auto_stabilizer2` | `38c4d38ccc206844ac58fb5606b3c9beb17d606d` | `Extend WBMS review skill across repositories` |
+| `auto_stabilizer2` | `f104b9011f5fc620d044b82212b94f4a2eb721a5` | `Extend WBMS closure skill for repository sub-units` |
+| `auto_stabilizer2` | `ff2ba7c06151c27eb4e71bbbe196189557d29523` | `Add catkin source root AGENTS template` |
+| `auto_stabilizer2` | `2ffc9a7952a8f7a02a2b65df1de5a7db92b7f01c` | `Add whole body teleop AGENTS template` |
+| `auto_stabilizer2` | `1b287e49b83c4bc159997ba371cc44dd873058ef` | `Add RTM ROS bridge AGENTS template` |
+| `auto_stabilizer2` | `1848001530a9d451ec87596a51ebf7bc5e5d4ecd` | `Add IK solver AGENTS template` |
+| `auto_stabilizer2` | `fd383cbb76c5bcb93bc41a471ca4440d5db7a517` | `Add prioritized QP AGENTS template` |
+| `auto_stabilizer2` | `422821cc2b900cd18a9490ce6ca0637d0e0823e4` | `Add repository project context template` |
+| `auto_stabilizer2` | `ac96f923176110af9ad5e96f4ca65ec478efd576` | `Add workspace manifest template` |
+| `auto_stabilizer2` | `e9ea7dd1fb11ade46265d1718c36f1893711ae27` | `Document Codex workspace bootstrap assets` |
+| `auto_stabilizer2` | `e7795f7b2d05d6d131c7cc230ffa408a3d3e4266` | `Add multi-repository Codex operator guide revision` |
