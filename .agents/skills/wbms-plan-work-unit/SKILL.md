@@ -1,6 +1,6 @@
 ---
 name: wbms-plan-work-unit
-description: Read-only planning for exactly one WBMS external whole-body teleoperation Work Unit. Use for branch archaeology, current-code inspection, interface design, safety-invariant analysis, acceptance criteria, and a frozen Work Unit Contract before implementation. Do not use to modify source, review a completed diff, commit, push, merge, or open a PR.
+description: WBMS外部whole-body操縦プロジェクトのWork Unitを1つだけread-onlyで計画する。branch履歴、現行コード、interface、安全不変条件、受入条件、検証手順を調査し、実装前のWork Unit Contractを作成する。source変更、完成diffのreview、commit、push、merge、PR作成には使用しない。
 ---
 
 # WBMS Work Unit計画
