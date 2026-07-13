@@ -1,6 +1,6 @@
 ---
 name: wbms-implement-work-unit
-description: Implement exactly one approved WBMS external whole-body teleoperation Work Unit. Use after a Work Unit Contract has been frozen and the task requires scoped source changes, prescribed verification, and an implementation report. Do not use for planning, detached review, progress-only closure, commit, push, merge, PR creation, simulation, or real-robot execution unless separately authorized.
+description: 承認済みContractに基づき、WBMS外部whole-body操縦プロジェクトのWork Unitを1つだけ実装する。scope内のsource変更、指定build/check、自己点検、実装報告までを行う。計画、独立review、Progressだけの完了処理、commit、push、merge、PR作成、別途許可のないsimulation・実機実行には使用しない。
 ---
 
 # WBMS Work Unit実装
