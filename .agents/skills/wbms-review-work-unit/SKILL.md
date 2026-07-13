@@ -20,7 +20,7 @@ findingは、実行経路、安全不変条件、interface contract、受入条�
   - exact commit。
   - base branchとの差分。
 - 承認済みWork Unit Contract。
-- 正式Implementation Plan。
+- 正式Implementation PlanとRevision。
 - 最新Progress entry。
 
 review対象が曖昧な場合は、対象diffを特定するまでfindingを作らない。
@@ -29,12 +29,14 @@ review対象が曖昧な場合は、対象diffを特定するまでfindingを作
 
 1. repository rootの`AGENTS.md`。
 2. nearest package/module `AGENTS.md`。
-3. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
-4. `WBMSExternalWholeBodyTeleoperationProgress.md`。
-5. Work Unit Contract。
-6. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
-7. 該当する既存正式仕様。
-8. review対象diffと周辺source。
+3. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`。
+4. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
+5. `WBMSExternalWholeBodyTeleoperationProgress.md`。
+6. Work Unit Contract。
+7. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
+8. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
+9. 該当する既存正式仕様。
+10. review対象diffと周辺source。
 
 古いprojection IK文書を新計画より優先しない。
 
