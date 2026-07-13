@@ -18,7 +18,7 @@ description: Implement exactly one approved WBMS external whole-body teleoperati
 - Work Unit IDとtitle。
 - 対象repository、branch、base SHA、現在HEAD。
 - 承認済みWork Unit Contract。
-- 正式Implementation Plan。
+- 正式Implementation PlanとRevision。
 - 最新Progress entry。
 - 実行すべきverification command。
 - 変更を許可されたfile。
@@ -31,13 +31,15 @@ Contractがない、branchやbase SHAが一致しない、scopeが曖昧、ま�
 
 1. repository rootの`AGENTS.md`。
 2. `auto_stabilizer/AGENTS.md`。
-3. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
-4. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md`。
-5. 対象Work Unit Contract。
-6. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
-7. 必要な既存正式文書。
+3. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`。
+4. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
+5. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md`。
+6. 対象Work Unit Contract。
+7. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
+8. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
+9. 必要な既存正式文書。
 
-他repositoryでもnearest `AGENTS.md`、Implementation Plan、Progress、Contractを先に読む。
+他repositoryでもnearest `AGENTS.md`、Revision、Implementation Plan、Progress、Contractを先に読む。
 
 ## Repository状態確認
 
