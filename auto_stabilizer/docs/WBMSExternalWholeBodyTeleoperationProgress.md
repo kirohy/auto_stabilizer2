@@ -8,11 +8,13 @@
 
 参照順:
 
-1. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`: 正式仕様とMilestone。
-2. 本書: 実施済み作業、検証結果、未確認事項、compatible SHA。
-3. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`: Codex作業手順。
-4. `WBMSWalkingPreparationDesignRevisionPlan.md`: walking preparationの既存正式仕様。
-5. `WBMSFeasibleVelocityPostureControlProgress.md`: 旧構成の履歴。
+1. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`: 初回計画reviewで確定した修正。
+2. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`: 正式仕様とMilestone。
+3. 本書: 実施済み作業、検証結果、未確認事項、compatible SHA。
+4. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`: Codex作業手順。
+5. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`: 現行OpenAI公式Codex情報への対応。
+6. `WBMSWalkingPreparationDesignRevisionPlan.md`: walking preparationの既存正式仕様。
+7. `WBMSFeasibleVelocityPostureControlProgress.md`: 旧構成の履歴。
 
 過去entryの誤りを静かに書き換えない。訂正は新しいentryとして追記する。
 
@@ -270,3 +272,235 @@ M0-A: branch archaeology and exact baseline selection
 | `e568de33d9e74bea686433c9a0fa8f38daecbc75` | `Add Codex workflow for external teleoperation project` |
 
 本Progress、Skill、AGENTS変更のSHAは後続entryへ追記する。
+
+---
+
+## 2026-07-13 PLAN-0B Codex運用文書・Skill完成と文書review
+
+### Status
+
+COMMITTED
+
+### Repository state
+
+| repository | branch | base SHA | current SHA | dirty |
+|---|---|---|---|---|
+| `kirohy/auto_stabilizer2` | `wbms-external-teleop-plan` | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | `6fb17c38a4c7c37a208514260b4580f1957d85ee`時点までの文書・Skill群 | GitHub connector上で変更、local status未確認 |
+| `kirohy/rtmros_msg_bridge` | 未作成 | `master`想定 | 未変更 | 未確認 |
+| `kirohy/ik_solvers2` | `teleop-dev`想定 | 未記録 | 未変更 | 未確認 |
+| `kirohy/prioritized_qp` | `teleop-dev`想定 | 未記録 | 未変更 | 未確認 |
+| `whole_body_teleop` | 未作成 | - | - | - |
+
+### Goal
+
+長期・複数repository・安全重要projectをCodexで小さく実装、review、引き継ぎ、commitできる運用文書とrepository-local Skillを完成させ、初回計画の文書矛盾を修正する。
+
+### Scope and out-of-scope
+
+含む:
+
+- package-level `AGENTS.md`。
+- Plan、Implement、Review、Closeの4 Skill。
+- OpenAI公式Codex情報への対応指針。
+- 初回Implementation Planのbranch/heartbeat修正。
+- review、Progress、commit templateと禁止事項。
+
+含まない:
+
+- source code実装。
+- exact pre-M5 base SHA調査。
+- local build、simulation、実機確認。
+- planning branchのpush/merge/PR。
+
+### Code investigation
+
+- OpenAI公式AGENTS.md資料では、Codexがproject rootからcurrent directoryへinstructionを連結し、近いdirectoryのinstructionを後段で適用することを確認した。
+- OpenAI公式Skill資料では、`.agents/skills/<name>/SKILL.md`、`name`/`description`、progressive disclosure、明示呼出しを確認した。
+- OpenAI公式code review資料では、`/review`がworking treeを変更せずprioritized findingを返し、detached reviewを選択できることを確認した。
+- OpenAI公式long-running work資料では、clear outcome、constraints、definition of done、CLIの`/goal`、independent taskの別chatを確認した。
+- OpenAI公式model資料では、GPT-5.6 Sol/Terra/Luna、reasoning level、Max/Ultra、Ultraのsubagent利用を確認した。
+- 元計画19.1はexternal source未使用時にもgenerator/bridge heartbeatを必須と読め、legacy-only運用と矛盾していた。
+- 「全M4.2.2修正完了かつM5前」の単一commitが履歴上存在することを暗黙に仮定していた。
+
+### Decisions
+
+採用:
+
+- Work Unitをdistinct outcomeの単位とする。
+- read-only planning、承認済みContract implementation、detached review、fresh review、closureの順で進める。
+- implementation/review/closureを別Skillへ分離する。
+- source変更とcommitを分離し、commitは明示許可時だけ行う。
+- planning phaseは特定UI名へ固定せず、clientにplan capabilityがあれば使用する。
+- long-running implementationはGoalとdefinition of doneを明示する。
+- safety-critical/branch archaeologyはGPT-5.6 Sol High/Extra Highを基本とする。
+- schema固定後の通常実装はTerra、明確な反復変換はLunaを候補とする。
+- Ultraは分割可能な独立taskだけに使用する。
+- external sourceを一つでも選択した場合だけgenerator/bridge heartbeatをWBMS開始条件にする。
+- legacy-onlyではexternal heartbeatを要求しない。
+- 単一pre-M5 baseが無い場合は、pre-M5 commitへ必要なM4.2.2 review修正だけを選択的にcherry-pickしたsynthetic baselineを作る。
+
+不採用:
+
+- 全projectを一つの巨大Goalで実装する。
+- implementation task自身だけのreviewで完了とする。
+- review finding修正後にincremental部分だけを見る。
+- same sourceへ複数taskのwrite accessを与える。
+- model名やplan mode名を恒久仕様として固定する。
+- current `wbms-dev` HEADから大量削除するだけで実装baseを作る。
+
+### Changes
+
+| file | change | reason |
+|---|---|---|
+| `auto_stabilizer/AGENTS.md` | 500 Hz、安全、interface、review、commitのpackage規約を追加 | 各taskで安定した制約を自動適用 |
+| `.agents/skills/wbms-plan-work-unit/SKILL.md` | read-only調査とContract作成 | 実装前のscope freeze |
+| `.agents/skills/wbms-implement-work-unit/SKILL.md` | Contract内実装とverification、commit禁止 | 実装scopeと安全制約の固定 |
+| `.agents/skills/wbms-review-work-unit/SKILL.md` | P0-P3 read-only review | 実装者から独立したfinding |
+| `.agents/skills/wbms-close-work-unit/SKILL.md` | Progress、checklist、commit readiness | 未確認事項を隠さないatomic closure |
+| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md` | 現行公式Codex機能、model、mode、environment適用 | UI更新と安定原則を分離 |
+| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md` | branch基点、heartbeat、Codex mode、Skill完成条件を修正 | 初回計画review findingの解消 |
+| `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | PLAN-0B entryを追記 | 別taskへの引き継ぎ |
+
+### Commands and results
+
+GitHub connector:
+
+```text
+create auto_stabilizer/AGENTS.md
+create four .agents/skills/*/SKILL.md
+create CodexOfficialGuidance
+create ImplementationPlanRevision1
+compare wbms-dev...wbms-external-teleop-plan
+```
+
+PASS。compare時点ではplanning branchは`wbms-dev`より13 commit先行し、source code変更はなく、文書・AGENTS・Skillの10 fileだけが追加されていた。
+
+OpenAI公式web資料:
+
+```text
+open AGENTS.md / Skills / Code review / Long-running work / Projects / Environments / Worktrees / Models
+```
+
+PASS。2026-07-13時点の現行説明を確認した。
+
+Local checkoutでの以下は未実行。
+
+```sh
+git status --short
+git diff --check
+codex --ask-for-approval never "Summarize the current instructions."
+catkin build auto_stabilizer --no-deps
+```
+
+NOT RUN。containerからGitHubへのcloneはDNS制約で失敗し、GitHub connectorで文書を作成した。
+
+### Simulation / log evidence
+
+なし。control sourceは変更していない。
+
+### Review
+
+| round | reviewer/task | findings | resolution |
+|---|---|---|---|
+| 2 | 文書・workflow自己review | external未使用でもheartbeat必須と読める | Revision 1でexternal source選択時だけ必須へ修正 |
+| 2 | 文書・workflow自己review | 必要なM4.2.2修正とM5が交錯した場合のbase構築が未定義 | synthetic baseline手順をRevision 1へ追加 |
+| 2 | 公式情報照合 | workflowが特定のplan mode名と旧URLへ依存し得る | CodexOfficialGuidanceでread-only planning phase、`/goal`、現行公式URLへ整理 |
+| 2 | Skill構成review | Plan Skillしか存在せずworkflow記載と不一致 | Implement、Review、Close Skillを追加 |
+| 2 | instruction hierarchy review | main planだけを最優先にするとRevisionが読まれない | package `AGENTS.md`の参照順をRevision 1優先へ更新 |
+
+正式なCodex detached `/review`はlocal project/worktreeで未実行。
+
+### Acceptance
+
+| criterion | result | evidence |
+|---|---|---|
+| 正式Implementation Planがある | PASS | ImplementationPlan + Revision 1 |
+| M0-M12の段階的Milestoneがある | PASS | ImplementationPlan |
+| Codex Work Unit workflowがある | PASS | CodexWorkflow |
+| 現行OpenAI公式情報への対応がある | PASS | CodexOfficialGuidance |
+| package-level safety instructionがある | PASS | `auto_stabilizer/AGENTS.md` |
+| Plan/Implement/Review/Close Skillがある | PASS | `.agents/skills/`の4 Skill |
+| review重点・非finding指定がある | PASS | CodexWorkflowとReview Skill |
+| append-only Progress templateがある | PASS | 本書 |
+| commit checklistと明示許可条件がある | PASS | CodexWorkflowとClose Skill |
+| source codeを変更していない | PASS | branch compareは文書、AGENTS、Skillのみ |
+| local `git diff --check` | UNVERIFIED | local checkoutなし |
+| CodexによるSkill/AGENTS discovery | UNVERIFIED | M0でlocal確認 |
+| formal detached document review | UNVERIFIED | M0開始前またはplanning PRで実施 |
+
+### Unverified
+
+- exact pre-M5またはsynthetic baseline SHA。
+- planning branchのlocal `git diff --check`。
+- Codexがroot/package `AGENTS.md`と4 Skillを正しく検出すること。
+- formal detached `/review`のfinding。
+- package build。source変更はないがlocal build環境未使用。
+- dependency branch/HEAD SHA。
+
+### Open issues
+
+- M0-Aでcommit履歴、コード、正式文書を照合する。
+- M0でactive AGENTS chainとSkill一覧をCodexに出力させる。
+- planning branch文書を実装baseへcherry-pickする単位を決定する。
+- formal document reviewのP0/P1/P2を解消してからM0-Bへ進む。
+
+### Compatible dependency set
+
+| repository | SHA |
+|---|---|
+| `auto_stabilizer2` planning source base | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` |
+| `auto_stabilizer2` planning docs | `6fb17c38a4c7c37a208514260b4580f1957d85ee`以降、本entry commitまで |
+| `rtmros_msg_bridge` | 未記録 |
+| `ik_solvers2` | 未記録 |
+| `prioritized_qp` | 未記録 |
+| `whole_body_teleop` | 未作成 |
+
+### Next entry point
+
+次Work Unit:
+
+```text
+M0-A: branch archaeology and exact baseline selection
+```
+
+開始task:
+
+```text
+$wbms-plan-work-unit M0-A
+```
+
+最初に読む順:
+
+1. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`。
+2. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
+3. 本ProgressのPLAN-0B。
+4. `WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
+5. `WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
+6. `WBMSWalkingPreparationDesignRevisionPlan.md`。
+7. 旧Progress後方のM4.2.2/M5記録。
+8. git history。
+
+注意:
+
+- 単一base commitの存在を仮定しない。
+- synthetic baselineが必要なら、walking preparation修正とM5変更をcommit単位・diff単位で分類する。
+- current `wbms-dev` HEADを実装baseにしない。
+- source変更を行わずContractを作成する。
+
+### Commit
+
+| SHA | subject |
+|---|---|
+| `f8108e8d65586754bf5754f5746f04b50e0ba899` | `Add progress log for external teleoperation project` |
+| `eaa45c961f5b15e1fdcedf9ac37fdb9e4880cd7d` | `Add package instructions for external teleoperation work` |
+| `3413fc82c5de5488024212da26577e747a8121d0` | `Add WBMS work unit planning skill` |
+| `a39ed803f2baeda9b1db3326fabd6a8f0442e9f9` | `Add WBMS work unit implementation skill` |
+| `ce106f15e3547eb9ee7e5fae6b3a02a650ea48fe` | `Add WBMS work unit review skill` |
+| `9b345225584ce672445f6dea9bfdee7ffef65c04` | `Add WBMS work unit closure skill` |
+| `5bb65793c603d06a9c0b481ad4adc8173ddc43de` | `Add official Codex guidance for WBMS workflow` |
+| `59d5f26fa516cd3caf39e35a0e8360049dc61bcb` | `Reference official Codex guidance in package instructions` |
+| `2458371b1c6adff4f6f5d358ecfd8eabfc19b531` | `Clarify external teleoperation implementation plan` |
+| `1491662239a2aedbd482e46afbd193e9674a468e` | `Prioritize external teleoperation plan revision` |
+| `6fb17c38a4c7c37a208514260b4580f1957d85ee` | `Align WBMS planning skill with revised plan` |
+
+本PLAN-0B entryを追加したcommit SHAは、次entryのRepository stateで記録する。
