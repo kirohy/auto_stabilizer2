@@ -23,35 +23,44 @@ repositories:
     remote: kirohy/auto_stabilizer2
     role: realtime_consumer_and_central_docs
     required: true
-    expected_branch: <branch>
+    observed_planning_branch: wbms-external-teleop-plan
+    m0_baseline_ref: historical-wbms-dev-ancestor
+    m0_baseline_sha: c06b63c8e12dbf85bda4c8391a37544c2469731c
 
   whole_body_teleop:
     path: "${CATKIN_SOURCE_ROOT}/whole_body_teleop"
     remote: kirohy/whole_body_teleop
     role: ros_reference_generator
     required: true
-    expected_branch: <branch>
+    m0_status: not_applicable_repository_not_created
 
   rtmros_msg_bridge:
     path: "${CATKIN_SOURCE_ROOT}/rtmros_msg_bridge"
     remote: kirohy/rtmros_msg_bridge
     role: ros_rtm_transport_bridge
     required: true
-    expected_branch: <branch>
+    observed_development_branch: jaxon-minimal
+    m0_baseline_ref: jaxon-minimal
+    m0_baseline_sha: 10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214
+    m0_baseline_build_dependency: false
 
   ik_solvers2:
     path: "${CATKIN_SOURCE_ROOT}/ik_solvers2"
     remote: <owner>/ik_solvers2
     role: ik_library
     required: true
-    expected_branch: teleop-dev
+    observed_development_branch: teleop-dev
+    m0_baseline_ref: "2.0"
+    m0_baseline_sha: b5de6cd99a6bf89ddb9baadd2a77b63a52319add
 
   prioritized_qp:
     path: "${CATKIN_SOURCE_ROOT}/prioritized_qp"
     remote: <owner>/prioritized_qp
     role: qp_backend
     required: true
-    expected_branch: teleop-dev
+    observed_development_branch: teleop-dev
+    m0_baseline_ref: master
+    m0_baseline_sha: 624bc1e3e26d4a16f7765baf64fc5941865f2d64
 
 common_skills:
   canonical_root: "${CATKIN_SOURCE_ROOT}/auto_stabilizer2/.agents/skills"
@@ -84,5 +93,31 @@ package_builds:
     normal: catkin build whole_body_teleop_rtmros_bridge --no-deps
     dependency_check: catkin build whole_body_teleop_rtmros_bridge
 
-# Exact compatible SHAs are recorded in Central Progress, not permanently fixed here.
-compatible_set: {}
+compatible_sets:
+  M0-pre-M5-baseline:
+    status: selected
+    build_owner: M0-B7
+    build_verification: UNVERIFIED
+    simulation_verification: UNVERIFIED
+    hardware_verification: UNVERIFIED
+    repositories:
+      auto_stabilizer2:
+        ref: historical-wbms-dev-ancestor
+        sha: c06b63c8e12dbf85bda4c8391a37544c2469731c
+        baseline_build_dependency: true
+      ik_solvers2:
+        ref: "2.0"
+        sha: b5de6cd99a6bf89ddb9baadd2a77b63a52319add
+        baseline_build_dependency: true
+      prioritized_qp:
+        ref: master
+        sha: 624bc1e3e26d4a16f7765baf64fc5941865f2d64
+        baseline_build_dependency: true
+      rtmros_msg_bridge:
+        ref: jaxon-minimal
+        sha: 10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214
+        baseline_build_dependency: false
+      whole_body_teleop:
+        ref: null
+        sha: null
+        status: not_applicable_repository_not_created
