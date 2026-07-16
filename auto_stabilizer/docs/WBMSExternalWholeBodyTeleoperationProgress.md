@@ -682,3 +682,139 @@ PLAN-0Cで作成・更新した主要commit:
 | `auto_stabilizer2` | `ac96f923176110af9ad5e96f4ca65ec478efd576` | `Add workspace manifest template` |
 | `auto_stabilizer2` | `e9ea7dd1fb11ade46265d1718c36f1893711ae27` | `Document Codex workspace bootstrap assets` |
 | `auto_stabilizer2` | `e7795f7b2d05d6d131c7cc230ffa408a3d3e4266` | `Add multi-repository Codex operator guide revision` |
+
+---
+
+## 2026-07-16 M0-A5 central Progress sync
+
+### Status
+
+- M0-A-R1 repository commit: `COMMITTED`。
+- M0-A5 central Progress sync: `IMPLEMENTED`、fresh read-only review前。
+- M0全体: `IN_PROGRESS`。M0-A5のfresh review、人間によるexact diffとcommitの明示承認、commitが完了するまでは完了扱いにしない。
+
+### Workspace context
+
+- CATKIN_WORKSPACE: `/home/kirohy/catkin_ws/cnoid2`
+- CATKIN_SOURCE_ROOT: `/home/kirohy/catkin_ws/cnoid2/src`
+- Codex launch directory: `/home/kirohy/catkin_ws/cnoid2/src/auto_stabilizer2`
+
+### Repository state
+
+| repository | branch | base SHA | current SHA | access | dirty |
+|---|---|---|---|---|---|
+| `auto_stabilizer2` | `wbms-external-teleop-plan` | `15369f77665311381e27eef464edbfc69660b8a4` | `15369f77665311381e27eef464edbfc69660b8a4` | WRITE | 既存untrackedあり、保持 |
+| `ik_solvers2` | observed `teleop-dev` | READ観測のみ | `47576209a01a35177ac0d594e586abfa90927dd7` | READ | 既存untrackedあり、保持 |
+| `prioritized_qp` | observed `teleop-dev` | READ観測のみ | `7ce17d8e80a3b3a7fc8d24187d167b8b5055c9fd` | READ | clean |
+| `rtmros_msg_bridge` | `jaxon-minimal` | READ観測のみ | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | READ | 既存untrackedあり、保持 |
+| `whole_body_teleop` | 未作成 | — | — | NONE | — |
+
+既存のdirty/untracked状態は全repositoryで保持した。reset、stash、checkout、clean、削除、移動、上書き、stageは行っていない。
+
+### Goal
+
+M0-A-R1で人間承認されcommit済みとなったbaseline compatible set、exact commit evidence、未検証状態、M0-B1へのgateを、中央Progressへappend-onlyで同期する。
+
+### Scope and out-of-scope
+
+含む:
+
+- 本entryのappend-only追加。
+- approved compatible set `M0-pre-M5-baseline`の記録。
+- M0-A-R1 commitとfresh review evidenceの記録。
+- M0-A5 review、承認、commit gateとnext entry pointの記録。
+
+含まない:
+
+- 既存Progress entryの修正、並べ替え、削除。
+- M0-A-R1 Contract/input、M0-A、Revision 2、MultiRepositoryOperations、manifest、AGENTS、4 Work Unit Skill、control sourceの変更。
+- sibling repositoryの変更。
+- stage、commit、push、merge、PR作成、branch/worktree/dedicated workspace作成。
+- build、simulation、実機実行。
+- M0-B1以降の開始。
+
+### Approved compatible dependency set
+
+name: `M0-pre-M5-baseline`
+
+| repository | SHA | status |
+|---|---|---|
+| `auto_stabilizer2` | `c06b63c8e12dbf85bda4c8391a37544c2469731c` | SELECTED |
+| `ik_solvers2` | `b5de6cd99a6bf89ddb9baadd2a77b63a52319add` | SELECTED |
+| `prioritized_qp` | `624bc1e3e26d4a16f7765baf64fc5941865f2d64` | SELECTED |
+| `rtmros_msg_bridge` | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | SELECTED、M0 baseline build非依存 |
+| `whole_body_teleop` | — | NOT APPLICABLE、repository未作成 |
+
+current dirty workspaceおよびcurrent development branchのHEADは、このbaseline sourceまたはbuild sourceに使用しない。
+
+### M0-A-R1 completion evidence
+
+- repository: `auto_stabilizer2`
+- commit SHA: `15369f77665311381e27eef464edbfc69660b8a4`
+- subject: `Correct M0 baseline planning assets`
+- parent SHA: `6e530edacecf663f2eedbdcfd5a787468dad70ce`
+- committed paths、exact 4 files:
+  - `auto_stabilizer/docs/M0-A.md`
+  - `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`
+  - `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`
+  - `tools/codex_workspace/templates/WBMSExternalTeleopWorkspaceManifest.template.yaml`
+- diff stat: `4 files changed, 751 insertions(+), 35 deletions(-)`
+- latest fresh cross-repository read-only review: P0/P1/P2 findingなし、P3 findingなし。
+- `git diff --check`: PASS。
+- build、simulation、実機: `UNVERIFIED`。
+
+### Decisions
+
+- CHEST相対腕拘束とM4.2.2の必要な安全修正は最初の旧M5 commitより前の直列履歴に含まれるため、synthetic baselineは不要とする。
+- M0-A3はexecutable sub-unitとして廃止する。build commandの計画だけをM0-Aへ残す。
+- 全package-specific baseline buildのsole ownerはM0-B7とする。
+- M0-A5はcentral Progress syncだけを所有する。
+- current dirty workspaceをbaseline sourceまたはbuild sourceに使用しない。
+- M0-B1で隔離方式、exact path、source-root外worktree、dedicated catkin workspace、underlay、同名package重複回避、current generated artifact非混入を人間承認する。
+
+### Changes
+
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | 本M0-A5 entryを末尾へappend-only追加 | approved baselineとM0-A-R1 SHAの中央同期 |
+
+### Verification / Unverified
+
+| item | result | evidence |
+|---|---|---|
+| package build | UNVERIFIED | M0-B7だけが実行owner |
+| dedicated baseline workspace | UNVERIFIED | M0-B1の人間承認前 |
+| planning asset migration | UNVERIFIED | M0-B2未開始 |
+| simulation | UNVERIFIED | 今回未実行 |
+| 実機 | UNVERIFIED | 今回未実行 |
+
+historical logはbaseline選定根拠としてのみ扱い、今回のruntime verificationとして扱わない。未実行項目をPASS表記しない。
+
+### Review
+
+| round | reviewer/task | findings | resolution |
+|---|---|---|---|
+| pending | M0-A5最新diff全体のfresh read-only review | PENDING | review後に記録する |
+
+### Central Progress sync
+
+- M0-A-R1 exact SHAとapproved `M0-pre-M5-baseline`の記録: 本entryで実装。
+- M0-A5 fresh review: PENDING。
+- 人間によるM0-A5 exact diffとcommitの明示承認: PENDING。
+- M0-A5 commit: PENDING。
+- expected M0-A5 commit subject: `Record approved M0 baseline compatible set`
+- 上記3 gateの完了前にM0-AおよびM0全体を完了扱いにしない。
+
+### Next entry point
+
+1. 最新M0-A5 diff全体をfresh read-only reviewする。
+2. P0/P1/P2 findingを解消し、修正後は最新diff全体を再reviewする。
+3. 人間がM0-A5のexact diffとcommitを明示承認する。
+4. expected subject `Record approved M0 baseline compatible set`でM0-A5をcommitする。
+5. M0-A5 commit完了後だけM0-Aを完了扱いにする。
+6. M0-A5のreview、承認、commit完了前にM0-B1を開始しない。
+
+### Commit
+
+- M0-A5 commit SHA: PENDING。
+- expected subject: `Record approved M0 baseline compatible set`
