@@ -1254,3 +1254,166 @@ current `ik_solvers2/teleop-dev`および`prioritized_qp/teleop-dev`は観測中
 - expected parent: `91c0f23d2596c6cec4501b9a0f551974098e4f7a`
 - expected subject: `Record M0-B2 isolated branch materialization`
 - commit SHA: PENDING
+
+## 2026-07-17 M0-B3-PROGRESS M0-B3 whole_body_teleop bootstrap central Progress sync
+
+### Status
+
+- M0-B2 record commit: COMMITTED as `e0c311ecb59e3d9ae9bea6b551c03ffd5d58efa3` (`Record M0-B2 isolated branch materialization`)。
+- 直前のM0-B2 entryはcommit前snapshotであり、append-only履歴としてそのまま保存する。そこに残る`PENDING`を直接修正しない。
+- M0-B3 `whole_body_teleop` repository/package bootstrap: COMPLETED and COMMITTED。
+- M0-B3-PROGRESS implementation: 本entryをappend-only追加するcurrent task。
+- M0-B3-PROGRESS fresh review: PENDING。
+- M0-B3-PROGRESS human approval/commit: PENDING。
+- M0-B4: BLOCKED。M0-B3-PROGRESSのfresh review、人間承認、commit完了前に開始しない。
+
+### Workspace context
+
+- `CATKIN_WORKSPACE=/home/kirohy/catkin_ws/teleop_ws`
+- `CATKIN_SOURCE_ROOT=/home/kirohy/catkin_ws/teleop_ws/src`
+- implementation launch directory: `/home/kirohy/catkin_ws/teleop_ws/src/auto_stabilizer2`
+- WRITE repository: `auto_stabilizer2`だけ
+- WRITE file: `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md`だけ
+- READ repositories: `whole_body_teleop`、`ik_solvers2`、`prioritized_qp`、`rtmros_msg_bridge`
+
+### Goal
+
+preceding repository sub-unit M0-B3のcommitted result、review、static verification、defer、repository setおよび次gateを、中央Progress正本へappend-onlyで同期する。
+
+### Scope and out-of-scope
+
+本sub-unitの変更scopeは、この中央Progress 1 file末尾への本entry追加だけである。既存entryの修正、削除、並べ替えは行わない。
+
+control source、IDL、CMake、package metadata、AGENTS、Skill、template、Project Context、workspace manifest、sibling repositoryは変更しない。stage、commit、push、merge、PR作成、package build、simulation、hardware executionおよびM0-B4開始も本sub-unitのimplementation scope外とする。
+
+### Repository state at sync start
+
+| repository | access | branch | observed HEAD | working tree/index |
+|---|---|---|---|---|
+| `auto_stabilizer2` | WRITE、中央Progress 1 fileだけ | `wbms-external-teleop` | `e0c311ecb59e3d9ae9bea6b551c03ffd5d58efa3` | clean |
+| `whole_body_teleop` | READ | `wbms-external-teleop` | `fd464f574eb26afc25b4e88e67e12b2296d0e420` | clean |
+| `ik_solvers2` | READ | `teleop-dev` | `47576209a01a35177ac0d594e586abfa90927dd7` | clean |
+| `prioritized_qp` | READ | `teleop-dev` | `7ce17d8e80a3b3a7fc8d24187d167b8b5055c9fd` | clean |
+| `rtmros_msg_bridge` | READ | `jaxon-minimal` | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | clean |
+
+`whole_body_teleop`はremoteなし。HEADはparentのないroot commitである。
+
+### M0-B3 repository commit
+
+| item | recorded result |
+|---|---|
+| repository | `whole_body_teleop` |
+| branch | `wbms-external-teleop` |
+| commit SHA | `fd464f574eb26afc25b4e88e67e12b2296d0e420` |
+| commit type | root commit |
+| subject | `Bootstrap whole_body_teleop repository and packages` |
+| parent | none |
+| result | 7 files、208 insertions、全file mode `100644` |
+| post-commit state | working tree/index clean、remoteなし |
+
+committed exact 7 paths:
+
+```text
+AGENTS.md
+whole_body_teleop_msgs/AGENTS.md
+whole_body_teleop_msgs/CMakeLists.txt
+whole_body_teleop_msgs/package.xml
+whole_body_teleop_reference_generator/AGENTS.md
+whole_body_teleop_reference_generator/CMakeLists.txt
+whole_body_teleop_reference_generator/package.xml
+```
+
+### Review
+
+| round | target | result | findings/source state |
+|---|---|---|---|
+| M0-B3 fresh read-only repository review | exact 7 untracked files、repository state、sibling state | PASS | P0/P1/P2/P3 findingなし |
+| review後からcommitまで | reviewed source content | PASS | source変更なし。stageとatomic root commitだけを実施 |
+| M0-B3-PROGRESS fresh read-only review | 本append-only entryを含むlatest diff全体 | PENDING | implementation taskとは別taskでreviewする |
+
+### M0-B3 static verification and commit evidence
+
+| item | result | evidence |
+|---|---|---|
+| root `AGENTS.md` template comparison | PASS、byte-identical | template/target SHA-256ともに`2814eb8cfc24293296a15efb6e3b352eb67332b6227660d33666e06aedb2021d` |
+| package XML syntax | PASS | 2 packageの`package.xml`に`xmllint --noout` |
+| catkin package discovery | PASS | `whole_body_teleop_msgs`、`whole_body_teleop_reference_generator`のexpected 2 packagesだけを認識 |
+| repository directory layout | PASS | `.git/`とcommitted exact 7 pathsだけ |
+| pre-commit staged scope | PASS | exact 7 pathsだけ |
+| `git diff --cached --check` | PASS | error出力なし |
+| atomic root commit | PASS | commit parentなし、subject一致 |
+| committed paths/stat/modes | PASS | exact 7 paths、208 insertions、全mode `100644` |
+| post-commit `whole_body_teleop` state | PASS | branch/HEAD一致、working tree/index clean、remoteなし |
+| post-commit sibling repository state | PASS | `auto_stabilizer2`、`ik_solvers2`、`prioritized_qp`、`rtmros_msg_bridge`はexpected branch/HEAD/clean stateを維持 |
+
+### Selected M0-pre-M5-baseline
+
+このtableは正式にselectedされたbaseline dependency setであり、下記のobserved development checkoutをbaseline SHAとして扱わない。
+
+| repository | selected ref/SHA | status |
+|---|---|---|
+| `auto_stabilizer2` | `c06b63c8e12dbf85bda4c8391a37544c2469731c` | SELECTED |
+| `ik_solvers2` | `b5de6cd99a6bf89ddb9baadd2a77b63a52319add` | SELECTED |
+| `prioritized_qp` | `624bc1e3e26d4a16f7765baf64fc5941865f2d64` | SELECTED |
+| `rtmros_msg_bridge` | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | SELECTED、M0 baseline build非依存 |
+| `whole_body_teleop` | — | NOT APPLICABLE、M0 baseline dependencyではない |
+
+exact compatible-set materialization/buildはM0-B7へdeferする。
+
+### Observed repository checkout set
+
+このtableはM0-B3-PROGRESS開始時に観測したdevelopment checkoutであり、selected `M0-pre-M5-baseline`とは別の記録である。
+
+| repository | observed branch | observed SHA |
+|---|---|---|
+| `auto_stabilizer2` | `wbms-external-teleop` | `e0c311ecb59e3d9ae9bea6b551c03ffd5d58efa3` |
+| `whole_body_teleop` | `wbms-external-teleop` | `fd464f574eb26afc25b4e88e67e12b2296d0e420` |
+| `ik_solvers2` | `teleop-dev` | `47576209a01a35177ac0d594e586abfa90927dd7` |
+| `prioritized_qp` | `teleop-dev` | `7ce17d8e80a3b3a7fc8d24187d167b8b5055c9fd` |
+| `rtmros_msg_bridge` | `jaxon-minimal` | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` |
+
+### Verification / Unverified
+
+| item | result | owner/evidence |
+|---|---|---|
+| M0-B3 package skeleton review/static verification | PASS | 上記reviewおよびstatic evidence |
+| package build | UNVERIFIED | M0-B7へdefer |
+| exact compatible-set materialization/build | UNVERIFIED | M0-B7へdefer |
+| simulation | UNVERIFIED | 本sub-unitでは実行しない |
+| hardware | UNVERIFIED | 本sub-unitでは実行しない |
+| source-root AGENTS/common Skill installation | UNVERIFIED | M0-B5へdefer |
+| Project Context/workspace manifest | UNVERIFIED | M0-B6へdefer |
+
+static verification PASSはpackage build、exact compatible-set build、simulationまたはhardware verificationを代替しない。
+
+### Changes
+
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | 既存1256行を変更せず、本M0-B3-PROGRESS entryを末尾へappend-only追加 | M0-B3 evidenceとgateの中央Progress同期 |
+
+### Central Progress sync and gates
+
+- M0-B3 repository commit: COMPLETED。
+- M0-B3-PROGRESS implementation: 本entryで実施。
+- M0-B3-PROGRESS fresh read-only review: PENDING。
+- 人間によるM0-B3-PROGRESS exact diffとcommitの明示承認: PENDING。
+- M0-B3-PROGRESS commit: PENDING。
+- M0-B4: BLOCKED。
+- M0-B3-PROGRESSのfresh review、人間承認、commit完了前にM0-B4へ進まない。
+
+### Next entry point
+
+1. 本M0-B3-PROGRESS latest diff全体を別taskでfresh read-only repository reviewする。
+2. findingがあれば修正し、修正後のlatest diff全体を再reviewする。
+3. review PASS後、別taskでcommit readinessを判定する。
+4. 人間がexact diffとcommitを明示承認する。
+5. expected subject `Record M0-B3 whole_body_teleop bootstrap`で中央Progress 1 fileだけをcommitする。
+6. M0-B3-PROGRESS commit完了後だけM0-B4へ進む。
+
+### Commit
+
+- repository: `auto_stabilizer2`
+- expected parent: `e0c311ecb59e3d9ae9bea6b551c03ffd5d58efa3`
+- expected subject: `Record M0-B3 whole_body_teleop bootstrap`
+- commit SHA: PENDING
