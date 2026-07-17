@@ -818,3 +818,167 @@ historical logはbaseline選定根拠としてのみ扱い、今回のruntime ve
 
 - M0-A5 commit SHA: PENDING。
 - expected subject: `Record approved M0 baseline compatible set`
+
+---
+
+## 2026-07-17 M0-B1 isolated workspace closure
+
+### Status
+
+- M0-A5 source commit: `c6a1084edea1f6e916fa699adb01e4641149bf57`。
+- M0-A: `COMPLETE`。
+- M0-B1の隔離方式とclosure: 人間承認済み。
+- 本durable record: `IMPLEMENTED`、fresh read-only review、人間によるexact diffとcommitの明示承認、commitは`PENDING`。
+
+### Workspace context
+
+- CATKIN_WORKSPACE: `/home/kirohy/catkin_ws/teleop_ws`
+- CATKIN_SOURCE_ROOT: `/home/kirohy/catkin_ws/teleop_ws/src`
+- isolated `auto_stabilizer2` checkout: `/home/kirohy/catkin_ws/teleop_ws/src/auto_stabilizer2`
+- Codex launch directory: `/home/kirohy/catkin_ws/teleop_ws/src/auto_stabilizer2`
+
+### Repository state at record start
+
+| repository | branch | current SHA | access | dirty |
+|---|---|---|---|---|
+| `auto_stabilizer2` | `wbms-external-teleop` | `2497f521c17b522d09f190faf85b3d94fd742f0f` | WRITE、中央Progressだけ | clean |
+| `ik_solvers2` | `teleop-dev` | `47576209a01a35177ac0d594e586abfa90927dd7` | READ | clean |
+| `prioritized_qp` | `teleop-dev` | `7ce17d8e80a3b3a7fc8d24187d167b8b5055c9fd` | READ | clean |
+| `rtmros_msg_bridge` | `jaxon-minimal` | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | READ | clean |
+| `whole_body_teleop` | — | — | NONE | 未参照 |
+
+### Goal
+
+M0-B1で人間承認された隔離方式、exact path、environment、generated space非混入条件、およびclosure evidenceを中央Progressへappend-onlyで固定する。
+
+### Scope and out-of-scope
+
+含む:
+
+- M0-B1の人間承認済みclosure evidence。
+- isolated checkout、workspace、underlay setup、package重複回避の記録。
+- default spaceとM0-B7専用spaceの所有権分離。
+- 未検証項目と後続gateの記録。
+
+含まない:
+
+- 過去Progress entryの修正、削除、並べ替え。
+- M0-B2の移植・review evidence。
+- control source、IDL、CMake、package metadata、AGENTS、Skill、template、Project Context、workspace manifestの変更。
+- sibling repositoryの変更。
+- generated spaceの作成、削除、整理。
+- build、simulation、実機実行。
+- branch切替、worktree操作、reset、stash、clean、stage、commit、push、merge、PR作成。
+
+### Approved isolation and closure evidence
+
+- historical dirty checkout `/home/kirohy/catkin_ws/cnoid2/src/auto_stabilizer2`はbaseline sourceまたはbuild sourceに使用しない。本Work Unitでも参照元・実行元・変更先に使用せず、変更していない。
+- `git worktree list --porcelain`で確認できる`auto_stabilizer2` worktreeは、isolated checkout `/home/kirohy/catkin_ws/teleop_ws/src/auto_stabilizer2`の1件だけである。additional worktreeはない。
+- 承認済みworkspace layoutに同名package重複はない。本記録直前の全READ repositoryの`package.xml` name照合でも重複はない。
+- source-root内へ同一packageを持つ別worktreeを置かない。
+- historical checkoutのgenerated artifact、cache、compile database、logを本workspaceのbaseline evidenceへ混入させない。
+
+### Approved environment
+
+M0-B7はfresh shellで次のexact sequenceを使用する。
+
+```zsh
+source /opt/ros/noetic/setup.zsh
+source /home/kirohy/catkin_ws/teleop_ws/devel/setup.zsh
+cd /home/kirohy/catkin_ws/teleop_ws
+```
+
+- `/opt/ros/noetic`をunderlayとし、`teleop_ws/devel`を承認済みprebuilt environmentとして重ねる。
+- 現在のCodex processが継承したenvironmentは、M0-B7のfresh build evidenceに使用しない。
+- `.catkin_tools/profiles/default/config.yaml`では`install: false`である。
+
+### Generated space ownership
+
+既存default space:
+
+- `/home/kirohy/catkin_ws/teleop_ws/build`
+- `/home/kirohy/catkin_ws/teleop_ws/devel`
+- `/home/kirohy/catkin_ws/teleop_ws/logs`
+
+これらはfeasibility buildまたはprebuilt environmentであり、fresh M0-B7 evidenceとして使用しない。
+
+M0-B7専用space:
+
+- `/home/kirohy/catkin_ws/teleop_ws/build_m0_baseline`
+- `/home/kirohy/catkin_ws/teleop_ws/devel_m0_baseline`
+- `/home/kirohy/catkin_ws/teleop_ws/logs_m0_baseline`
+- install disabled
+
+上記専用spaceは本記録時点で未作成である。M0-B7だけが作成とpackage-specific baseline buildを所有し、本Work Unitでは作成しない。
+
+### Deferred ownership
+
+- source-root `AGENTS.md`配置とcommon Skill installation/recognition: M0-B5へdefer。
+- Project Contextの配置または正式defer状態とworkspace manifest: M0-B6へdefer。
+- selected compatible setのmaterializationとpackage-specific baseline build: M0-B7だけが所有。
+
+### Changes
+
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | 本M0-B1 entryをfile末尾へappend-only追加 | 人間承認済み隔離方式とclosure evidenceのdurable record |
+
+### Commands and results
+
+| execution directory | command | result | evidence |
+|---|---|---|---|
+| 各repository root | `git status --short` | PASS | 4 repositoryとも出力なし |
+| 各repository root | `git branch --show-current` | PASS | 上記repository stateと一致 |
+| 各repository root | `git rev-parse HEAD` | PASS | 上記repository stateと一致 |
+| `auto_stabilizer2` root | `git worktree list --porcelain` | PASS | current checkout 1件だけ |
+| READ repository群 | `package.xml`の`<name>`重複照合 | PASS | duplicate nameなし |
+| `/home/kirohy/catkin_ws/teleop_ws` | default/M0-B7専用space存在確認 | PASS | default 3 spaceは存在、専用3 spaceは未作成 |
+| `/home/kirohy/catkin_ws/teleop_ws` | catkin profileと`devel/_setup_util.py`のread-only確認 | PASS | install disabled、承認済みprefixは`teleop_ws/devel`と`/opt/ros/noetic` |
+| — | package build | NOT RUN | M0-B7へdefer |
+| — | simulation | NOT RUN | `UNVERIFIED` |
+| — | hardware | NOT RUN | `UNVERIFIED` |
+
+### Verification / Unverified
+
+| item | result | evidence |
+|---|---|---|
+| M0-B1 isolation/closure human approval | PASS | 承認済みContractと本実装指示 |
+| package build | UNVERIFIED | 今回未実行、M0-B7だけが実行owner |
+| selected compatible set materialization | UNVERIFIED | M0-B7へdefer |
+| simulation | UNVERIFIED | 今回未実行 |
+| hardware | UNVERIFIED | 今回未実行 |
+| source-root AGENTS/common Skill installation | UNVERIFIED | M0-B5へdefer |
+| Project Context/workspace manifest | UNVERIFIED | M0-B6へdefer |
+
+未実行のbuild、simulation、hardwareをPASS扱いしない。既存default spaceとhistorical artifactもfresh verification evidenceとして扱わない。
+
+### Review
+
+| round | reviewer/task | findings | resolution |
+|---|---|---|---|
+| pending | 本M0-B1最新diff全体のfresh repository review | PENDING | review後に記録する |
+
+### Central Progress sync and gates
+
+- M0-B1 isolation/closure evidenceのappend-only記録: 本entryで実装。
+- M0-B1 fresh review: PENDING。
+- 人間によるM0-B1 exact diffとcommitの明示承認: PENDING。
+- M0-B1 record commit: PENDING。
+- expected commit subject: `Record M0-B1 isolated workspace closure`
+- M0-B2 durable recordは別Work Unit・別commitとする。本entryまたは同じcommitへ混在させない。
+- M0-B1 record commit完了前にM0-B2 durable recordへ進まない。
+- M0-B2 closure完了前にM0-B3へ進まない。
+
+### Next entry point
+
+1. 本M0-B1最新diff全体をfresh read-only repository reviewする。
+2. P0/P1/P2 findingを解消し、修正後は最新diff全体を再reviewする。
+3. 人間がM0-B1のexact diffとcommitを明示承認する。
+4. expected subject `Record M0-B1 isolated workspace closure`でM0-B1 recordをcommitする。
+5. M0-B1 record commit後だけ、M0-B2 durable recordを別Work Unit・別commitとして開始する。
+6. M0-B2 closure完了前にM0-B3を開始しない。
+
+### Commit
+
+- expected subject: `Record M0-B1 isolated workspace closure`
+- commit SHA: PENDING
