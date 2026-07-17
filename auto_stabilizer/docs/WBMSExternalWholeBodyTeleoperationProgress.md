@@ -982,3 +982,275 @@ M0-B7専用space:
 
 - expected subject: `Record M0-B1 isolated workspace closure`
 - commit SHA: PENDING
+
+---
+
+## 2026-07-17 M0-B2-record M0-B2 isolated branch materialization durable record
+
+### Status
+
+- M0-B2 isolated branch materialization履歴のread-only verification: `PASS`。
+- 本durable record: `IMPLEMENTED`、fresh read-only review前。
+- M0-B2全体: `IN_PROGRESS`。fresh review、人間によるexact diffとcommitの明示承認、commitは`PENDING`。
+- M0-B3: `BLOCKED`。M0-B2 closure完了前に開始しない。
+
+### Workspace context
+
+- CATKIN_WORKSPACE: `/home/kirohy/catkin_ws/teleop_ws`
+- CATKIN_SOURCE_ROOT: `/home/kirohy/catkin_ws/teleop_ws/src`
+- Codex launch directory: `/home/kirohy/catkin_ws/teleop_ws/src/auto_stabilizer2`
+
+### Repository state at record start
+
+| repository | branch | current SHA | access | dirty |
+|---|---|---|---|---|
+| `auto_stabilizer2` | `wbms-external-teleop` | `91c0f23d2596c6cec4501b9a0f551974098e4f7a` | WRITE、中央Progressだけ | clean |
+| `ik_solvers2` | `teleop-dev` | `47576209a01a35177ac0d594e586abfa90927dd7` | READ | clean |
+| `prioritized_qp` | `teleop-dev` | `7ce17d8e80a3b3a7fc8d24187d167b8b5055c9fd` | READ | clean |
+| `rtmros_msg_bridge` | `jaxon-minimal` | `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | READ | clean |
+| `whole_body_teleop` | — | — | NONE | 未参照 |
+
+### Goal
+
+`c06b63c8e12dbf85bda4c8391a37544c2469731c`をcontrol baselineとするisolated `auto_stabilizer2` implementation branchについて、planning asset rangeとM0-A-R1/M0-A5の個別移植、commit順序、内容同等性、非制御差分、未検証状態を中央Progressへappend-onlyで固定する。
+
+### Scope and out-of-scope
+
+含む:
+
+- 既にmaterialize済みのbranch履歴に対するread-only verification evidence。
+- planning assetのexact source/destination rangeと個別commit mapping。
+- changed-path、`range-diff`、stable patch-id、parent関係の記録。
+- control source、IDL、CMake、package metadataの非変更証拠。
+- sibling repository非変更、未検証項目、review/commit/M0-B3 gateの記録。
+
+含まない:
+
+- branch、worktree、repository、dedicated workspaceの作成または再materialization。
+- cherry-pick、checkout、reset、rebase、merge、stash、clean。
+- 過去Progress entryの修正、削除、並べ替え。
+- 中央Progress以外の文書、AGENTS、Skill、template、manifest、Project Contextの変更。
+- control source、IDL、CMake、package metadata、sibling repositoryの変更。
+- stage、commit、push、merge、PR作成。
+- package build、simulation、hardware execution。
+- M0-B3以降の開始。
+
+### Baseline and materialization mapping
+
+control baseline:
+
+```text
+c06b63c8e12dbf85bda4c8391a37544c2469731c
+```
+
+Planning asset range:
+
+| role | source planning branch | destination implementation branch |
+|---|---|---|
+| range boundary/base | `5c21cc0cb3c6ef6c906642836ddadf279c8266fd` | `c06b63c8e12dbf85bda4c8391a37544c2469731c` |
+| first commit | `8261114e9fe7bcd61fde14e12a6f5eda50b767d4` | `61a75b9f52aba6b04b12d4892309999c2ab363da` |
+| last commit | `6e530edacecf663f2eedbdcfd5a787468dad70ce` | `5f6fa92a1e6eec1d6e79f8278052dfbeb4d7d48c` |
+
+```text
+source exact range:
+  5c21cc0cb3c6ef6c906642836ddadf279c8266fd..6e530edacecf663f2eedbdcfd5a787468dad70ce
+
+source inclusive range:
+  8261114e9fe7bcd61fde14e12a6f5eda50b767d4^..6e530edacecf663f2eedbdcfd5a787468dad70ce
+
+destination exact range:
+  c06b63c8e12dbf85bda4c8391a37544c2469731c..5f6fa92a1e6eec1d6e79f8278052dfbeb4d7d48c
+
+destination inclusive range:
+  61a75b9f52aba6b04b12d4892309999c2ab363da^..5f6fa92a1e6eec1d6e79f8278052dfbeb4d7d48c
+```
+
+個別commit mapping:
+
+| role | source commit | destination commit | verification |
+|---|---|---|---|
+| M0-A-R1 document correction | `15369f77665311381e27eef464edbfc69660b8a4` | `ad7aa5bfc8a58f160b2c4c3bf89f506c15d51f7a` | `range-diff =`、stable patch-id一致 |
+| M0-A5 central Progress sync | `c6a1084edea1f6e916fa699adb01e4641149bf57` | `2497f521c17b522d09f190faf85b3d94fd742f0f` | `range-diff =`、stable patch-id一致 |
+
+stable patch-id:
+
+| mapping | patch-id |
+|---|---|
+| M0-A-R1 source/destination | `5bb6fc827acca30bca7ef9b5b54d98fab329b052` |
+| M0-A5 source/destination | `93834743a6f4a1812ca57045e0f1c4cf30510b7d` |
+
+### Commit order and parent evidence
+
+```text
+c06b63c8e12dbf85bda4c8391a37544c2469731c
+  -> 61a75b9f52aba6b04b12d4892309999c2ab363da
+  -> planning asset destination range、41 commits
+  -> 5f6fa92a1e6eec1d6e79f8278052dfbeb4d7d48c
+  -> ad7aa5bfc8a58f160b2c4c3bf89f506c15d51f7a
+  -> 2497f521c17b522d09f190faf85b3d94fd742f0f
+  -> 91c0f23d2596c6cec4501b9a0f551974098e4f7a
+  -> expected M0-B2 durable record commit
+```
+
+- source planning range: 41 commits。
+- destination planning range: 41 commits。
+- baselineからM0-B1 record commitまで: 44 commits、merge commitなし。
+- destination first commit `61a75b9...`のparentはbaseline `c06b63c...`。
+- M0-A-R1 destination `ad7aa5b...`のparentはplanning range末尾`5f6fa92...`。
+- M0-A5 destination `2497f52...`のparentは`ad7aa5b...`。
+- M0-B1 durable record `91c0f23...`のparentは`2497f52...`。
+- 本M0-B2 durable recordは`91c0f23...`の子commitとして別commitにする。
+
+materialized planning commitsがM0-B1 record commitのancestorにあるのは、isolated destination branch上でM0-B1のdurable recordを作成したためである。formal gateとしては、M0-B1 record commit完了後に本M0-B2 durable recordを作成し、そのclosure完了後だけM0-B3へ進む。
+
+### Content-equivalence evidence
+
+- planning source/destination rangeの`git range-diff`: 41/41 commitsすべて`=`。
+- M0-A-R1/M0-A5の追加`git range-diff`: 2/2 commitsすべて`=`。
+- M0-A-R1のsource/destination stable patch-id: 双方`5bb6fc827acca30bca7ef9b5b54d98fab329b052`。
+- M0-A5のsource/destination stable patch-id: 双方`93834743a6f4a1812ca57045e0f1c4cf30510b7d`。
+- conflict resolutionまたは内容変更を示す`range-diff`差分はない。
+
+### Changed-path evidence
+
+Planning destination rangeのnet changed-pathは、次のplanning/instruction/Skill/template assetだけである。
+
+```text
+.agents/skills/wbms-close-work-unit/SKILL.md
+.agents/skills/wbms-implement-work-unit/SKILL.md
+.agents/skills/wbms-plan-work-unit/SKILL.md
+.agents/skills/wbms-review-work-unit/SKILL.md
+auto_stabilizer/AGENTS.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOperatorGuide.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision1.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflow.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md
+auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md
+tools/codex_workspace/README.md
+tools/codex_workspace/templates/AGENTS.ik_solvers2.md
+tools/codex_workspace/templates/AGENTS.prioritized_qp.md
+tools/codex_workspace/templates/AGENTS.rtmros_msg_bridge.md
+tools/codex_workspace/templates/AGENTS.source-root.md
+tools/codex_workspace/templates/AGENTS.whole_body_teleop.md
+tools/codex_workspace/templates/WBMSExternalTeleopProjectContext.template.md
+tools/codex_workspace/templates/WBMSExternalTeleopWorkspaceManifest.template.yaml
+```
+
+M0-A-R1 destinationのexact changed paths:
+
+```text
+A auto_stabilizer/docs/M0-A.md
+M auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md
+M auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md
+M tools/codex_workspace/templates/WBMSExternalTeleopWorkspaceManifest.template.yaml
+```
+
+M0-A5 destinationとM0-B1 durable recordは、それぞれ`auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md`だけを変更している。
+
+### Baseline non-control evidence
+
+`c06b63c8e12dbf85bda4c8391a37544c2469731c..91c0f23d2596c6cec4501b9a0f551974098e4f7a`について、次のpathを指定した`git diff --name-only`は全て出力なしだった。
+
+| category | checked paths | result |
+|---|---|---|
+| control source | `auto_stabilizer/rtc`、`auto_stabilizer/euslisp` | PASS、差分なし |
+| RTM IDL | `auto_stabilizer/idl` | PASS、差分なし |
+| CMake | 全`CMakeLists.txt`、`*.cmake` | PASS、差分なし |
+| package metadata | 全`package.xml`、`manifest.xml` | PASS、差分なし |
+
+したがって、現HEADのruntime/control treeはbaseline `c06b63c...`から変更されていない。
+
+### Changes
+
+| repository | file | change | reason |
+|---|---|---|---|
+| `auto_stabilizer2` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` | 本M0-B2 entryをfile末尾へappend-only追加 | isolated branch materialization evidenceのdurable record |
+
+### Commands and results
+
+| execution directory | command | result | evidence |
+|---|---|---|---|
+| 各repository root | `git status --short` | PASS | record開始時、4 repositoryとも出力なし |
+| 各repository root | `git branch --show-current` | PASS | repository state tableと一致 |
+| 各repository root | `git rev-parse HEAD` | PASS | repository state tableと一致 |
+| `auto_stabilizer2` root | planning source/destinationの`git range-diff --no-color` | PASS | 41/41 commitsすべて`=` |
+| `auto_stabilizer2` root | M0-A-R1/M0-A5の`git range-diff --no-color` | PASS | 2/2 commitsすべて`=` |
+| `auto_stabilizer2` root | M0-A-R1 source/destinationの`git patch-id --stable` | PASS | 双方`5bb6fc827acca30bca7ef9b5b54d98fab329b052` |
+| `auto_stabilizer2` root | M0-A5 source/destinationの`git patch-id --stable` | PASS | 双方`93834743a6f4a1812ca57045e0f1c4cf30510b7d` |
+| `auto_stabilizer2` root | source/destination planning rangeの`git rev-list --count` | PASS | 双方41 commits |
+| `auto_stabilizer2` root | baselineからM0-B1 recordまでの`git rev-list --count` / `--merges` | PASS | 44 commits、merge commitなし |
+| `auto_stabilizer2` root | planning rangeと個別commitのchanged-path確認 | PASS | planning assetおよび上記exact pathだけ |
+| `auto_stabilizer2` root | baselineから現HEADのcontrol/IDL/CMake/package metadata差分確認 | PASS | 全category出力なし |
+| 全対象repository root | implementation後の`git status --short`、`git branch --show-current`、`git rev-parse HEAD` | PASS | sibling 3 repositoryは開始時branch/HEAD/clean stateを維持。WRITE repositoryは指定Progress 1 fileだけmodified |
+| — | package build | NOT RUN | M0-B7だけがowner、`UNVERIFIED` |
+| — | simulation | NOT RUN | `UNVERIFIED` |
+| — | hardware | NOT RUN | `UNVERIFIED` |
+
+### Verification / Unverified
+
+| item | result | evidence |
+|---|---|---|
+| isolated branch commit graph | PASS | baselineから44 commits、mergeなし、parent chain確認 |
+| planning range content equivalence | PASS | `range-diff` 41/41 `=` |
+| M0-A-R1 content equivalence | PASS | `range-diff =`、stable patch-id一致 |
+| M0-A5 content equivalence | PASS | `range-diff =`、stable patch-id一致 |
+| changed-path / baseline non-control inspection | PASS | 許可assetだけ、control/IDL/CMake/package metadata差分なし |
+| sibling repository非変更 | PASS | record開始時とimplementation後のbranch/HEAD/clean stateが一致 |
+| package build | UNVERIFIED | 今回未実行、M0-B7だけがowner |
+| exact compatible set materialization/build | UNVERIFIED | M0-B7へdefer |
+| simulation | UNVERIFIED | 今回未実行 |
+| hardware | UNVERIFIED | 今回未実行 |
+| source-root AGENTS/common Skill installation | UNVERIFIED | M0-B5へdefer |
+| Project Context/workspace manifest | UNVERIFIED | M0-B6へdefer |
+
+materialization履歴のPASSはcommit graph、patch同等性、changed-pathに対するread-only verificationである。package build、simulation、hardware verificationを代替しない。
+
+### Compatible dependency set
+
+name: `M0-pre-M5-baseline`
+
+| repository | selected ref/SHA | status |
+|---|---|---|
+| `auto_stabilizer2` | historical `wbms-dev` ancestor `c06b63c8e12dbf85bda4c8391a37544c2469731c` | SELECTED、control baseline preserved |
+| `ik_solvers2` | `2.0` at `b5de6cd99a6bf89ddb9baadd2a77b63a52319add` | SELECTED、exact materialization/buildはM0-B7で確認 |
+| `prioritized_qp` | `master` at `624bc1e3e26d4a16f7765baf64fc5941865f2d64` | SELECTED、exact materialization/buildはM0-B7で確認 |
+| `rtmros_msg_bridge` | `jaxon-minimal` at `10e6fd0cd24fe4649cb7f1b6ef7bc5dc2aa83214` | SELECTED、M0 baseline build非依存 |
+| `whole_body_teleop` | — | NOT APPLICABLE、repository未作成 |
+
+current `ik_solvers2/teleop-dev`および`prioritized_qp/teleop-dev`は観測中のdevelopment HEADであり、selected baseline SHAとして扱わない。
+
+### Review
+
+| round | reviewer/task | findings | resolution |
+|---|---|---|---|
+| pending | 本M0-B2最新diff全体のfresh read-only repository review | PENDING | implementation taskとは別taskでreviewする |
+
+### Central Progress sync and gates
+
+- M0-B2 materialization evidenceのappend-only durable record: 本entryで実装。
+- M0-B2 fresh review: PENDING。
+- 人間によるM0-B2 exact diffとcommitの明示承認: PENDING。
+- M0-B2 record commit: PENDING。
+- expected commit subject: `Record M0-B2 isolated branch materialization`
+- 本M0-B2 recordはM0-B1 record commit `91c0f23d2596c6cec4501b9a0f551974098e4f7a`とは別commitにする。
+- M0-B2 closure完了前にM0-B3を開始しない。
+
+### Next entry point
+
+1. 本M0-B2最新diff全体を別taskでfresh read-only repository reviewする。
+2. P0/P1/P2 findingを解消し、修正後は最新diff全体を再reviewする。
+3. 人間がM0-B2のexact diffとcommitを明示承認する。
+4. expected subject `Record M0-B2 isolated branch materialization`でM0-B2 recordをcommitする。
+5. M0-B2 record commit後にclosureを確認する。
+6. M0-B2 closure完了後だけM0-B3を開始する。
+
+### Commit
+
+- repository: `auto_stabilizer2`
+- expected parent: `91c0f23d2596c6cec4501b9a0f551974098e4f7a`
+- expected subject: `Record M0-B2 isolated branch materialization`
+- commit SHA: PENDING
