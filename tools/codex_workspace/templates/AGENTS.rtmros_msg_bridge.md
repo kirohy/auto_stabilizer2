@@ -4,60 +4,67 @@
 
 ## Repository role
 
-本repositoryはROS messageとRTM IDL dataの変換を担当する。
+含む:
 
-含む責務:
-
-- ROS custom command bundleからRTM command dataへの変換。
-- RTM state dataからROS custom state bundleへの変換。
-- finite check。
-- quaternion norm check。
-- schema version check。
+- ROS command bundleからRTM command dataへの変換。
+- RTM state dataからROS state bundleへの変換。
+- finite、quaternion norm、schema version check。
 - enum/task maskの一対一mapping。
 - latest-only mailbox。
-- invalid、drop、out-of-order、overwrite counter。
-- 独立processとしてのlaunch。
+- invalid/drop/out-of-order/overwrite counter。
+- 独立process launch。
 
-含まない責務:
+含まない:
 
-- IK。
-- task scaling。
+- IK、task scaling。
 - joint/velocity/acceleration limit。
-- stale policy。
-- mode gate。
-- walking preparation。
-- COM/ZMP処理。
+- stale policy、mode gate、walking preparation。
+- COM/ZMP。
 - source ownership。
 - RobotHardware指令。
 
 ## 正式仕様
 
-`docs/WBMSExternalTeleopProjectContext.md`に記録された中央計画、Revision、Progress、Parent Contractを読む。
-
-優先:
+Project Contextに固定された中央文書を読む。
 
 1. Implementation Plan Revision 2。
-2. MultiRepositoryOperations。
-3. Implementation Plan Revision 1。
-4. Implementation Plan。
-5. 中央Progress。
+2. Codex Workflow Revision 1。
+3. Current Checkpoint。
+4. MultiRepositoryOperations。
+5. 制御仕様のImplementation Plan / Revision。
 6. protocol Parent Contract。
 7. bridge sub-unit Contract。
 
-## Work Unit
+workflowの旧gateと矛盾する場合、Workflow Revision 1を優先する。
 
-- Codexは本repository rootから起動する。
-- 一つのimplementation taskがWRITEするrepositoryは本repositoryだけとする。
-- ROS message schemaとRTM IDL schemaがParent Contractで確定してから実装する。
-- schema変更が必要になった場合、producer/consumerへ暗黙に合わせずParent planへ戻る。
-- unrelatedな既存bridge cleanupを新機能commitへ混ぜない。
+## Repository境界
+
+- Codexはrepository rootから起動する。
+- 一つのimplementation実行がWRITEするrepositoryは本repositoryだけ。
+- message/IDL schema確定後に実装する。
+- schema意味変更時はParent planへ戻る。
+- unrelated cleanupを混ぜない。
+- user変更を無断でreset、stash、checkout、cleanしない。
+
+## Risk
+
+典型:
+
+- R0: branch/AGENTS/package bootstrap。
+- R1: bridge skeleton、field mapping、diagnostics、launch。
+- R2: 原則なし。stale/mode/control policyをbridgeへ入れない。
+- R3: なし。
+
+R0はSELF、bootstrap package末尾にfocused review。
+R1はmessage/IDL/bridge compatible set完成時にcross-repository review一回。
+sub-unitごとのfull fresh reviewとProgress-only reviewを要求しない。
 
 ## Process境界
 
-- 新bridgeは`hrpEC`へ参加させない。
-- 独立processとして動かす。
-- ROS callbackとRTM周期処理の間はlatest-value mailboxで分離する。
-- callback内で重い処理を行わない。
+- `hrpEC`へ参加させない。
+- 独立process。
+- ROS callbackとRTM周期処理をlatest-value mailboxで分離。
+- callback内で重い処理をしない。
 - queue backlogを作らない。
 - subscriber queueは原則1。
 - old messageを順番に処理し続けない。
@@ -65,81 +72,76 @@
 ## Timestampとsequence
 
 - source timestampを`ros::Time::now()`で上書きしない。
-- bridge receive timeは別diagnosticとして保持してよい。
-- session、epoch、sequenceを保持する。
-- out-of-order、duplicate、schema mismatchをrejectする。
-- HMD等の別PC clock同期を安全性の必須前提にしない。
+- bridge receive timeは別diagnostic。
+- session、epoch、sequenceを保持。
+- out-of-order、duplicate、schema mismatchをreject。
+- 別PC clock同期を安全性の必須前提にしない。
 
 ## Mapping
 
-ROS message、RTM IDL、bridge実装のmapping表をContractで固定する。
+Parent Contractで固定する。
 
-必ず照合する。
-
-- field名と型。
+- field/type。
 - array/sequence長。
-- 単位。
-- coordinate frame。
+- unit/frame。
 - quaternion順序。
-- task mask bit。
-- enum値。
+- task mask/enum。
 - schema version。
-- session、epoch、sequence。
+- session/epoch/sequence。
 - timestamp semantics。
-- joint name、position、velocity配列。
+- joint name/position/velocity。
 
-fieldをsilent dropしない。未対応fieldやunknown enumは明示的にrejectまたはdiagnosticを出す。
+fieldをsilent dropしない。
+unknown/unsupportedはrejectまたはdiagnostic。
 
 ## Thread safety
 
-- callback threadとRTC execution threadの共有状態を明示する。
-- 無制限queueを使わない。
-- data raceを作らない。
-- lockを使う場合、bridge process内のboundedな短時間処理に限定する。
-- AutoStabilizerの500 Hz threadを待たせる仕組みを作らない。
+- callback threadとRTC threadの共有状態を明示。
+- 無制限queueなし。
+- data raceなし。
+- lockはbridge process内のboundedな短時間に限定。
+- AutoStabilizer 500 Hz threadを待たせない。
 
 ## Build
-
-workspace一括buildを標準にしない。
-
-package名確定後、通常は次を使う。
 
 ```sh
 catkin build whole_body_teleop_rtmros_bridge --no-deps
 ```
 
-message/IDL/CMake再生成が必要な場合はContractで`--force-cmake`を指定する。
-
-依存関係まで確認する場合だけ`--no-deps`を外す。
-
-exact commandと実行directoryを記録する。
+message/IDL/CMake再生成が必要ならContractで`--force-cmake`。
+dependency確認時だけ`--no-deps`を外す。
+exact command、execution directory、resultを記録する。
 
 ## Review
 
-重点:
+compatible-set review重点:
 
-- ROS/RTM round-tripで全fieldが保持されるか。
-- quaternionとRPYの変換誤り。
-- source timestampの上書き。
-- enum/task mask/schema mismatch。
-- out-of-orderとlatest-only。
-- callbackとRTM portのdata race。
-- bridgeへIK、limit、stale policyが混入していないか。
+- ROS/RTM round-tripで全field保持。
+- quaternion/RPY。
+- source timestamp。
+- enum/mask/schema。
+- out-of-order/latest-only。
+- data race。
+- bridgeへIK/limit/stale/modeが混入していない。
 - independent process launch。
+- producer/consumer SHA。
+
+非本質修正はTARGETED follow-upでよい。
+schema意味変更時だけfull compatible-set reviewをやり直す。
+
+## Commitとcheckpoint
+
+- R0/R1はParentのstanding authorizationを使用できる。
+- 一回に本repositoryだけstage/commit。
+- explicit pathだけstage。
+- commit SHAを次sub-unitへ直接渡す。
+- 中央Progressはcompatible set/checkpointでbatch更新。
+- push、merge、PRは別許可。
 
 ## Code style
 
-- 既存bridgeのstyleに合わせる。
+- 既存bridge style。
 - `clang-format`を自動適用しない。
-- コメントとMarkdownは日本語。
-- class、function、variable、topic、message fieldは英語。
-- 変換責務を小さなfunction/classへ分離する。
-
-## Progressとcommit
-
-- 実装taskとは別のread-only reviewを行う。
-- P0/P1/P2がなくなるまでfresh reviewする。
-- ROS message、IDL、bridgeのcompatible SHAを記録する。
-- commit後、依存するconsumer/producer sub-unit前に中央ProgressへSHAを同期する。
-- commitはユーザーの明示許可時だけ。
-- push、merge、PR作成は別許可。
+- コメント/Markdownは日本語。
+- identifiersは英語。
+- mapping責務を小さなfunction/classへ分離。

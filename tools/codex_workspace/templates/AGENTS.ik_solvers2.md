@@ -4,115 +4,107 @@
 
 ## Repository role
 
-本repositoryはgenericなinverse kinematics libraryを提供する。
-
-本プロジェクトでは、`whole_body_teleop_reference_generator`のexternal whole-body IKと、既存`auto_stabilizer`のIKから利用される可能性がある。
+- generic IK constraint/solver library。
+- external whole-body IKと既存`auto_stabilizer`の双方から利用される。
+- robot-specific teleoperation policyをlibraryへ埋め込まない。
+- 既存API semanticsを暗黙に変更しない。
 
 ## 正式仕様
 
-`docs/WBMSExternalTeleopProjectContext.md`に記録された中央計画、Revision、Progress、Parent/Sub-unit Contractを読む。
-
-優先:
+Project Contextに固定された中央文書を読む。
 
 1. Implementation Plan Revision 2。
-2. MultiRepositoryOperations。
-3. Implementation Plan Revision 1。
-4. Implementation Plan。
-5. 中央Progress。
-6. solver変更sub-unit Contract。
+2. Codex Workflow Revision 1。
+3. Current Checkpoint。
+4. MultiRepositoryOperations。
+5. Parent Work Package / Contract。
+6. repository sub-unit Contract。
+
+workflowの旧gateと矛盾する場合、Workflow Revision 1を優先する。
 
 ## Repository境界
 
-- generic IK libraryの責務を維持する。
-- JAXON、WBMS、walking preparation等のrobot/application固有policyをlibraryへ直接入れない。
-- external generator固有機能が必要な場合、明示的なAPI、parameter、helperとして分離する。
-- 既存`auto_stabilizer`利用者のsemanticsを暗黙に変更しない。
-- priority、constraint、task、iteration、termination、update semanticsの変更を明示する。
+- Codexはrepository rootから起動する。
+- 一つのimplementation実行がWRITEするrepositoryは本repositoryだけ。
+- sibling repositoryは明示SHAをREAD。
+- dependent consumer変更を同じtaskで行わない。
+- user変更を無断でreset、stash、checkout、cleanしない。
 
-## Work Unit
+## Risk
 
-- Codexは本repository rootから起動する。
-- 一つのimplementation taskがWRITEするrepositoryは本repositoryだけとする。
-- `auto_stabilizer2`、`whole_body_teleop`、`prioritized_qp`はContractでREADとされた範囲だけ参照する。
-- API変更はParent Contractとdependent repository sub-unitを先に定義する。
-- compatibility不明のままdependent sourceを同時変更しない。
+典型:
 
-## API compatibility
+- R0: AGENTS、Project Context、文書。
+- R1: 明示API、constraint interface、diagnostic field。
+- R2: solver behavior、Jacobian/bounds更新、constraint実装。
+- R3: 既存consumerの安全挙動を変えるsemantic change。R3として扱い人間gateへ戻す。
 
-変更時に確認する。
+Review:
 
-- public header。
-- ABIに影響する型。
-- default parameter。
-- priority/task semantics。
-- constraint update order。
-- Jacobian/bounds update semantics。
-- iteration countとtermination。
-- error/status return。
-- warm startとtask cache。
-- dynamic allocationとthread safety。
+- R0: SELF。
+- R1: dependent compatible-set review。
+- R2: repository full review、benchmark/build。
+- R3: safety full reviewとdependent simulation計画。
 
-既存consumerの挙動を変える変更は、feature flag、明示API、versioned behaviorのいずれかを検討する。
+## API互換
 
-## Safetyと数値挙動
+- 既存`auto_stabilizer`APIを暗黙に変えない。
+- external generator専用機能は明示API、parameter、featureとして分離。
+- default behaviorを変更する場合は全consumerを列挙。
+- task priority、slack、tolerance、update semanticsを文書化。
+- bounds-only/Jacobian update等は古いcall pathを壊さない。
+- failure/status semanticsを変える場合はParent Contractへ戻る。
 
-- NaN/Infを伝播させない。
-- dimension mismatch、unknown variable、duplicate constraintを検出する。
-- joint/Cartesian hard constraint semanticsを弱めない。
-- `maxIteration`、precision、maxErrorの意味を暗黙に変えない。
-- solver failureとpartial resultの扱いを明示する。
-- external generatorで使う場合も、最終hardware safetyをlibraryが保証すると表現しない。
+## Safety・数値
 
-## Performance
-
-- 既存consumerの計算量を不必要に増やさない。
-- 毎周期の不要なallocation、clone、structure rebuildを避ける。
-- cache reuse、bounds-only update等を追加する場合、既存pathと比較する。
-- benchmark条件、problem size、iteration、mean/p99/maxを記録する。
+- finite check。
+- dimension consistency。
+- unknown/duplicate joint。
+- Jacobianとboundsの同じstate/version。
+- solver failureを成功扱いしない。
+- warm start/cold retry/statusを切り分ける。
+- constraintをsilent dropしない。
+- numerical tolerance変更はdependent behaviorへ影響するためR2以上。
 
 ## Build
 
 workspace一括buildを標準にしない。
+変更packageを`--no-deps`でbuildし、dependent compatibilityを確認する場合だけ依存buildを追加する。
 
-通常:
+例:
 
 ```sh
-catkin build <ik_solvers2-package-name> --no-deps
+catkin build ik_constraint2 --no-deps
+catkin build ik_constraint2_joint_limit_table --no-deps
+catkin build prioritized_inverse_kinematics_solver2 --no-deps
 ```
 
-依存関係まで確認する場合だけ`--no-deps`を外す。
+exact command、execution directory、resultを記録する。
 
-変更が`auto_stabilizer`または`whole_body_teleop_reference_generator`へ影響する場合、dependent package buildを別のverification stepとして指定する。
+## Review・evidence
 
-exact commandと実行directoryを記録する。
+- API/header変更はconsumer mappingを確認。
+- behavior変更は代表problem/benchmarkを記録。
+- reviewed commit SHAまたはdiff hashを保存。
+- Progress/Markdown追記だけでsource reviewを無効化しない。
+- 非本質修正はTARGETED follow-up。
+- material semantic変更はfull repository review。
 
-## Review
+## Commitとcheckpoint
 
-重点:
-
-- existing API semantics regression。
-- task/priority order。
-- matrix/vector dimension。
-- stale cacheとstructure change。
-- solver failure path。
-- NaN/Inf。
-- performance regression。
-- robot-specific policyの混入。
-- dependent compatible SHA。
+- R0〜R2はParentのstanding authorizationを使用できる。
+- 一回に本repositoryだけstage/commit。
+- explicit pathだけstage。
+- dependent consumerを同じcommitへ混ぜない。
+- commit SHAをcompatible setへ渡す。
+- 中央Progressはcompatible-set/checkpointで更新。
+- push、merge、PR、simulation、実機は別許可。
 
 ## Code style
 
-- 既存repository styleに合わせる。
-- `clang-format`を無断で全体適用しない。
-- コメントとMarkdownは日本語。
-- public APIの非自明なsemanticsをcomment/documentする。
-- unrelated refactorをsolver behavior変更へ混ぜない。
-
-## Progressとcommit
-
-- 実装taskとは別のread-only reviewを行う。
-- P0/P1/P2がなくなるまでfresh reviewする。
-- package build、benchmark、dependent build、compatible SHAを記録する。
-- commit後、依存するsub-unit前に中央ProgressへSHAを同期する。
-- commitはユーザーの明示許可時だけ。
-- push、merge、PR作成は別許可。
+- generic責務を維持。
+- robot-specific assumptionを避ける。
+- 既存style。
+- `clang-format`を自動適用しない。
+- コメント/Markdownは日本語。
+- identifiersは英語。

@@ -1,77 +1,110 @@
 ---
 name: wbms-close-work-unit
-description: 実装とfresh reviewが完了したWBMS外部whole-body操縦repository sub-unitを1つだけ完了処理する。review・package build・repository状態・中央Progress同期・compatible SHA・commit readinessを確認し、明示許可されたexact repository commitだけを作成できる。機能実装、複数repository同時commit、push、merge、PR作成、別途許可のない実機実行には使用しない。
+description: WBMS外部whole-body操縦のrepository sub-unitまたはParent Work Packageをrisk-basedに完了処理する。verification evidenceを再利用し、R0/R1の不要なfresh reviewやProgress-only gateを省き、R3・compatible set・milestoneでは厳格なclosureを行う。明示許可されたlocal commit以外のpush、merge、PR作成、simulation、実機実行には使用しない。
 ---
 
-# WBMS Work Unit完了処理
+# WBMS Risk-based Closure
 
 ## 目的
 
-実装・修正・fresh reviewが完了した一つのrepository sub-unitについて、Progress更新、central Progress sync要否、compatible set、commit readinessを確認する。
+次のいずれかを完了処理する。
 
-このSkillは未完了の実装を隠してcommitするためのものではない。blocking条件が一つでもあればcommitせず、具体的な不足を報告する。
+- repository sub-unit commit。
+- Parent Work Package checkpoint。
+- compatible set freeze。
+- milestone closure。
+- R3 safety closure。
 
-## Workspace path
+一つのclosureでstage/commitするrepositoryは一つだけとする。
 
-```text
-${CATKIN_WORKSPACE}
-  = catkin_ws/<workspace_name> の絶対パス
+最初に読む。
 
-${CATKIN_SOURCE_ROOT}
-  = ${CATKIN_WORKSPACE}/src
-```
+1. nearest `AGENTS.md` chain。
+2. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`。
+3. `WBMSExternalWholeBodyTeleoperationCodexWorkflowRevision1.md`。
+4. `WBMSExternalWholeBodyTeleoperationCurrentCheckpoint.md`。
+5. Parent Work Package / Contract。
+6. implementation report。
+7. review result。
+8. verification evidence。
+9. 必要なProgress履歴。
 
-`catkin_ws/src`を固定layoutとして仮定しない。
+## Risk別closure
 
-## 起動directoryとcommit範囲
+### R0
 
-- Codexはcommit対象repository rootから起動する。
-- 一回のclosureで扱うcommit repositoryは一つだけとする。
-- sibling repositoryはread-onlyとする。
-- 複数repositoryを一回でstageまたはcommitしない。
-- 他repository commit後の中央Progress同期は、`auto_stabilizer2`のdocument-only sub-unitとして別に扱ってよい。
+必要:
 
-## 使用条件
+- scope/path確認。
+- `git diff --check`またはcached check。
+- 必要な構文/package discovery。
+- SELF review。
+- commit authorization。
 
-次が揃っている場合だけ使用する。
+不要:
 
-- Work Unit IDとtitle。
-- Parent Work Unit ID。
-- `${CATKIN_WORKSPACE}`、`${CATKIN_SOURCE_ROOT}`。
-- Codex launch directory。
-- repository access matrix。
-- 承認済みParent/Sub-unit Contract。
-- 実装結果。
-- 最新diff全体に対するfresh repository review結果。
-- cross-repository reviewが必要な場合はその結果。
-- P0/P1/P2 findingの解消記録。
-- 指定package build/check結果。
-- 最新中央Progressとrepository Project Context。
-- compatible input set。
-- commitする場合は、userによる明示的なcommit許可、対象repository、subject。
+- detached review。
+- Progress-only fresh review。
+- 中央Progress entry。
+- package build。
+- 関連control source再読。
 
-review前、finding修正途中、Contract未承認、WRITE repositoryが複数、scopeが拡大した状態では使用しない。
+Parent末尾のfocused reviewとCurrent Checkpoint更新へbatchしてよい。
 
-## 読む順序
+### R1
 
-1. source-root `AGENTS.md`、cross-repository closureまたはcentral Progress syncの場合。
-2. commit対象repository rootの`AGENTS.md`。
-3. nearest package/module `AGENTS.md`。
-4. repository Project Context、存在する場合。
-5. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`。
-6. `WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`。
-7. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`。
-8. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
-9. 最新中央Progress。
-10. Parent/Sub-unit Contract。
-11. Codex WorkflowとOperator Guide。
-12. implementation report。
-13. 全review roundとresolution。
-14. 最新diff。
+必要:
 
-## Repository状態確認
+- targeted package build。
+- schema/mapping SELF確認。
+- repository commit authorization。
+- compatible set完成時のCOMPATIBLE_SET review。
 
-commit対象repositoryで次を取得する。
+各repository commit前のfull reviewは不要。
+
+### R2
+
+必要:
+
+- package build。
+- REPOSITORY_FULL review。
+- P0/P1/P2解消。
+- 非本質修正はTARGETED follow-up。
+- commit authorization。
+
+material修正ならfull fresh review。
+
+### R3
+
+必要:
+
+- full safety checklist。
+- package build。
+- SAFETY_FULL review。
+- P0/P1/P2解消。
+- material修正後full fresh review。
+- simulation状態。
+- exact人間commit承認。
+
+## Evidence再利用
+
+verification/reviewを次で識別する。
+
+- verified commit SHA。
+- uncommitted diff hash。
+- build command/result。
+- review type/result。
+
+commit前のsource diff identityがreview/build時と同じなら、
+source再読、build再実行、full review再実行を要求しない。
+
+Progress、Current Checkpoint、Markdownだけの変更はsource evidenceを無効化しない。
+
+source diffが変わった場合は影響に応じて必要checkだけ再実行する。
+
+## Repository状態
+
+commit対象repository:
 
 ```sh
 git status --short
@@ -81,328 +114,178 @@ git diff --check
 git diff --stat
 ```
 
-必要に応じて次も確認する。
+commit直前:
 
 ```sh
-git diff -- <changed files>
+git diff --cached --check
 git diff --cached --stat
-git log -1 --oneline
+git diff --cached --name-only
 ```
 
-READ repositoryでは最低限次を確認する。
+確認する。
 
-```sh
-git status --short
-git branch --show-current
-git rev-parse HEAD
-```
+- branch。
+- expected parent/base。
+- stage対象。
+- unrelated/generated fileなし。
+- user変更なし。
+- one-write-repository。
+- commit subject。
 
-- Contractとbranch/base SHAを照合する。
-- userの既存変更を保持する。
-- unrelated fileをstageしない。
-- generated artifact、log、cache、core dumpを含めない。
-- 複数repositoryのcompatible SHAを記録する。
-- Project Contextと中央Progressの参照先を照合する。
+READ sibling repositoryは、compatible SHAが必要な場合だけbranch/HEAD/dirty stateを確認する。
+毎回全repositoryを再走査しない。
 
 ## Blocking条件
 
-次のいずれかがあればcommit-readyではない。
-
-- P0、P1、P2 findingが未解消。
-- finding修正後のfresh reviewがない。
-- Contractの主要受入条件がFAIL。
-- 必須package build/checkが未実行またはFAILし、Contractで明示的に後続化されていない。
-- workspace一括buildを実行していないことを理由に、package build結果を不当にFAIL扱いしている。
-- 実装、Project Context、中央Progressが矛盾する。
-- branch、base SHA、launch directoryが不明。
-- WRITE repositoryが複数ある。
-- unrelated diffが混在する。
-- interfaceのproducer/consumer mappingが未照合。
-- compatible dependency SHAが不明。
-- schema変更に必要なcross-repository reviewがない。
-- simulation/実機未確認をPASSと表記している。
-- userの既存変更を上書きするおそれがある。
-- commit権限の明示がないのにcommitを要求している。
-
-simulationや実機確認が環境上できないだけでは、source commitを必ずしもblockしない。ただし`UNVERIFIED`として明記し、release-readyや実機検証済みとは扱わない。
-
-## Commit readiness checklist
-
-### Workspace / repository
+### 全risk共通
 
-- [ ] `${CATKIN_WORKSPACE}`と`${CATKIN_SOURCE_ROOT}`が記録されている。
-- [ ] Codex launch directoryがcommit対象repository rootである。
-- [ ] 正しいbranch。
-- [ ] Contractのbase SHAと整合。
-- [ ] WRITE repositoryが一つ。
-- [ ] user変更を消していない。
-- [ ] unrelated fileなし。
-- [ ] dependency SHA記録済み。
+- scope外diff。
+- user変更との衝突。
+- WRITE repository複数。
+- unrelated/generated artifact。
+- required verification FAIL。
+- commit authorizationなし。
+- destructive Git操作が必要。
+- compatible SHA不明、必要な場合。
+- simulation/実機をPASS扱い。
 
-### Diff
+### R1追加
 
-- [ ] `git diff --check` PASS。
-- [ ] 全changed fileを読んだ。
-- [ ] format-only大規模差分なし。
-- [ ] generated artifactなし。
-- [ ] cleanupと機能変更を混在させていない。
-- [ ] sibling repositoryを変更していない。
+- Parent schema/mappingと不一致。
+- compatible-set reviewが必要なのに未実施。
 
-### Interface
+### R2追加
 
-- [ ] ROS message / RTM IDL / bridge mapping一致。
-- [ ] schema version確認。
-- [ ] enum / task mask一致。
-- [ ] frame / 単位 / quaternion順序一致。
-- [ ] joint name mappingとreject条件確認。
-- [ ] Parent Contractとcompatible input setに一致。
+- P0/P1/P2未解消。
+- repository reviewなし。
 
-### Safety
+### R3追加
 
-- [ ] finite check。
-- [ ] joint limit。
-- [ ] stale/hold。
-- [ ] mode/support gate。
-- [ ] hidden goalなし。
-- [ ] failure/reject path。
-- [ ] 500 Hz blockingなし。
-- [ ] walking preparation回帰なし。
+- safety full reviewなし。
+- material修正後full fresh reviewなし。
+- simulation gate未処理。
+- safety invariant不明。
 
-### Verification
+R0でProgress-only detached reviewがないことはblocking条件ではない。
 
-- [ ] Contract指定package build/check結果あり。
-- [ ] 通常buildは`catkin build <package> --no-deps`を使用、または別commandの理由が記録されている。
-- [ ] dependency確認で`--no-deps`を外した場合、その目的が記録されている。
-- [ ] IDL/CMake変更後の`--force-cmake`実行。
-- [ ] exact commandと実行directoryが記録されている。
-- [ ] simulation/実機の未確認項目を`UNVERIFIED`表記。
-- [ ] fresh reviewでP0/P1/P2なし。
+## Commit authorization
 
-### Documentation
+### exact
 
-- [ ] repository Work Unit reportまたはProject Context更新済み。
-- [ ] 中央Progress sync要否が明示されている。
-- [ ] 計画との差異と理由を記録。
-- [ ] review roundとfinding resolutionを記録。
-- [ ] compatible setを記録。
-- [ ] next entry pointを記録。
-- [ ] commit subjectが一目的を表す。
+ユーザーがWork Unit、repository、subjectを指定した一commit。
 
-## Package build記録
+### standing
 
-次の形式で記録する。
+Parent Work Packageで事前許可されたR0〜R2 local commit。
 
-```markdown
-| execution directory | package | command | dependency scope | result |
-|---|---|---|---|---|
-```
+standing authorizationでcommit可能な条件:
 
-workspace一括buildは要求しない。
+- Parent scope内。
+- risk R0〜R2。
+- 一回に一repository。
+- required check/review PASS。
+- stop conditionなし。
+- push、merge、PRなし。
 
-通常:
+R3はstanding authorizationでcommitしない。
 
-```sh
-catkin build <package-name> --no-deps
-```
+## Commit手順
 
-依存確認時だけ:
+1. explicit pathだけstage。
+2. cached diff check。
+3. cached name/stat確認。
+4. subject確認。
+5. atomic commit。
+6. commit SHA取得。
+7. Current Checkpoint/Parent working stateへSHAを記録。
+8. next eligible sub-unitへexact SHAを渡す。
 
-```sh
-catkin build <package-name>
-```
+`git add -A`を既定にしない。
+amend、rebase、force pushを行わない。
 
-## 中央Progress同期
+## Progress policy
 
-中央Progressの正本:
+### Current Checkpoint
 
-```text
-auto_stabilizer2/auto_stabilizer/docs/
-  WBMSExternalWholeBodyTeleoperationProgress.md
-```
+sub-unit完了後、現在地、commit SHA、next actionを更新してよい。
+これはmutableであり、中央Progress entryを毎回作る必要はない。
 
-### `auto_stabilizer2`内のWork Unit
+### 中央Progress
 
-同一repository内で中央Progressを更新できる場合、commit前に同じdocument scopeへ含めてよい。ただしcontrol変更と巨大な履歴整理を混ぜない。
+次の場合に一件追加する。
 
-### 他repositoryのWork Unit
+- Parent Work Package完了。
+- compatible set確定。
+- architecture decision変更。
+- simulation/実機結果。
+- blocking issue。
+- milestone完了。
+- 引き継ぎ。
+- release candidate。
 
-`whole_body_teleop`、`rtmros_msg_bridge`、`ik_solvers2`、`prioritized_qp`では、repository commit後にcentral Progress sync sub-unitを作る。
+repository commitごとのProgress-only sub-unitを通常作らない。
 
-順序:
+## Parent closure
 
-```text
-1. repository sub-unit commit
-2. commit SHA取得
-3. auto_stabilizer2でcentral Progress sync
-4. compatible set更新
-5. dependent sub-unit開始
-```
+Parent Work Package末尾で確認する。
 
-依存する次sub-unitへ進む前に同期する。
-
-## Progress追記
-
-Progressはappend-onlyとする。過去entryを静かに修正しない。
-
-次を含む新entryを追加する。
-
-```markdown
-## YYYY-MM-DD <Work Unit ID> <title>
-
-### Status
-
-### Workspace context
-- catkin workspace root
-- source root
-- Codex launch directory
-
-### Repository state
-| repository | branch | base SHA | current SHA | access | dirty |
-
-### Goal
-
-### Scope and out-of-scope
-
-### Code investigation
-
-### Decisions
-- adopted
-- rejected and reason
-
-### Changes
-| repository | file | change | reason |
-
-### Commands and results
-| execution directory | command | result | evidence |
-
-### Simulation / log evidence
-
-### Review
-| round | reviewer/task | findings | resolution |
-
-### Acceptance
-| criterion | result | evidence |
-
-### Unverified
-
-### Open issues
-
-### Compatible dependency set
-| repository | SHA |
-
-### Central Progress sync
-- required / completed / pending
-
-### Next entry point
-
-### Commit
-- repository
-- SHA
-- subject
-- cherry-pick notes
-```
-
-commit前はCommit欄を`PENDING`としてよい。他repository commitのSHAはcentral Progress sync entryで記録する。
-
-## Commitを許可された場合
-
-userがexact Work Unit、repository、commit subjectを明示した場合だけ、次を行う。
-
-1. checklistを再確認する。
-2. 今回Work Unitのfileだけをstageする。
-3. `git diff --cached --check`を実行する。
-4. `git diff --cached --stat`とstaged diffを確認する。
-5. 指定subjectでatomic commitする。
-6. commit SHAを取得する。
-7. 完了報告へ記録する。
-8. 他repositoryの場合、central Progress syncを次actionとして明示する。
-
-次は行わない。
-
-- `git add -A`による無差別stage。
-- unrelated変更のstage。
-- sibling repositoryのstage/commit。
-- amend、rebase、force push。
-- push、merge、PR作成。
-- 実機実行。
-
-これらは別の明示許可が必要である。
-
-## Commit subject
-
-良い例:
-
-```text
-Add WBMS external command schema
-Implement head non-IK reference override
-Connect external COM reference to static ZMP integration
-Add external IK self-collision constraints
-Record M1 compatible repository set
-```
-
-避ける例:
-
-```text
-Implement teleop and cleanup
-Fix various WBMS issues
-Update everything
-```
+- expected sub-unit完了。
+- repository commit SHA。
+- compatible set。
+- required review。
+- package build。
+- Current Checkpoint。
+- 中央Progress checkpoint要否。
+- simulation/hardware gate。
+- next Parent Work Package。
 
 ## 必須出力
 
-commit未許可またはblockingあり:
+commitしない場合:
 
 ```markdown
-# Work Unit <ID> closure
+# Closure
 
 ## Readiness
-NOT READY / READY FOR COMMIT
+READY / NOT READY
 
-## Commit repository
-
+## Risk
+## Evidence identity
 ## Blocking items
-
-## Checklist
-
-## Progress / Project Context update
-
-## Verification
-
+## Required checks
 ## Review status
-
-## Compatible dependency set
-
-## Central Progress sync
-
-## Next action
+## Commit authorization
+## Current Checkpoint update
+## Next mandatory action
 ```
 
-commit実施時:
+commitした場合:
 
 ```markdown
-# Work Unit <ID> completion
-
-## Result
+# Completion
 
 ## Commit
 | repository | SHA | subject |
 
-## Verification
-| execution directory | command/test | result |
-
+## Risk
+## Verification evidence
 ## Review
-
-## Acceptance
-
+## Compatible set
+## Current Checkpoint
+## Progress checkpoint
+## Next Work Package
 ## Unverified
-
-## Compatible dependency set
-
-## Central Progress sync
-
-## Next Work Unit
-
-## Risks / notes
 ```
 
-実装完了、source検証完了、repository commit完了、central Progress同期完了、simulation検証完了、実機検証完了を区別する。
+## Stop conditions
+
+- riskがR3へ上昇。
+- schema/safety invariant変更。
+- sibling WRITEが必要。
+- user変更と衝突。
+- destructive Git操作。
+- build failure修正先が別repository。
+- simulation/hardware。
+- compatible SHA移動。
+
+push、merge、PR作成、無許可simulation・実機実行は行わない。

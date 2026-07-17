@@ -2,11 +2,25 @@
 
 ## 1. 目的
 
-このdirectoryは、WBMS外部whole-body操縦プロジェクトを`catkin_ws/<workspace_name>/src`配下の複数repositoryで運用するためのbootstrap素材を保持する。
+このdirectoryは、WBMS外部whole-body操縦projectを
+`catkin_ws/<workspace_name>/src`配下の複数repositoryで運用するためのtemplateを保持する。
 
-本directoryのfileを自動的にworkspaceへ適用してはならない。M0-Bの承認済みWork Unit Contractに従って配置する。
+templateを自動適用しない。
+承認済みM0 Work Packageまたは後続bootstrap Work Packageに従って配置する。
 
-## 2. Workspace path
+## 2. 正式workflow
+
+配置前に読む。
+
+1. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`
+2. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflowRevision1.md`
+3. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCurrentCheckpoint.md`
+4. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision2.md`
+5. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`
+
+旧workflowと矛盾する場合、Workflow Revision 1を優先する。
+
+## 3. Workspace path
 
 ```text
 ${CATKIN_WORKSPACE}
@@ -16,7 +30,7 @@ ${CATKIN_SOURCE_ROOT}
   = ${CATKIN_WORKSPACE}/src
 ```
 
-## 3. Templates
+## 4. Templates
 
 | file | target |
 |---|---|
@@ -25,18 +39,21 @@ ${CATKIN_SOURCE_ROOT}
 | `templates/AGENTS.rtmros_msg_bridge.md` | `rtmros_msg_bridge/AGENTS.md`または対象package |
 | `templates/AGENTS.ik_solvers2.md` | `ik_solvers2/AGENTS.md`、変更が必要な場合 |
 | `templates/AGENTS.prioritized_qp.md` | `prioritized_qp/AGENTS.md`、変更が必要な場合 |
-| `templates/WBMSExternalTeleopProjectContext.template.md` | 各repositoryの`docs/WBMSExternalTeleopProjectContext.md` |
-| `templates/WBMSExternalTeleopWorkspaceManifest.template.yaml` | M0-Bで確定するworkspace manifest |
+| `templates/WBMSExternalTeleopProjectContext.template.md` | 各repositoryのProject Context |
+| `templates/WBMSExternalTeleopWorkspaceManifest.template.yaml` | workspace manifest |
 
-## 4. Common Skills
+実配置済みfileが古いworkflowを含む場合、R0 bootstrap remainderでtemplateと同期する。
+control sourceと同じcommitへ混ぜない。
 
-共通Skillの正本:
+## 5. Common Skills
+
+正本:
 
 ```text
 auto_stabilizer2/.agents/skills/
 ```
 
-M0-Bでは、各repository rootから認識できるよう`${HOME}/.agents/skills`へsymlinkする。
+M0-B5相当で`${HOME}/.agents/skills`へsymlinkし、各repository rootから認識させる。
 
 ```text
 wbms-plan-work-unit
@@ -45,53 +62,56 @@ wbms-review-work-unit
 wbms-close-work-unit
 ```
 
-同じSkillを各repositoryへcopyして別version化しない。
+各repositoryへcopyして別version化しない。
 
-## 5. Bootstrap script
+## 6. Risk-based bootstrap
 
-後続Work Unitで次を実装してよい。
+bootstrapは原則R0。
+
+- sub-unitごとのdetached reviewを要求しない。
+- 必要な構文/package discoveryを実行する。
+- 一つのimplementation実行がWRITEするrepositoryは一つ。
+- repository commitは分離する。
+- Parent Work Package末尾にfocused bootstrap reviewを一回行う。
+- 中央ProgressはM0 completion checkpointでまとめて更新する。
+
+## 7. Bootstrap script
+
+後続Work Packageで実装してよい。
 
 ```text
 bootstrap_codex_workspace.sh
 verify_codex_workspace.sh
 ```
 
-scriptの要件:
+要件:
 
 - `${CATKIN_WORKSPACE}`を引数で受ける。
-- `${CATKIN_SOURCE_ROOT}`を導出する。
-- 既存fileを無断で上書きしない。
-- templateとtargetのdiffを表示する。
-- Skill symlink先を表示する。
-- repository path、branch、HEAD、dirty stateを確認する。
-- 不一致を自動修正せず報告する。
+- `${CATKIN_SOURCE_ROOT}`を導出。
+- 既存fileを無断上書きしない。
+- template/target diffを表示。
+- Skill symlink先を表示。
+- repository path、branch、HEAD、dirty stateを確認。
+- 不一致を自動修正せず報告。
 - control sourceを変更しない。
 
-本planning Work Unitではscript自体を作成しない。
-
-## 6. Build
+## 8. Build
 
 workspace一括buildを標準にしない。
-
-通常:
 
 ```sh
 catkin build <package-name> --no-deps
 ```
 
-依存関係まで確認する場合だけ:
+dependency確認時だけ`--no-deps`を外す。
+execution directory、exact command、resultを記録する。
 
-```sh
-catkin build <package-name>
-```
+## 9. 配置前check
 
-`catkin build`の実行directoryは固定しない。exact commandとexecution directoryをProgressへ記録する。
-
-## 7. 配置前check
-
-- MultiRepositoryOperationsとRevision 2を読む。
-- M0-B Contractを承認する。
-- target repositoryの既存`AGENTS.md`を確認する。
-- userのlocal workspace fileを上書きしない。
-- central documentsのbranch/SHAをProject Contextへ固定する。
-- Codexにactive `AGENTS.md` chainとSkill一覧を列挙させる。
+- Parent Work Package / Work Briefを承認済み。
+- target repositoryの既存`AGENTS.md`を確認。
+- userのlocal fileを上書きしない。
+- one-write-repository rule。
+- Current Checkpointを確認。
+- source-root/各repositoryからSkill認識を確認。
+- simulation/実機を開始しない。

@@ -2,8 +2,6 @@
 
 この文書は`${CATKIN_SOURCE_ROOT}/AGENTS.md`として配置するtemplateである。
 
-## Workspace path
-
 ```text
 ${CATKIN_WORKSPACE}
   = catkin_ws/<workspace_name> の絶対パス
@@ -28,35 +26,46 @@ ${CATKIN_SOURCE_ROOT}/prioritized_qp
 
 中央正本は`auto_stabilizer2/auto_stabilizer/docs/`にある。
 
-次を優先して読む。
+優先:
 
 1. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`
-2. `WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`
-3. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`
-4. `WBMSExternalWholeBodyTeleoperationImplementationPlan.md`
-5. `WBMSExternalWholeBodyTeleoperationProgress.md`
+2. `WBMSExternalWholeBodyTeleoperationCodexWorkflowRevision1.md`
+3. `WBMSExternalWholeBodyTeleoperationCurrentCheckpoint.md`
+4. `WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`
+5. 制御仕様のImplementation Plan / Revision
+6. Parent Work Package / Contract
+7. 必要なProgress履歴
+
+workflowの旧gateと矛盾する場合、Workflow Revision 1を優先する。
 
 ## Cross-repository task
 
-- `${CATKIN_SOURCE_ROOT}`から行うtaskは原則read-onlyとする。
-- branch archaeology、Parent Contract、protocol review、compatible-set review、package build統合確認、simulation計画、log解析を扱う。
-- source修正が必要な場合は対象repositoryのsub-unitへ分離する。
-- 一つのimplementation taskがWRITEするrepositoryは原則一つとする。
-- source rootから複数repositoryを同時編集しない。
+- `${CATKIN_SOURCE_ROOT}`からのtaskは原則read-only。
+- Parent planning、branch archaeology、compatible-set review、build結果統合、simulation計画、log解析を扱う。
+- source修正は対象repositoryのsub-unitへ分離する。
+- 一つのimplementation実行がWRITEするrepositoryは一つ。
+- 子repositoryの`AGENTS.md`が自動適用されたと仮定せず明示的に読む。
 
-## Instruction読込
+## Risk-based workflow
 
-repositoryを調査する前に、次を明示的に読む。
+- `R0`: 文書、Progress、AGENTS、Skill、bootstrap、package skeleton。
+- `R1`: message、IDL、enum、bridge mapping、scaffolding。
+- `R2`: external generator、mapping、external IK。
+- `R3`: 500 Hz、COM/ZMP、walking preparation、final IK、安全。
 
-1. 対象repository rootの`AGENTS.md`。
-2. nearest package/module `AGENTS.md`。
-3. `docs/WBMSExternalTeleopProjectContext.md`、存在する場合。
+既定review:
 
-子repositoryの`AGENTS.md`が自動適用されたと仮定しない。
+- R0: SELF、Parent末尾にfocused review一回。
+- R1: compatible set完成時にcross-repository review一回。
+- R2: repository full review一回、修正後はtargeted review。
+- R3: safety full review、material修正後full fresh review。
+
+Progress-only変更へfull source reviewを要求しない。
+repository commitごとの中央Progress commitを既定にしない。
 
 ## Repository状態
 
-全対象repositoryで次を確認する。
+対象repositoryで確認する。
 
 ```sh
 git status --short
@@ -65,48 +74,46 @@ git rev-parse HEAD
 ```
 
 - user変更を無断でreset、stash、checkout、clean、削除しない。
-- branch、HEAD、dirty stateをWork Unit ContractとProgressへ記録する。
-- compatible setと異なる場合、勝手に切り替えず報告する。
+- compatible setと異なる場合、勝手に切り替えない。
+- exact predecessor SHAを次sub-unitへ渡す。
 
 ## Build
 
 workspace一括buildを標準にしない。
 
-通常:
-
 ```sh
 catkin build <package-name> --no-deps
 ```
 
-依存関係まで確認する場合だけ:
-
-```sh
-catkin build <package-name>
-```
-
-`catkin build`の実行directoryは固定しない。exact commandと実行directoryを記録する。
+dependency確認時だけ`--no-deps`を外す。
+execution directory、exact command、resultを記録する。
 
 `build`、`devel`、`install`、`logs`をsource変更として扱わない。
 
-## Reviewとcommit
+## Commit
 
-- cross-repository reviewはread-onlyで行う。
-- findingは対象repository sub-unitへ割り当てる。
-- commitは対象repository rootから行う。
-- 一度に一つのrepositoryだけstage/commitする。
-- 他repository commit後、依存する次sub-unit前に中央ProgressへSHAを同期する。
-- push、merge、PR作成は別の明示許可を必要とする。
+- 一回に一repositoryだけstage/commitする。
+- explicit pathだけstageする。
+- R0〜R2はParentのstanding authorizationを使用できる。
+- R3はcommitごとのexact人間承認。
+- push、merge、PR作成は別許可。
+
+## Progress
+
+- 現在地は`CurrentCheckpoint`で管理する。
+- 中央ProgressはParent完了、compatible set、simulation、milestone、引き継ぎ等のcheckpointで更新する。
+- micro-stepごとのProgress-only Work Unitを作らない。
 
 ## Simulationと実機
 
-- simulation起動、command送信、log取得はユーザーの明示許可を必要とする。
-- 実機実行は常に別の明示許可を必要とする。
-- simulation/実機未確認をPASS扱いしない。
+- simulation起動、command送信、log取得はユーザーの明示許可。
+- 実機は別の明示許可。
+- 未実施をPASS扱いしない。
 
 ## 禁止事項
 
-- cross-repository implementationを一つの巨大taskで行わない。
-- schema未確定でproducer、bridge、consumerを並行実装しない。
-- 同じsource fileを複数taskで同時編集しない。
-- source root内へ同一packageの複数worktreeを置かない。
-- workspace一括buildを暗黙の受入条件にしない。
+- source rootから複数repositoryを同時編集する。
+- schema未確定でproducer、bridge、consumerを並行実装する。
+- 同じsource fileを複数taskで編集する。
+- source root内へ同一packageの複数worktreeを置く。
+- R0/R1へR3 lifecycleを一律適用する。

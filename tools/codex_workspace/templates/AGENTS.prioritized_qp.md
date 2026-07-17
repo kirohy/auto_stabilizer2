@@ -4,116 +4,106 @@
 
 ## Repository role
 
-本repositoryはprioritized QP / solver backendを提供する。
-
-本プロジェクトでは`ik_solvers2`を介して、external whole-body IKおよび既存`auto_stabilizer`から利用される可能性がある。
+- prioritized QP backend。
+- task semantics、matrix、bounds、warm start、solver statusを提供する。
+- robot-specific teleoperation policyを入れない。
+- 既存consumerの数値挙動を暗黙に変更しない。
 
 ## 正式仕様
 
-`docs/WBMSExternalTeleopProjectContext.md`に記録された中央計画、Revision、Progress、Parent/Sub-unit Contractを読む。
-
-優先:
+Project Contextに固定された中央文書を読む。
 
 1. Implementation Plan Revision 2。
-2. MultiRepositoryOperations。
-3. Implementation Plan Revision 1。
-4. Implementation Plan。
-5. 中央Progress。
-6. QP backend変更sub-unit Contract。
+2. Codex Workflow Revision 1。
+3. Current Checkpoint。
+4. MultiRepositoryOperations。
+5. Parent Work Package / Contract。
+6. repository sub-unit Contract。
+
+workflowの旧gateと矛盾する場合、Workflow Revision 1を優先する。
 
 ## Repository境界
 
-- generic QP backendの責務を維持する。
-- robot-specific task、WBMS mode、walking preparation policyを入れない。
-- 既存task/priority semanticsを暗黙に変更しない。
-- matrix structure、bounds、objective、external variable、warm start、statusの意味を明示する。
-- external generator固有機能が必要な場合、既存consumerへ影響しない明示APIとして分離する。
+- Codexはrepository rootから起動。
+- 一つのimplementation実行がWRITEするrepositoryは本repositoryだけ。
+- sibling consumerは明示SHAをREAD。
+- consumer修正を同じtaskで行わない。
+- user変更を無断でreset、stash、checkout、cleanしない。
 
-## Work Unit
+## Risk
 
-- Codexは本repository rootから起動する。
-- 一つのimplementation taskがWRITEするrepositoryは本repositoryだけとする。
-- `ik_solvers2`、`auto_stabilizer2`、`whole_body_teleop`はContractでREADとされた範囲だけ参照する。
-- APIまたは数値semantics変更はParent Contractとdependent sub-unitを先に定義する。
+典型:
 
-## Solver compatibility
+- R0: 文書、Project Context。
+- R1: status/diagnostic API、非semantic scaffolding。
+- R2: matrix update、warm start、solver interface、performance。
+- R3: feasibility、constraint semantics、default tolerance等で実機安全へ影響する変更。
 
-変更時に確認する。
+Review:
 
-- public API。
-- matrix dimensionとsparsity structure。
-- objective/constraint sign convention。
-- lower/upper bound semantics。
-- shared external variable semantics。
-- warm start/cold retry。
-- factorization reuse。
-- structure revisionとnumeric revision。
-- solver tolerance、iteration、termination status。
-- infeasible/failed resultの扱い。
-- thread safety。
+- R0: SELF。
+- R1: compatible-set review。
+- R2: repository full review、benchmark、dependent build。
+- R3: safety full reviewとdependent simulation plan。
 
-既存consumerのdefault behaviorを変更する場合、明示的なversion/flag/APIを検討する。
+## Solver互換
 
-## Safetyとfailure
-
-- NaN/Inf、dimension mismatch、invalid boundを検出する。
-- lower > upperをsilentに通さない。
-- solver failure時に古い解を成功として返さない。
-- warm-start failureとcold retryを診断可能にする。
-- hard constraintをweight調整だけで暗黙にsoft化しない。
-- tolerance変更を安全改善として無根拠に扱わない。
+- priority、slack、hard/soft constraint semanticsを維持。
+- matrix/vector dimensionを検証。
+- bounds順序とtask mappingを維持。
+- warm start failureとcold retryを区別。
+- solver statusをsilentに成功へ変換しない。
+- default tolerance、iteration、rho等の変更は明示する。
+- matrix reuse/bounds-only updateはrevision/version管理を持つ。
+- API変更時は全consumerを列挙する。
 
 ## Performance
 
-- matrix update、factorization、solve、retryを分けて計測可能にする。
-- structure reuseを壊す変更を避ける。
-- 毎周期の不要なinitialize、allocation、copyを避ける。
-- problem size、nonzero数、iteration、mean/p99/maxを記録する。
-- benchmarkは既存consumerとexternal generatorの代表problemで行う。
+- allocation、factorization、matrix update、iterationを計測可能にする。
+- benchmark条件、problem size、solver optionを記録。
+- performance改善で安全constraintやfailure checkを削除しない。
+- first-order/dense等backend変更は別Work Package。
 
 ## Build
 
 workspace一括buildを標準にしない。
 
-通常:
-
 ```sh
-catkin build <prioritized_qp-package-name> --no-deps
+catkin build prioritized_qp_base --no-deps
+catkin build prioritized_qp_osqp --no-deps
 ```
 
-依存関係まで確認する場合だけ`--no-deps`を外す。
+dependent compatibilityが必要な場合だけ`--no-deps`を外すかconsumer buildを追加する。
+exact command、execution directory、resultを記録する。
 
-変更が`ik_solvers2`、`auto_stabilizer`、`whole_body_teleop_reference_generator`へ影響する場合、dependent package buildを別verification stepとして指定する。
+## Review・evidence
 
-exact commandと実行directoryを記録する。
+- API/header変更。
+- matrix/bounds mapping。
+- solver status/failure。
+- numerical tolerance。
+- thread safety。
+- allocation/performance。
+- dependent package behavior。
 
-## Review
+reviewed commit SHAまたはdiff hashを保存する。
+Progress/Markdown追記だけでsource reviewを無効化しない。
+非本質修正はTARGETED、material solver changeはfull review。
 
-重点:
+## Commitとcheckpoint
 
-- matrix/bounds/objective mapping。
-- structure cache invalidation。
-- warm-start/cold-retry path。
-- solver statusとfailure propagation。
-- toleranceとtermination。
-- external variable mapping。
-- performance regression。
-- existing consumer compatibility。
-- dependent compatible SHA。
+- R0〜R2はParent standing authorizationを使用可能。
+- 一回に本repositoryだけstage/commit。
+- explicit pathだけstage。
+- consumer変更を混ぜない。
+- commit SHAをcompatible setへ渡す。
+- 中央Progressはcompatible-set/checkpointで更新。
+- push、merge、PR、simulation、実機は別許可。
 
 ## Code style
 
-- 既存repository styleに合わせる。
-- `clang-format`を無断で全体適用しない。
-- コメントとMarkdownは日本語。
-- public APIと数値semanticsをdocumentする。
-- unrelated cleanupをsolver behavior変更へ混ぜない。
-
-## Progressとcommit
-
-- 実装taskとは別のread-only reviewを行う。
-- P0/P1/P2がなくなるまでfresh reviewする。
-- package build、benchmark、dependent build、compatible SHAを記録する。
-- commit後、依存するsub-unit前に中央ProgressへSHAを同期する。
-- commitはユーザーの明示許可時だけ。
-- push、merge、PR作成は別許可。
+- generic library責務。
+- 既存style。
+- `clang-format`を自動適用しない。
+- コメント/Markdownは日本語。
+- identifiersは英語。

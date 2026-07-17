@@ -1,12 +1,11 @@
 # WBMS外部Whole-Body操縦 Project Context
 
-## 1. 文書の目的
+## 1. 目的
 
-本書は、このrepositoryがWBMS外部whole-body操縦プロジェクトで担う責務と、中央計画・Progress・compatible setへの参照を記録する。
+このrepositoryの責務と、中央計画、workflow、Current Checkpoint、compatible setへの参照を記録する。
 
-正式計画全文を本repositoryへ複製しない。中央正本のrepository、branch、commit SHA、pathを固定して参照する。
-
----
+正式計画全文を複製しない。
+中央正本のrepository、branch、commit SHA、pathを固定して参照する。
 
 ## 2. Project identity
 
@@ -16,9 +15,7 @@ repository: <owner/repository>
 repository_role: <role>
 ```
 
----
-
-## 3. Workspace path
+## 3. Workspace
 
 ```text
 CATKIN_WORKSPACE: <absolute path to catkin_ws/<workspace_name>>
@@ -26,23 +23,21 @@ CATKIN_SOURCE_ROOT: <CATKIN_WORKSPACE>/src
 repository_path: <CATKIN_SOURCE_ROOT>/<repository>
 ```
 
-local absolute pathは環境固有である。Git管理する場合、placeholderまたは相対pathを使用し、実環境値はProgress/Work Unit Contractへ記録してよい。
-
----
+Git管理する場合、環境固有absolute pathはplaceholderまたは相対pathにしてよい。
 
 ## 4. Authoritative documents
 
 | type | repository | branch | commit SHA | path |
 |---|---|---|---|---|
 | Implementation Plan Revision 2 | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md` |
+| Codex Workflow Revision 1 | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflowRevision1.md` |
+| Current Checkpoint | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCurrentCheckpoint.md` |
 | Multi-repository operations | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md` |
-| Implementation Plan Revision 1 | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md` |
-| Implementation Plan | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md` |
+| Control Implementation Plan | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md` |
 | Central Progress | `kirohy/auto_stabilizer2` | `<branch>` | `<sha>` | `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md` |
 
-参照SHAを変更する場合、理由とcompatible setを記録する。
-
----
+workflow gateが矛盾する場合、Codex Workflow Revision 1を優先する。
+control behaviorはImplementation Plan/Revisionを優先する。
 
 ## 5. Repository responsibility
 
@@ -58,11 +53,9 @@ local absolute pathは環境固有である。Git管理する場合、placeholde
 
 - <invariant>
 
----
-
 ## 6. Related repositories
 
-| repository | path | role | access for current Work Unit |
+| repository | path | role | access |
 |---|---|---|---|
 | `auto_stabilizer2` | `${CATKIN_SOURCE_ROOT}/auto_stabilizer2` | realtime consumer / central docs | READ / WRITE / NONE |
 | `whole_body_teleop` | `${CATKIN_SOURCE_ROOT}/whole_body_teleop` | ROS reference generator | READ / WRITE / NONE |
@@ -70,18 +63,17 @@ local absolute pathは環境固有である。Git管理する場合、placeholde
 | `ik_solvers2` | `${CATKIN_SOURCE_ROOT}/ik_solvers2` | IK library | READ / WRITE / NONE |
 | `prioritized_qp` | `${CATKIN_SOURCE_ROOT}/prioritized_qp` | QP backend | READ / WRITE / NONE |
 
----
-
-## 7. Current Work Unit
+## 7. Current Work Package
 
 ```text
-parent_work_unit: <ID>
-repository_sub_unit: <ID>
-contract_path: <path>
+parent_work_package: <ID>
+repository_sub_unit: <ID or N/A>
+risk_level: R0 / R1 / R2 / R3
+contract_or_brief_path: <path>
 schema_version: <version or N/A>
+review_policy: <SELF / TARGETED / REPOSITORY_FULL / COMPATIBLE_SET / SAFETY_FULL>
+commit_authorization: none / exact / standing
 ```
-
----
 
 ## 8. Compatible dependency set
 
@@ -97,47 +89,55 @@ repositories:
 
 未変更repositoryも使用中SHAを記録する。
 
----
-
 ## 9. Build
 
 workspace一括buildを標準にしない。
 
-| package | normal command | dependency check command | force-cmake condition |
+| package | normal command | dependency check | force-cmake condition |
 |---|---|---|---|
 | `<package>` | `catkin build <package> --no-deps` | `catkin build <package>` | `<condition>` |
 
-`catkin build`の実行directoryは固定しない。Work Unit reportと中央Progressへexact commandとexecution directoryを記録する。
+execution directory、exact command、resultをverification evidenceへ記録する。
 
----
+## 10. Review
 
-## 10. Review focus
+- repository-specific review focus。
+- riskに応じたreview type。
+- reviewed commit SHAまたはdiff hash。
+- material changeの場合だけfull fresh review。
+- Progress/Markdownだけの追記はsource reviewを無効化しない。
 
-- <repository-specific review item>
-
----
-
-## 11. Central Progress sync
+## 11. Checkpoint / Progress
 
 ```text
-required_after_commit: true / false
-sync_sub_unit: <ID or N/A>
-last_synced_repository_commit: <sha or NONE>
-last_central_progress_commit: <sha or NONE>
+current_checkpoint_required: true / false
+central_progress_checkpoint: Parent completion / compatible set / simulation / milestone / handoff / N/A
+last_recorded_repository_commit: <sha or NONE>
+last_central_progress_checkpoint_commit: <sha or NONE>
 ```
 
-他repositoryのcommit後は、依存する次sub-unit前に中央ProgressへSHAを同期する。
+repository commitごとの中央Progress syncを既定にしない。
+exact SHAはParent working stateと次sub-unitへ渡し、
+integration、simulation、milestone、引き継ぎ前に中央Progressへ記録する。
 
----
+## 12. Stop conditions
 
-## 12. Open issues
+- Parent scope外。
+- riskがR3へ上昇。
+- schema/safety invariant変更。
+- sibling WRITEが必要。
+- user変更との衝突。
+- destructive Git操作。
+- simulation/hardware。
+
+## 13. Open issues
 
 - <issue>
 
----
+## 14. Next entry point
 
-## 13. Next entry point
-
-- first file/function to read
-- next Work Unit
+- next Work Package / sub-unit
+- launch directory
+- first files/functions
+- required review/build
 - warnings

@@ -1,4 +1,5 @@
 project_id: WBMS_EXTERNAL_WHOLE_BODY_TELEOP
+workflow_version: WORKFLOW-R1
 
 # ${CATKIN_WORKSPACE} is the absolute path of catkin_ws/<workspace_name>.
 # ${CATKIN_SOURCE_ROOT} is ${CATKIN_WORKSPACE}/src.
@@ -8,14 +9,25 @@ workspace:
 
 central_documents:
   repository: kirohy/auto_stabilizer2
-  branch: <planning-or-implementation-branch>
+  branch: <implementation-branch>
   commit: <sha>
   paths:
     implementation_plan_revision_2: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md
+    codex_workflow_revision_1: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflowRevision1.md
+    current_checkpoint: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCurrentCheckpoint.md
+    operator_guide_revision_2: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOperatorGuideRevision2.md
     multi_repository_operations: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md
     implementation_plan_revision_1: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md
     implementation_plan: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md
     progress: auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md
+
+workflow:
+  one_write_repository: true
+  risk_levels: [R0, R1, R2, R3]
+  progress_policy: checkpoint
+  repository_commit_requires_immediate_progress_commit: false
+  simulation_requires_human_approval: true
+  hardware_requires_separate_human_approval: true
 
 repositories:
   auto_stabilizer2:
@@ -23,16 +35,18 @@ repositories:
     remote: kirohy/auto_stabilizer2
     role: realtime_consumer_and_central_docs
     required: true
-    observed_planning_branch: wbms-external-teleop-plan
+    implementation_branch: wbms-external-teleop
     m0_baseline_ref: historical-wbms-dev-ancestor
     m0_baseline_sha: c06b63c8e12dbf85bda4c8391a37544c2469731c
 
   whole_body_teleop:
     path: "${CATKIN_SOURCE_ROOT}/whole_body_teleop"
-    remote: kirohy/whole_body_teleop
+    remote: <owner>/whole_body_teleop
     role: ros_reference_generator
     required: true
-    m0_status: not_applicable_repository_not_created
+    implementation_branch: wbms-external-teleop
+    bootstrap_commit: fd464f574eb26afc25b4e88e67e12b2296d0e420
+    m0_baseline_dependency: false
 
   rtmros_msg_bridge:
     path: "${CATKIN_SOURCE_ROOT}/rtmros_msg_bridge"
@@ -93,6 +107,23 @@ package_builds:
     normal: catkin build whole_body_teleop_rtmros_bridge --no-deps
     dependency_check: catkin build whole_body_teleop_rtmros_bridge
 
+current_parent_work_package:
+  id: M0-REMAINDER
+  risk:
+    bootstrap_remainder: R0
+    baseline_verification: R1
+  completed:
+    - M0-A
+    - M0-B1
+    - M0-B2
+    - M0-B3
+  next:
+    - M0-B4
+    - M0-B5
+    - M0-B6
+    - M0-B7
+    - M0-B8
+
 compatible_sets:
   M0-pre-M5-baseline:
     status: selected
@@ -120,4 +151,4 @@ compatible_sets:
       whole_body_teleop:
         ref: null
         sha: null
-        status: not_applicable_repository_not_created
+        status: not_m0_baseline_dependency

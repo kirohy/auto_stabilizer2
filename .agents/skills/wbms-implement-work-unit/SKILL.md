@@ -1,83 +1,52 @@
 ---
 name: wbms-implement-work-unit
-description: 承認済みContractに基づき、WBMS外部whole-body操縦プロジェクトのrepository sub-unitを1つだけ実装する。原則一つのWRITE repositoryに限定し、scope内のsource変更、指定package build/check、自己点検、実装報告までを行う。計画、独立review、複数repository同時変更、Progressだけの完了処理、commit、push、merge、PR作成、別途許可のないsimulation・実機実行には使用しない。
+description: 承認済みWBMS Parent Work Packageまたはrepository sub-unitをrisk-based workflowで実装する。一度に一つのWRITE repositoryだけを扱い、R0〜R2ではstanding authorizationに基づく連続実行とlocal commitを許可し、R3では厳格なreview・人間gateを維持する。計画、独立review、push、merge、PR作成、無許可simulation・実機実行には使用しない。
 ---
 
-# WBMS Work Unit実装
+# WBMS Work Package実装
 
 ## 目的
 
-承認済みのWork Unit Contractを、一つの主要責務、一つのWRITE repositoryに限定して実装する。
+承認済みParent Work Packageまたはrepository sub-unitを実装する。
+一つのimplementation実行がWRITEするrepositoryは一つだけとする。
 
-このSkillは実装、指定されたpackage build/check、自己点検までを担当する。commit、push、merge、PR作成は行わない。
+最初に読む。
 
-## Workspace path
+1. nearest `AGENTS.md` chain。
+2. `WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`。
+3. `WBMSExternalWholeBodyTeleoperationCodexWorkflowRevision1.md`。
+4. `WBMSExternalWholeBodyTeleoperationCurrentCheckpoint.md`。
+5. `WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`。
+6. Parent Work Package / sub-unit Contract。
+7. 必要な制御仕様。
+8. 必要なProgress履歴entry。
 
-```text
-${CATKIN_WORKSPACE}
-  = catkin_ws/<workspace_name> の絶対パス
+## 開始条件
 
-${CATKIN_SOURCE_ROOT}
-  = ${CATKIN_WORKSPACE}/src
-```
+必須:
 
-`catkin_ws/src`を固定layoutとして仮定しない。
+- Work Package / sub-unit ID。
+- risk level。
+- target repository、branch、base/current SHA。
+- WRITE repositoryが一つ。
+- READ sibling repositoryとSHA。
+- allowed paths。
+- verification command。
+- review policy。
+- Progress checkpoint policy。
+- commit authorization。
+- stop conditions。
 
-## 起動directoryとwrite範囲
+以下の場合はsourceを変更せず停止する。
 
-- Codexは対象repository rootから起動する。
-- Contractの`WRITE` repositoryは原則一つだけとする。
-- sibling repositoryはContractで`READ`と明記された範囲だけ参照する。
-- `${CATKIN_SOURCE_ROOT}`から複数repositoryを同時編集しない。
-- 他repositoryの変更が必要になった場合、現在の実装を停止し、Parent Contractまたは別sub-unitへ戻す。
+- Contract/Work Briefがない。
+- branch/base SHAが一致しない。
+- userの既存変更とscopeが衝突する。
+- WRITE repositoryが複数。
+- riskが未定義。
+- safety仕様を推測する必要がある。
 
-## 必須入力
-
-実装開始前に次を特定する。
-
-- Work Unit IDとtitle。
-- Parent Work Unit ID。
-- `${CATKIN_WORKSPACE}`、`${CATKIN_SOURCE_ROOT}`。
-- Codex launch directory。
-- 対象WRITE repository、branch、base SHA、現在HEAD。
-- READ-only sibling repository一覧とSHA。
-- 承認済みWork Unit Contract。
-- 正式Implementation Plan Revision 2、MultiRepositoryOperations、Revision 1、元計画。
-- 最新中央Progress entry。
-- repository Project Context、存在する場合。
-- 実行すべきpackage verification command。
-- 変更を許可されたfile。
-
-Contractがない、launch directoryが対象repository rootでない、WRITE repositoryが複数、branch/base SHAが一致しない、scopeが曖昧、または実装を左右する未決定事項がある場合はsourceを変更しない。
-
-## 読む順序
-
-`auto_stabilizer/`以下では次を順に読む。
-
-1. repository rootの`AGENTS.md`。
-2. `auto_stabilizer/AGENTS.md`。
-3. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision2.md`。
-4. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationMultiRepositoryOperations.md`。
-5. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlanRevision1.md`。
-6. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationImplementationPlan.md`。
-7. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationProgress.md`。
-8. 対象Work Unit Contract。
-9. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexWorkflow.md`。
-10. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOperatorGuide.md`。
-11. `auto_stabilizer/docs/WBMSExternalWholeBodyTeleoperationCodexOfficialGuidance.md`。
-12. 必要な既存正式文書。
-
-他repositoryでは次を読む。
-
-1. 対象repository rootの`AGENTS.md`。
-2. nearest package/module `AGENTS.md`。
-3. `docs/WBMSExternalTeleopProjectContext.md`、存在する場合。
-4. 中央のRevision 2、MultiRepositoryOperations、Revision 1、元計画、Progress。
-5. Parent Contractと対象sub-unit Contract。
-
-## Repository状態確認
-
-WRITE repositoryと必要なREAD repositoryで次を確認して記録する。
+## Repository状態
 
 ```sh
 git status --short
@@ -85,95 +54,137 @@ git branch --show-current
 git rev-parse HEAD
 ```
 
-- userの未commit変更を消さない。
-- 無断で`reset`、`stash`、`checkout`、`clean`、削除を行わない。
-- Contractのbase SHAと異なる場合は、その差分が意図されたものか確認するまで停止する。
-- READ repositoryを変更しない。
-- dependency branchとSHAを記録する。
+- user変更を無断でreset、stash、checkout、clean、削除しない。
+- sibling repositoryを変更しない。
+- destructive Git操作が必要なら停止する。
 
-## 実装前調査
+## Risk別実装
 
-変更対象classまたはmoduleについて、関数単体ではなく少なくとも以下を読む。
+### R0
 
-- class定義と初期化。
-- 呼び出し元。
-- 呼び出し先。
-- 入出力port、message、IDL、parameter。
-- mode遷移とfailure path。
-- 対応するdiagnostics。
-- Parent Contractで固定されたproducer/consumer mapping。
-- Project Contextとcompatible input set。
+対象例:
 
-計画書またはContractと現行コードが異なる場合、推測で実装せず差異を報告する。Contractを変更する必要がある場合はplanへ戻る。
+- 文書、Current Checkpoint、AGENTS、Skill。
+- bootstrap、Project Context、manifest。
+- package skeleton。
+- build/runbook記録。
 
-## 実装ルール
+実行:
 
-- Contract外の機能変更を行わない。
-- WRITE repository以外を変更しない。
-- 一つのWork Unitに一つの主要責務だけを含める。
-- diagnostic変更、control behavior変更、cleanupを不用意に混ぜない。
-- `clang-format`を実行しない。
-- 既存styleに合わせる。
-- コメントとMarkdownは日本語で記述する。
-- magic numberを避け、parameterまたは名前付き定数にする。
-- 不明な安全仕様を推測しない。
-- 実行していない検証をPASS扱いしない。
-- schema未確定のproducer、bridge、consumerを同時実装しない。
+- allowed pathだけ変更。
+- 必要な構文確認。
+- package skeletonならpackage discovery。
+- `git diff --check`。
+- SELF review。
 
-## 500 Hz経路の禁止事項
+Parentにstanding authorizationがある場合、必要check後にatomic local commitまで進めてよい。
+R0 sub-unitごとのdetached reviewと中央Progress syncを要求しない。
 
-`auto_stabilizer::onExecute()`およびその同期呼び出し経路へ、次を追加しない。
+### R1
+
+対象例:
+
+- ROS message、RTM IDL。
+- enum、task mask、schema。
+- bridge mapping、scaffolding。
+
+実行:
+
+- Parent protocol contractに従う。
+- package build。
+- mapping SELF review。
+- repository commitを作成してよいのはstanding/exact authorizationがある場合だけ。
+- compatible set完成時にCOMPATIBLE_SET reviewへ進む。
+
+各repository sub-unitで同じfull reviewを反復しない。
+
+### R2
+
+対象例:
+
+- external generator。
+- hand/HMD mapping。
+- external IK。
+- 非RT state machine。
+
+実行:
+
+- package build。
+- failure、stale、frame、hidden goalを自己点検。
+- REPOSITORY_FULL review前で一度停止する。
+- review後の非本質修正はTARGETED follow-up。
+- material変更ならfull fresh review。
+
+commitはreview policyを満たし、standing/exact authorizationがある場合だけ行う。
+
+### R3
+
+対象例:
+
+- 500 Hz `auto_stabilizer`。
+- COM/ZMP、walking preparation、final IK。
+- safety constraint、stale最終出力。
+- non-IK joint override、projection削除。
+
+実行:
+
+- full Contractを厳守。
+- package build。
+- SAFETY_FULL review前に停止。
+- P0/P1/P2を解消。
+- material修正後にfull fresh review。
+- simulation gateで停止。
+- commitごとのexact人間承認を要求する。
+
+R3はstanding authorizationでcommitしない。
+
+## 500 Hz禁止事項
+
+`auto_stabilizer::onExecute()`と同期呼出し経路へ追加しない。
 
 - ROS callback。
 - network I/O。
 - blocking I/O。
 - 外部process待ち。
 - condition variable待ち。
-- 無制限のmutex待ち。
+- 無制限mutex待ち。
 - 毎周期thread生成。
 - 無制限queue。
-- 不要なrobot clone。
-- 毎周期の全探索。
-- 反復回数の無制限増加。
+- 不要clone、全探索。
+- 無制限反復。
 - 不要な動的確保。
-
-external generatorまたはbridge停止時にも500 Hz経路を待たせない。
 
 ## 安全不変条件
 
-該当するWork Unitでは次を明示的に保持する。
+該当する場合は保持する。
 
-- joint position / velocity limit。
+- joint position/velocity limit。
 - self collision。
 - 足拘束、接触、歩行安定化。
-- COM、ZMP、`genCog`、`sbpOffset`、`refdz`、`omega`、`l`の整合。
-- M4.2.2 walking preparation、READY、歩行API gate、COM高さ保持。
-- static両足支持時だけのoperator CHEST/COM。
-- walking preparation・歩行中のCHEST/COM無効化、腕・頭部継続。
-- stale、invalid、solver failure時のcurrent accepted/generated state hold。
-- hidden goalを作らない。
+- COM、ZMP、`genCog`、`sbpOffset`、`refdz`、`omega`、`l`。
+- walking preparation、READY、walking API gate、COM高さ保持。
+- static両足支持だけoperator CHEST/COM。
+- walking preparation/歩行中のCHEST/COM無効、腕/頭継続。
+- stale/invalid/failure時のhold。
+- hidden goalなし。
 - `q_nominal`をhardwareへ直接出力しない。
 
 ## Interface変更
 
-message、IDL、bridge、producer、consumerのいずれかを変更する場合は、Parent Contractとsub-unit Contractのmapping表に従う。
+Parent Contractで固定された次を照合する。
 
-必ず確認する。
-
-- field名と型。
-- 単位。
-- frame。
+- field/type。
+- unit/frame。
 - quaternion順序。
-- task mask bit。
-- enum値。
+- task mask/enum。
 - schema version。
-- timestamp、session、epoch、sequence。
-- unknown/duplicate joint名。
-- producerとconsumerのcompatible SHA。
+- timestamp/session/epoch/sequence。
+- joint name mapping。
+- producer/consumer SHA。
 
-schemaの変更が必要になった場合、現在sub-unitで暗黙変更せずParent planへ戻る。
+意味変更が必要なら現在sub-unitで暗黙変更せずParent planへ戻る。
 
-## Package build
+## Build
 
 workspace一括buildを標準にしない。
 
@@ -183,25 +194,31 @@ workspace一括buildを標準にしない。
 catkin build <package-name> --no-deps
 ```
 
-依存関係まで確認する場合だけ:
+dependency確認時だけ:
 
 ```sh
 catkin build <package-name>
 ```
 
-IDL変更後の`auto_stabilizer`初回build:
+IDL変更後の`auto_stabilizer`初回:
 
 ```sh
 catkin build auto_stabilizer --no-deps --force-cmake
 ```
 
-`catkin build`の実行directoryは固定しない。実行したdirectoryを結果に記録する。
+execution directory、exact command、resultを記録する。
 
-build failureが別repository修正を必要とする場合、READ repositoryをその場で変更せず、対象repositoryのfix sub-unitを提案する。
+## Verification evidence
 
-## 実装後の最低限check
+実装後に対象を識別する。
 
-WRITE repositoryで次を実行する。
+commit前の候補:
+
+```sh
+git diff --binary --no-ext-diff | sha256sum
+```
+
+最低限:
 
 ```sh
 git diff --check
@@ -210,62 +227,95 @@ git diff --stat
 git diff -- <changed files>
 ```
 
-Contractで指定されたpackage build/checkも実行する。
+記録する。
 
-commandが失敗した場合、errorを隠さず記録する。simulation、実機確認が実行できない場合は`UNVERIFIED`とする。
+- source diff hashまたはcommit SHA。
+- build command/result。
+- review type/result。
+- affected files/packages。
 
-## 自己点検
+ProgressやMarkdownだけが後から変わってもsource evidenceを無効化しない。
 
-完了前に最新diff全体を読み直し、次を確認する。
+## Commit
 
-- WRITE repository以外の変更がない。
-- Contract外の差分がない。
-- failure、stale、mode transitionが実装されている。
-- source selectorがlast-writer-winsになっていない。
-- finite checkとreject reasonがある。
-- diagnosticsがfailureを切り分けられる。
-- 既存legacy経路に意図しない回帰がない。
-- generated artifact、log、cache、core dumpが含まれていない。
-- compatible input SHAが変化していない。
+### Authorization
+
+- `none`: commitしない。
+- `exact`: 指定された一commitだけ。
+- `standing`: Parent scope内のR0〜R2 local commitを順次作成可能。
+
+commit前:
+
+```sh
+git branch --show-current
+git status --short
+git diff --cached --check
+git diff --cached --stat
+git diff --cached --name-only
+```
+
+- explicit pathだけstageする。
+- `git add -A`を既定にしない。
+- sibling repositoryをcommitしない。
+- push、merge、PR作成を行わない。
+
+standing authorization中でもstop conditionが発生したらcommitせず停止する。
+
+## Parent内の連続実行
+
+以下を満たす場合、commit後に次eligible sub-unitへ進んでよい。
+
+- 同じ承認済みParent Work Package内。
+- dependencyを満たす。
+- exact predecessor SHAを次sub-unitへ渡す。
+- next sub-unitのWRITE repositoryが一つ。
+- risk/review policyに違反しない。
+- Current Checkpoint/Parent working stateを更新できる。
+- stop conditionなし。
+
+micro-stepごとの中央Progress commitは不要。
+integration、simulation、milestone、引き継ぎ前にcheckpointを作る。
+
+## Stop conditions
+
+- Parent scope外。
+- riskがR3へ上昇。
+- schema/safety invariant変更。
+- sibling WRITEが必要。
+- user変更と衝突。
+- destructive Git操作。
+- build failureの修正先が別repository。
+- simulation/hardware。
+- compatible SHA不明。
+- Contractと現行コードの重大な矛盾。
 
 ## 必須出力
 
 ```markdown
-# Work Unit <ID> implementation result
+# Work Package implementation result
 
-## Result
-
-## Workspace context
-- catkin workspace root
-- source root
-- Codex launch directory
-
-## Repository access
-| repository | branch | base SHA | current SHA | access | dirty |
+## Workflow state
+- risk level:
+- Parent Work Package:
+- completed sub-units:
+- repository commit SHAs:
+- verification evidence:
+- pending review/build:
+- blockers:
 
 ## Changes
-| file | change | reason |
-
-## Important decisions
-
 ## Commands and results
-| execution directory | command | result | evidence |
-
-## Acceptance status
-| criterion | result | evidence |
-
+## Acceptance
 ## Unverified
-
-## Review focus
-
 ## Contract deviations
-
-## Compatible dependency set
-| repository | SHA |
-
-## Central Progress sync
-- required / not required
-- pending information
+## Current Checkpoint update
+## Next mandatory action
+- next Work Package / sub-unit:
+- launch directory:
+- WRITE/READ repositories:
+- Skill/review type:
+- human gate:
+- copy-paste prompt:
 ```
 
-このSkill使用中はcommit、push、merge、PR作成を行わない。
+push、merge、PR作成、無許可simulation・実機実行は行わない。
